@@ -11,6 +11,14 @@ from .auth import runtime_access_token
 from .config import Game, Paths
 
 
+KNOWN_LAUNCHES = {
+    # The package manifest points at WKND.exe, a flat bootstrapper which exits
+    # before initializing VR under Proton. Launch the shipping Unreal binary
+    # directly, matching the current Rift release layout.
+    "2031736060288351": ("WKND/Binaries/Win64/WKND-Win64-Shipping.exe", ["-vr"]),
+}
+
+
 def slugify(value: str) -> str:
     value = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return value or "meta-rift-game"
@@ -51,10 +59,14 @@ def add(
     print(f"Downloading {build.app_name} {build.version}...")
     manifest = fetch_manifest(token, build)
     Downloader(token, build, directory, paths.cache / "segments", jobs).run(manifest)
-    launch_file = _best_executable(directory, manifest, executable)
+    known = KNOWN_LAUNCHES.get(app_id) if executable is None else None
+    launch_file = _best_executable(directory, manifest, known[0] if known else executable)
     launch_arguments = shlex.split(arguments) if arguments is not None else []
-    if arguments is None and manifest.get("launchParameters"):
-        launch_arguments = shlex.split(str(manifest["launchParameters"]), posix=False)
+    if arguments is None:
+        if known:
+            launch_arguments = known[1]
+        elif manifest.get("launchParameters"):
+            launch_arguments = shlex.split(str(manifest["launchParameters"]), posix=False)
     game = Game(
         slug=slug,
         name=build.app_name,
@@ -64,7 +76,7 @@ def add(
         executable=launch_file,
         arguments=launch_arguments,
         version=build.version,
-        platform_offline="vader-immortal" in str(manifest.get("canonicalName", "")),
+        platform_offline=app_id == "2031736060288351",
     )
     game.save(paths)
     return game

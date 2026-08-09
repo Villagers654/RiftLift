@@ -346,25 +346,25 @@ def install_meta_runtime(paths: Paths) -> Path:
             r"HKLM\Software\Oculus VR, LLC\Oculus",
             r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus",
         ):
-            proton(paths, "run", "reg.exe", "add", key, "/v", "Base", "/t", "REG_SZ", "/d", base, "/f")
-            proton(paths, "run", "reg.exe", "add", key, "/v", "UseSystemProxy", "/t", "REG_DWORD", "/d", "0", "/f")
+            proton(paths, "runinprefix", "reg.exe", "add", key, "/v", "Base", "/t", "REG_SZ", "/d", base, "/f")
+            proton(paths, "runinprefix", "reg.exe", "add", key, "/v", "UseSystemProxy", "/t", "REG_DWORD", "/d", "0", "/f")
         for key in (
             r"HKLM\Software\Oculus VR, LLC\Oculus",
             r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus",
         ):
-            proton(paths, "run", "reg.exe", "add", key, "/v", "Gestalt", "/t", "REG_DWORD", "/d", "1", "/f")
+            proton(paths, "runinprefix", "reg.exe", "add", key, "/v", "Gestalt", "/t", "REG_DWORD", "/d", "1", "/f")
         for key in (
             r"HKCU\Software\Oculus VR, LLC\Oculus\Config",
             r"HKLM\Software\Oculus VR, LLC\Oculus\Config",
             r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus\Config",
         ):
-            proton(paths, "run", "reg.exe", "add", key, "/v", "UseSystemProxy", "/t", "REG_DWORD", "/d", "0", "/f")
+            proton(paths, "runinprefix", "reg.exe", "add", key, "/v", "UseSystemProxy", "/t", "REG_DWORD", "/d", "0", "/f")
         wow_config = r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus\Config"
         for name, value in (("CldrLocaleCode", "en"), ("FbtLocaleCode", "en_US"), ("LanguageTag", "en-US")):
-            proton(paths, "run", "reg.exe", "add", wow_config, "/v", name, "/t", "REG_SZ", "/d", value, "/f")
-        proton(paths, "run", "reg.exe", "add", wow_config, "/v", "HomeDemoMode", "/t", "REG_DWORD", "/d", "0", "/f")
+            proton(paths, "runinprefix", "reg.exe", "add", wow_config, "/v", name, "/t", "REG_SZ", "/d", value, "/f")
+        proton(paths, "runinprefix", "reg.exe", "add", wow_config, "/v", "HomeDemoMode", "/t", "REG_DWORD", "/d", "0", "/f")
         protocol = r'"C:\Program Files\Oculus\Support\oculus-client\Client.exe" -- --url "%1"'
-        proton(paths, "run", "reg.exe", "add", r"HKCU\Software\Classes\oculus\shell\open\command", "/ve", "/t", "REG_SZ", "/d", protocol, "/f")
+        proton(paths, "runinprefix", "reg.exe", "add", r"HKCU\Software\Classes\oculus\shell\open\command", "/ve", "/t", "REG_SZ", "/d", protocol, "/f")
         service = r"HKLM\System\CurrentControlSet\Services\OVRService"
         values = (
             ("DisplayName", "REG_SZ", "Oculus VR Runtime Service"),
@@ -376,7 +376,7 @@ def install_meta_runtime(paths: Paths) -> Path:
             ("ErrorControl", "REG_DWORD", "1"),
         )
         for name, kind, value in values:
-            proton(paths, "run", "reg.exe", "add", service, "/v", name, "/t", kind, "/d", value, "/f")
+            proton(paths, "runinprefix", "reg.exe", "add", service, "/v", name, "/t", kind, "/d", value, "/f")
         registration.write_text("1\n")
     return support
 
