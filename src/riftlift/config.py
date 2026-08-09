@@ -47,6 +47,7 @@ class Game:
     arguments: list[str]
     version: str = ""
     platform_shim: bool = True
+    platform_offline: bool = False
 
     @property
     def game_dir(self) -> Path:
@@ -83,4 +84,3 @@ def games(paths: Paths) -> list[Game]:
         except (OSError, TypeError, ValueError, json.JSONDecodeError):
             continue
     return result
-

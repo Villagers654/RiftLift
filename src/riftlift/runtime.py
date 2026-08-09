@@ -209,7 +209,7 @@ def active_runtime_json() -> Path:
     raise RiftLiftError("no active Linux OpenXR runtime was found; install/start Monado and retry")
 
 
-def launch_environment(paths: Paths, game_dir: Path, platform_shim: bool) -> dict[str, str]:
+def launch_environment(paths: Paths, game_dir: Path, platform_shim: bool, platform_offline: bool = False) -> dict[str, str]:
     environment = proton_environment(paths, game_dir)
     runtime = active_runtime_json()
     environment.update(
@@ -226,4 +226,6 @@ def launch_environment(paths: Paths, game_dir: Path, platform_shim: bool) -> dic
         compatibility_win = linux_to_windows(compatibility)
         environment["LIBOVR_DLL_DIR"] = compatibility_win
         environment["WINEPATH"] = f"{compatibility_win};{linux_to_windows(runtime_dir)}"
+        if platform_offline:
+            environment["RIFTLIFT_PLATFORM_OFFLINE"] = "1"
     return environment

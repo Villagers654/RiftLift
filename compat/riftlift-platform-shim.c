@@ -36,6 +36,12 @@ static unsigned queue_tail;
 static volatile LONG64 next_request = 1000;
 static volatile LONG empty_poll_count;
 
+static bool offline_compat(void)
+{
+    const char *value = getenv("RIFTLIFT_PLATFORM_OFFLINE");
+    return value && *value && strcmp(value, "0") != 0;
+}
+
 static uint64_t configured_user_id(void)
 {
     const char *value = getenv("RIFTLIFT_USER_ID");
@@ -137,18 +143,33 @@ __declspec(dllexport) uint64_t __cdecl ovr_Entitlement_GetIsViewerEntitled(void)
 
 __declspec(dllexport) uint64_t __cdecl ovr_Achievements_GetAllDefinitions(void)
 {
+    typedef uint64_t(__cdecl *function_type)(void);
+    if (!offline_compat()) {
+        union { FARPROC source; function_type target; } convert = {real_proc("ovr_Achievements_GetAllDefinitions")};
+        return convert.target ? convert.target() : 0;
+    }
     log_call("achievements definitions request: empty success queued");
     return enqueue(MSG_ACHIEVEMENT_DEFINITIONS);
 }
 
 __declspec(dllexport) uint64_t __cdecl ovr_Achievements_GetAllProgress(void)
 {
+    typedef uint64_t(__cdecl *function_type)(void);
+    if (!offline_compat()) {
+        union { FARPROC source; function_type target; } convert = {real_proc("ovr_Achievements_GetAllProgress")};
+        return convert.target ? convert.target() : 0;
+    }
     log_call("achievements progress request: empty success queued");
     return enqueue(MSG_ACHIEVEMENT_PROGRESS);
 }
 
 __declspec(dllexport) uint64_t __cdecl ovr_CloudStorage_LoadBucketMetadata(const char *bucket)
 {
+    typedef uint64_t(__cdecl *function_type)(const char *);
+    if (!offline_compat()) {
+        union { FARPROC source; function_type target; } convert = {real_proc("ovr_CloudStorage_LoadBucketMetadata")};
+        return convert.target ? convert.target(bucket) : 0;
+    }
     (void)bucket;
     log_call("cloud bucket metadata request: empty success queued");
     return enqueue(MSG_CLOUD_BUCKET_METADATA);
@@ -168,6 +189,11 @@ __declspec(dllexport) uint64_t __cdecl ovr_CloudStorage_Load(const char *bucket,
 
 __declspec(dllexport) uint64_t __cdecl ovr_User_GetLoggedInUserFriends(void)
 {
+    typedef uint64_t(__cdecl *function_type)(void);
+    if (!offline_compat()) {
+        union { FARPROC source; function_type target; } convert = {real_proc("ovr_User_GetLoggedInUserFriends")};
+        return convert.target ? convert.target() : 0;
+    }
     log_call("friends request: empty success queued");
     return enqueue(MSG_LOGGED_IN_USER_FRIENDS);
 }
@@ -180,70 +206,110 @@ __declspec(dllexport) uint64_t __cdecl ovr_User_GetLoggedInUserFriends(void)
  */
 __declspec(dllexport) void *__cdecl ovr_Message_GetAchievementDefinitionArray(const void *object)
 {
-    return (void *)object;
+    typedef void *(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return (void *)object;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_Message_GetAchievementDefinitionArray")};
+    return convert.target ? convert.target(object) : NULL;
 }
 
 __declspec(dllexport) size_t __cdecl ovr_AchievementDefinitionArray_GetSize(const void *object)
 {
-    (void)object;
-    return 0;
+    typedef size_t(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return 0;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_AchievementDefinitionArray_GetSize")};
+    return convert.target ? convert.target(object) : 0;
 }
 
 __declspec(dllexport) bool __cdecl ovr_AchievementDefinitionArray_HasNextPage(const void *object)
 {
-    (void)object;
-    return false;
+    typedef bool(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return false;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_AchievementDefinitionArray_HasNextPage")};
+    return convert.target ? convert.target(object) : false;
 }
 
 __declspec(dllexport) void *__cdecl ovr_Message_GetAchievementProgressArray(const void *object)
 {
-    return (void *)object;
+    typedef void *(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return (void *)object;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_Message_GetAchievementProgressArray")};
+    return convert.target ? convert.target(object) : NULL;
 }
 
 __declspec(dllexport) size_t __cdecl ovr_AchievementProgressArray_GetSize(const void *object)
 {
-    (void)object;
-    return 0;
+    typedef size_t(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return 0;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_AchievementProgressArray_GetSize")};
+    return convert.target ? convert.target(object) : 0;
 }
 
 __declspec(dllexport) bool __cdecl ovr_AchievementProgressArray_HasNextPage(const void *object)
 {
-    (void)object;
-    return false;
+    typedef bool(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return false;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_AchievementProgressArray_HasNextPage")};
+    return convert.target ? convert.target(object) : false;
 }
 
 __declspec(dllexport) void *__cdecl ovr_Message_GetCloudStorageMetadataArray(const void *object)
 {
-    return (void *)object;
+    typedef void *(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return (void *)object;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_Message_GetCloudStorageMetadataArray")};
+    return convert.target ? convert.target(object) : NULL;
 }
 
 __declspec(dllexport) size_t __cdecl ovr_CloudStorageMetadataArray_GetSize(const void *object)
 {
-    (void)object;
-    return 0;
+    typedef size_t(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return 0;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_CloudStorageMetadataArray_GetSize")};
+    return convert.target ? convert.target(object) : 0;
 }
 
 __declspec(dllexport) bool __cdecl ovr_CloudStorageMetadataArray_HasNextPage(const void *object)
 {
-    (void)object;
-    return false;
+    typedef bool(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return false;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_CloudStorageMetadataArray_HasNextPage")};
+    return convert.target ? convert.target(object) : false;
 }
 
 __declspec(dllexport) void *__cdecl ovr_Message_GetUserArray(const void *object)
 {
-    return (void *)object;
+    typedef void *(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return (void *)object;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_Message_GetUserArray")};
+    return convert.target ? convert.target(object) : NULL;
 }
 
 __declspec(dllexport) size_t __cdecl ovr_UserArray_GetSize(const void *object)
 {
-    (void)object;
-    return 0;
+    typedef size_t(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return 0;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_UserArray_GetSize")};
+    return convert.target ? convert.target(object) : 0;
 }
 
 __declspec(dllexport) bool __cdecl ovr_UserArray_HasNextPage(const void *object)
 {
-    (void)object;
-    return false;
+    typedef bool(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return false;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_UserArray_HasNextPage")};
+    return convert.target ? convert.target(object) : false;
 }
 
 __declspec(dllexport) void *__cdecl ovr_PopMessage(void)

@@ -27,7 +27,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         *game.arguments,
         *extra_arguments,
     ]
-    environment = launch_environment(paths, game.game_dir, game.platform_shim)
+    environment = launch_environment(paths, game.game_dir, game.platform_shim, game.platform_offline)
     wrapper_value = os.environ.get("RIFTLIFT_LAUNCH_WRAPPER", "").strip()
     if not wrapper_value:
         # Headset integrations can own runtime startup and dashboard handoff
@@ -40,4 +40,3 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
             raise RiftLiftError(f"configured launch wrapper was not found: {wrapper_value}")
     print(f"Launching {game.name} through ReviveXR -> WineOpenXR -> Monado...")
     return subprocess.call([*wrapper, *arguments], cwd=game.game_dir, env=environment)
-

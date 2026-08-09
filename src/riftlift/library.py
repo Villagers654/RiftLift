@@ -64,7 +64,7 @@ def add(
         executable=launch_file,
         arguments=launch_arguments,
         version=build.version,
+        platform_offline="vader-immortal" in str(manifest.get("canonicalName", "")),
     )
     game.save(paths)
     return game
-
