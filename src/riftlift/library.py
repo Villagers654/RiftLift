@@ -5,9 +5,9 @@ import shlex
 from pathlib import Path
 
 from meta_pcvr_downloader.api import list_builds, parse_app_id, select_build
-from meta_pcvr_downloader.auth import get_access_token
 from meta_pcvr_downloader.download import Downloader, fetch_manifest
 
+from .auth import runtime_access_token
 from .config import Game, Paths
 
 
@@ -43,8 +43,8 @@ def add(
 ) -> Game:
     paths.create()
     app_id = parse_app_id(app)
-    print("Reading the Meta login from your browser (the token is never saved)...")
-    token = get_access_token()
+    print("Reading your persistent RiftLift Meta login...")
+    token = runtime_access_token(paths)
     build = select_build(list_builds(token, app_id), build_selector)
     slug = slugify(build.app_name)
     directory = paths.games / slug
