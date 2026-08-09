@@ -86,7 +86,13 @@ def proton_environment(paths: Paths, game_dir: Path | None = None) -> dict[str, 
     # A host integration may export xrizer's OpenVR override session-wide.
     # RiftLift uses ReviveXR/WineOpenXR directly; injecting xrizer into Meta's
     # client, reg.exe, or prefix bootstrap is both unnecessary and harmful.
-    environment.pop("VR_OVERRIDE", None)
+    for variable in (
+        "VR_OVERRIDE",
+        "XR_RUNTIME_JSON",
+        "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES",
+        "OXR_ZERO_TIME_IS_NOW",
+    ):
+        environment.pop(variable, None)
     environment.update(
         {
             "STEAM_COMPAT_DATA_PATH": str(paths.prefix),
@@ -132,15 +138,18 @@ def install_meta_runtime(paths: Paths) -> Path:
         _safe_zip(archive, destination)
         marker.write_text(json.dumps({"binary_id": package.binary_id, "sha256": package.sha256}, indent=2) + "\n")
 
-    base = r"C:\Program Files\Oculus"
-    for key in (
-        r"HKCU\Software\Oculus VR, LLC\Oculus",
-        r"HKLM\Software\Oculus VR, LLC\Oculus",
-        r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus",
-    ):
-        proton(paths, "run", "reg.exe", "add", key, "/v", "Base", "/t", "REG_SZ", "/d", base, "/f")
-    protocol = r'"C:\Program Files\Oculus\Support\oculus-client\Client.exe" -- --url "%1"'
-    proton(paths, "run", "reg.exe", "add", r"HKCU\Software\Classes\oculus\shell\open\command", "/ve", "/t", "REG_SZ", "/d", protocol, "/f")
+    registration = support / ".riftlift-registry-v1"
+    if not registration.is_file():
+        base = r"C:\Program Files\Oculus"
+        for key in (
+            r"HKCU\Software\Oculus VR, LLC\Oculus",
+            r"HKLM\Software\Oculus VR, LLC\Oculus",
+            r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus",
+        ):
+            proton(paths, "run", "reg.exe", "add", key, "/v", "Base", "/t", "REG_SZ", "/d", base, "/f")
+        protocol = r'"C:\Program Files\Oculus\Support\oculus-client\Client.exe" -- --url "%1"'
+        proton(paths, "run", "reg.exe", "add", r"HKCU\Software\Classes\oculus\shell\open\command", "/ve", "/t", "REG_SZ", "/d", protocol, "/f")
+        registration.write_text("1\n")
     return support
 
 
