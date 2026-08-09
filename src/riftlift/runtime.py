@@ -83,6 +83,10 @@ def install_proton(paths: Paths) -> Path:
 def proton_environment(paths: Paths, game_dir: Path | None = None) -> dict[str, str]:
     root = steam_root()
     environment = os.environ.copy()
+    # A host integration may export xrizer's OpenVR override session-wide.
+    # RiftLift uses ReviveXR/WineOpenXR directly; injecting xrizer into Meta's
+    # client, reg.exe, or prefix bootstrap is both unnecessary and harmful.
+    environment.pop("VR_OVERRIDE", None)
     environment.update(
         {
             "STEAM_COMPAT_DATA_PATH": str(paths.prefix),
