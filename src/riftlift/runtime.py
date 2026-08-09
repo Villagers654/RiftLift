@@ -19,6 +19,7 @@ PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/down
 PROTON_SHA256 = "861c2edc8d40d051fb1e7a692deb953be52bd339c46d90f2b7dde50ddad91266"
 REVIVE_VERSION = "riftlift-0.1.1"
 REVIVE_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.1.0/riftlift-compat.zip"
+REVIVE_SHA256 = "ab28e900407da21e3f549dedd83b18ca486182e42f7a135014ce06c966c1f016"
 
 
 @dataclass(frozen=True, slots=True)
@@ -383,10 +384,15 @@ def install_meta_runtime(paths: Paths) -> Path:
 
 def install_revive(paths: Paths) -> Path:
     destination = paths.tools / "revive"
-    if (destination / "ReviveInjector.exe").is_file() and (destination / "LibReviveXR64.dll").is_file():
+    required = ("ReviveInjector.exe", "LibReviveXR64.dll", "openvr_api64.dll", "LibOVRPlatformImpl64_1.dll")
+    if all((destination / name).is_file() for name in required):
         return destination
     override = os.environ.get("RIFTLIFT_REVIVE_ARCHIVE")
-    archive = Path(override).expanduser() if override else download(REVIVE_URL, paths.cache / "riftlift-revive.zip")
+    archive = (
+        Path(override).expanduser()
+        if override
+        else download(REVIVE_URL, paths.cache / f"riftlift-compat-{REVIVE_VERSION}.zip", REVIVE_SHA256)
+    )
     if destination.exists():
         shutil.rmtree(destination)
     _safe_zip(archive, destination)
@@ -395,7 +401,7 @@ def install_revive(paths: Paths) -> Path:
         for item in nested.iterdir():
             shutil.move(str(item), destination / item.name)
         nested.rmdir()
-    if not (destination / "ReviveInjector.exe").is_file() or not (destination / "LibReviveXR64.dll").is_file():
+    if not all((destination / name).is_file() for name in required):
         raise RiftLiftError("Revive payload is incomplete")
     return destination
 
@@ -410,15 +416,23 @@ def install_platform_compat(paths: Paths) -> Path:
     for name in ("LibOVRPlatform64_1.dll", "LibOVRP2P64_1.dll"):
         if (source / name).is_file():
             shutil.copy2(source / name, destination / name)
-    real = source / "LibOVRPlatformImpl64_1.dll"
-    if real.is_file():
-        shutil.copy2(real, destination / "LibOVRPlatformImpl64_1_real.dll")
+    runtime_impl = source / "LibOVRPlatformImpl64_1.dll"
+    runtime_real = source / "LibOVRPlatformImpl64_1_real.dll"
+    # The public Platform DLL resolves its implementation from Meta's installed
+    # runtime directory even when loaded from LIBOVR_DLL_DIR. Preserve the
+    # vendor implementation there once, then put our forwarding shim at the
+    # canonical name; otherwise legacy clients bypass the compatibility layer.
+    if runtime_impl.is_file() and not runtime_real.is_file():
+        shutil.copy2(runtime_impl, runtime_real)
+    if runtime_real.is_file():
+        shutil.copy2(runtime_real, destination / "LibOVRPlatformImpl64_1_real.dll")
     override = os.environ.get("RIFTLIFT_PLATFORM_SHIM")
     bundled = paths.tools / "revive" / "LibOVRPlatformImpl64_1.dll"
     shim = Path(override).expanduser() if override else bundled
     if not shim.is_file():
         raise RiftLiftError("RiftLift platform compatibility DLL is missing from the release payload")
     shutil.copy2(shim, destination / "LibOVRPlatformImpl64_1.dll")
+    shutil.copy2(shim, runtime_impl)
     return destination
 
 
@@ -508,10 +522,14 @@ def launch_environment(paths: Paths, game_dir: Path, platform_shim: bool, platfo
     )
     if platform_shim:
         compatibility = install_platform_compat(paths)
-        runtime_dir = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime"
         compatibility_win = linux_to_windows(compatibility)
         environment["LIBOVR_DLL_DIR"] = compatibility_win
-        environment["WINEPATH"] = f"{compatibility_win};{linux_to_windows(runtime_dir)}"
+        # Keep one unambiguous Platform SDK search root. The compatibility
+        # directory contains the public loader, P2P dependency, shim, and the
+        # preserved `_real` implementation. Adding Meta's runtime directory lets
+        # Wine resolve its unpatched implementation first and blocks games in
+        # legacy OAF login before OpenXR can initialize.
+        environment["WINEPATH"] = compatibility_win
         if platform_offline:
             environment["RIFTLIFT_PLATFORM_OFFLINE"] = "1"
     return environment

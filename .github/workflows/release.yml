@@ -2,8 +2,6 @@ name: Release compatibility payload
 
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
 
 permissions:
   contents: write
@@ -29,11 +27,12 @@ jobs:
           unzip -q revive.zip -d out
           scripts/build-platform-shim.sh LibOVRPlatformImpl64_1.dll out/LibOVRPlatformImpl64_1.dll
           cp LICENSE out/RIFTLIFT-LICENSE
-          (cd out && zip -9 -r ../riftlift-compat.zip .)
+          find out -type f -exec touch -d '1980-01-01 00:00:00 UTC' {} +
+          (cd out && TZ=UTC zip -X -9 -r ../riftlift-compat.zip .)
           sha256sum riftlift-compat.zip > riftlift-compat.zip.sha256
-      - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+      - uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: riftlift-compat
+          path: |
             riftlift-compat.zip
             riftlift-compat.zip.sha256
