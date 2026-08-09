@@ -523,12 +523,11 @@ def launch_environment(paths: Paths, game_dir: Path, platform_shim: bool, platfo
     if platform_shim:
         compatibility = install_platform_compat(paths)
         compatibility_win = linux_to_windows(compatibility)
-        environment["LIBOVR_DLL_DIR"] = compatibility_win
-        # Keep one unambiguous Platform SDK search root. The compatibility
-        # directory contains the public loader, P2P dependency, shim, and the
-        # preserved `_real` implementation. Adding Meta's runtime directory lets
-        # Wine resolve its unpatched implementation first and blocks games in
-        # legacy OAF login before OpenXR can initialize.
+        # Do not set LIBOVR_DLL_DIR here. OVRPlugin uses that variable for the
+        # VR runtime as well as the Platform SDK; pointing it at our platform
+        # shim makes it reject LibOVRRT before ReviveXR can intercept the load.
+        # WINEPATH is sufficient to select the public Platform SDK loader and
+        # keeps the VR runtime lookup on Revive's normal compatibility path.
         environment["WINEPATH"] = compatibility_win
         if platform_offline:
             environment["RIFTLIFT_PLATFORM_OFFLINE"] = "1"
