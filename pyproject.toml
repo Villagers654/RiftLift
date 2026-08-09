@@ -21,6 +21,7 @@ classifiers = [
 dependencies = [
   "meta-pcvr-downloader @ git+https://github.com/Villagers654/meta-pcvr-downloader.git@v0.1.1",
   "Pillow>=10",
+  "PySide6-Essentials>=6.7,<7",
 ]
 
 [project.urls]
@@ -31,6 +32,7 @@ xrizer = "https://github.com/Villagers654/xrizer"
 
 [project.scripts]
 riftlift = "riftlift.cli:main"
+riftlift-gui = "riftlift.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

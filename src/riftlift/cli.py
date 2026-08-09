@@ -26,6 +26,8 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = root.add_subparsers(dest="command", required=True)
 
+    commands.add_parser("gui", help="open the RiftLift desktop app")
+
     setup_command = commands.add_parser("setup", help="install/update the shared compatibility stack")
     setup_command.add_argument("--login", action="store_true", help="open Meta Horizon Link after setup")
     commands.add_parser("login", help="open Meta Horizon Link in the persistent shared prefix")
@@ -54,6 +56,10 @@ def parser() -> argparse.ArgumentParser:
 
 def run(arguments: argparse.Namespace) -> int:
     paths = Paths.defaults()
+    if arguments.command == "gui":
+        from .gui import main as gui_main
+
+        return gui_main()
     if arguments.command == "setup":
         setup(paths)
         print("RiftLift compatibility stack is ready.")

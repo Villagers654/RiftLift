@@ -17,6 +17,13 @@ python3 -m venv "$venv"
 "$venv/bin/python" -m pip install --quiet --upgrade pip
 "$venv/bin/python" -m pip install --quiet "$repo_root"
 ln -sfn "$venv/bin/riftlift" "$bin_root/riftlift"
+ln -sfn "$venv/bin/riftlift-gui" "$bin_root/riftlift-gui"
+
+applications_root=${XDG_DATA_HOME:-$HOME/.local/share}/applications
+icons_root=${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps
+mkdir -p "$applications_root" "$icons_root"
+cp "$repo_root/assets/io.github.villagers654.RiftLift.desktop" "$applications_root/"
+cp "$repo_root/assets/io.github.villagers654.RiftLift.svg" "$icons_root/"
 
 echo "Installed RiftLift at $bin_root/riftlift"
 "$bin_root/riftlift" setup
@@ -24,6 +31,9 @@ cat <<'EOF'
 
 RiftLift is ready. Sign into Meta once:
   riftlift login
+
+Open the desktop app from your application menu, or run:
+  riftlift gui
 
 Then add an owned Rift game using its Meta store URL:
   riftlift add 'https://www.meta.com/experiences/APP_ID/'

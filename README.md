@@ -27,6 +27,16 @@ The installer creates an isolated environment under
 payload, and creates one reusable Proton prefix. It does not modify a system
 Wine installation.
 
+It also installs a native Qt 6 RiftLift desktop app in your application menu. Open
+it there or run `riftlift gui` (equivalently, `riftlift-gui`) to browse your
+library, add games, launch them, refresh artwork, synchronize Steam, and check
+the compatibility stack without using the command line.
+
+The GUI supports current mainstream Linux distributions and Windows 10 or
+newer. Game installation and launch remain Linux-only because they require
+Proton and a Linux OpenXR runtime; Windows opens in clearly labeled library
+mode.
+
 ## Sign in once
 
 ```bash
