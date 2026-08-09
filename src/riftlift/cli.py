@@ -28,28 +28,54 @@ def parser() -> argparse.ArgumentParser:
 
     commands.add_parser("gui", help="open the RiftLift desktop app")
 
-    setup_command = commands.add_parser("setup", help="install/update the shared compatibility stack")
-    setup_command.add_argument("--login", action="store_true", help="open Meta Horizon Link after setup")
-    commands.add_parser("login", help="open Meta Horizon Link in the persistent shared prefix")
+    setup_command = commands.add_parser(
+        "setup", help="install/update the shared compatibility stack"
+    )
+    setup_command.add_argument(
+        "--login", action="store_true", help="open Meta Horizon Link after setup"
+    )
+    commands.add_parser(
+        "login", help="open Meta Horizon Link in the persistent shared prefix"
+    )
     callback = commands.add_parser("callback", help=argparse.SUPPRESS)
     callback.add_argument("url", nargs="?", help=argparse.SUPPRESS)
 
-    add_command = commands.add_parser("add", help="download an owned Rift game and add it to Steam")
+    add_command = commands.add_parser(
+        "add", help="download an owned Rift game and add it to Steam"
+    )
     add_command.add_argument("app", help="Meta Rift store URL or numeric app ID")
-    add_command.add_argument("--build", help="specific version, version code, or binary ID")
-    add_command.add_argument("--executable", help="override the manifest launch executable")
-    add_command.add_argument("--arguments", help="override the manifest launch arguments")
-    add_command.add_argument("--jobs", type=int, default=8, choices=range(1, 33), metavar="1-32")
-    add_command.add_argument("--no-steam", action="store_true", help="download without updating Steam")
+    add_command.add_argument(
+        "--build", help="specific version, version code, or binary ID"
+    )
+    add_command.add_argument(
+        "--executable", help="override the manifest launch executable"
+    )
+    add_command.add_argument(
+        "--arguments", help="override the manifest launch arguments"
+    )
+    add_command.add_argument(
+        "--jobs", type=int, default=8, choices=range(1, 33), metavar="1-32"
+    )
+    add_command.add_argument(
+        "--no-steam", action="store_true", help="download without updating Steam"
+    )
 
     launch_command = commands.add_parser("launch", help="launch an installed game")
     launch_command.add_argument("slug")
     launch_command.add_argument("arguments", nargs=argparse.REMAINDER)
     commands.add_parser("list", help="list installed RiftLift games")
-    commands.add_parser("steam-sync", help="safely synchronize all RiftLift games into Steam")
-    metadata_command = commands.add_parser("metadata", help="fetch artwork and catalog metadata")
-    metadata_command.add_argument("slug", nargs="?", help="one installed game (default: all)")
-    metadata_command.add_argument("--refresh", action="store_true", help="refresh cached catalog data and artwork")
+    commands.add_parser(
+        "steam-sync", help="safely synchronize all RiftLift games into Steam"
+    )
+    metadata_command = commands.add_parser(
+        "metadata", help="fetch artwork and catalog metadata"
+    )
+    metadata_command.add_argument(
+        "slug", nargs="?", help="one installed game (default: all)"
+    )
+    metadata_command.add_argument(
+        "--refresh", action="store_true", help="refresh cached catalog data and artwork"
+    )
     commands.add_parser("doctor", help="verify the runtime, Steam, and installed games")
     return root
 
@@ -98,7 +124,9 @@ def run(arguments: argparse.Namespace) -> int:
         print(sync_with_restart(paths))
         return 0
     if arguments.command == "metadata":
-        installed = [Game.load(paths, arguments.slug)] if arguments.slug else games(paths)
+        installed = (
+            [Game.load(paths, arguments.slug)] if arguments.slug else games(paths)
+        )
         for game in installed:
             populate_game_metadata(paths, game, refresh=arguments.refresh)
             print(f"Updated metadata for {game.name}.")
@@ -114,7 +142,14 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nCancelled.", file=sys.stderr)
         return 130
-    except (AuthenticationError, DownloadError, MetaApiError, RiftLiftError, ValueError, OSError) as error:
+    except (
+        AuthenticationError,
+        DownloadError,
+        MetaApiError,
+        RiftLiftError,
+        ValueError,
+        OSError,
+    ) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 

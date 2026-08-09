@@ -12,7 +12,6 @@ from .config import Game, Paths
 from .metadata import populate_game_metadata
 from .util import RiftLiftError
 
-
 KNOWN_LAUNCHES = {
     # The package manifest points at WKND.exe, a flat bootstrapper which exits
     # before initializing VR under Proton. Launch the shipping Unreal binary
@@ -62,13 +61,17 @@ def add(
     manifest = fetch_manifest(token, build)
     Downloader(token, build, directory, paths.cache / "segments", jobs).run(manifest)
     known = KNOWN_LAUNCHES.get(app_id) if executable is None else None
-    launch_file = _best_executable(directory, manifest, known[0] if known else executable)
+    launch_file = _best_executable(
+        directory, manifest, known[0] if known else executable
+    )
     launch_arguments = shlex.split(arguments) if arguments is not None else []
     if arguments is None:
         if known:
             launch_arguments = known[1]
         elif manifest.get("launchParameters"):
-            launch_arguments = shlex.split(str(manifest["launchParameters"]), posix=False)
+            launch_arguments = shlex.split(
+                str(manifest["launchParameters"]), posix=False
+            )
     game = Game(
         slug=slug,
         name=build.app_name,

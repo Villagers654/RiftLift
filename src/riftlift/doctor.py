@@ -20,17 +20,55 @@ def doctor(paths: Paths) -> int:
 
     check("Active OpenXR runtime", active_runtime_json)
     check("Steam", steam_root)
-    check("GE-Proton", lambda: (proton_dir() / "proton") if (proton_dir() / "proton").is_file() else (_ for _ in ()).throw(FileNotFoundError("not installed")))
-    check("ReviveXR", lambda: paths.tools / "revive/LibReviveXR64.dll" if (paths.tools / "revive/LibReviveXR64.dll").is_file() else (_ for _ in ()).throw(FileNotFoundError("not installed")))
-    check("Meta client", lambda: paths.prefix / "pfx/drive_c/Program Files/Oculus/Support/oculus-client/Client.exe" if (paths.prefix / "pfx/drive_c/Program Files/Oculus/Support/oculus-client/Client.exe").is_file() else (_ for _ in ()).throw(FileNotFoundError("not installed")))
+    check(
+        "GE-Proton",
+        lambda: (
+            (proton_dir() / "proton")
+            if (proton_dir() / "proton").is_file()
+            else (_ for _ in ()).throw(FileNotFoundError("not installed"))
+        ),
+    )
+    check(
+        "ReviveXR",
+        lambda: (
+            paths.tools / "revive/LibReviveXR64.dll"
+            if (paths.tools / "revive/LibReviveXR64.dll").is_file()
+            else (_ for _ in ()).throw(FileNotFoundError("not installed"))
+        ),
+    )
+    check(
+        "Meta client",
+        lambda: (
+            paths.prefix
+            / "pfx/drive_c/Program Files/Oculus/Support/oculus-client/Client.exe"
+            if (
+                paths.prefix
+                / "pfx/drive_c/Program Files/Oculus/Support/oculus-client/Client.exe"
+            ).is_file()
+            else (_ for _ in ()).throw(FileNotFoundError("not installed"))
+        ),
+    )
     platform_files = (
         paths.tools / "platform-compat/LibOVRPlatform64_1.dll",
         paths.tools / "platform-compat/LibOVRPlatformImpl64_1.dll",
         paths.tools / "platform-compat/LibOVRPlatformImpl64_1_real.dll",
     )
-    check("Platform bridge", lambda: platform_files[0].parent if all(path.is_file() for path in platform_files) else (_ for _ in ()).throw(FileNotFoundError("incomplete")))
+    check(
+        "Platform bridge",
+        lambda: (
+            platform_files[0].parent
+            if all(path.is_file() for path in platform_files)
+            else (_ for _ in ()).throw(FileNotFoundError("incomplete"))
+        ),
+    )
     for game in games(paths):
-        checks.append((f"Game: {game.name}", game.executable_path.is_file(), str(game.executable_path)))
+        checks.append(
+            (
+                f"Game: {game.name}",
+                game.executable_path.is_file(),
+                str(game.executable_path),
+            )
+        )
 
     width = max(len(label) for label, _, _ in checks)
     for label, passed, detail in checks:

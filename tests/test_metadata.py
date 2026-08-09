@@ -8,7 +8,7 @@ from riftlift.metadata import generate_artwork, parse_catalog_html
 
 
 def test_parse_meta_json_ld_catalog() -> None:
-    payload = '''
+    payload = """
     <script type="application/ld+json">{
       "@graph": [
         {"@id": "developer", "name": "Example Lab"},
@@ -26,7 +26,7 @@ def test_parse_meta_json_ld_catalog() -> None:
         }
       ]
     }</script>
-    '''
+    """
     result = parse_catalog_html(payload, "123456789")
     assert result.name == "Example VR"
     assert result.developer == "Example Lab"
@@ -44,7 +44,9 @@ def test_generate_all_steam_artwork_sizes(tmp_path: Path) -> None:
         tmp_path / "prefix",
         tmp_path / "tools",
     )
-    game = Game("example", "Example VR", "123", "example", str(tmp_path), "game.exe", [])
+    game = Game(
+        "example", "Example VR", "123", "example", str(tmp_path), "game.exe", []
+    )
     source = Image.new("RGB", (1280, 720), "#b02020")
     payload = io.BytesIO()
     source.save(payload, format="PNG")

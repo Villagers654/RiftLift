@@ -31,7 +31,14 @@ class Paths:
         return cls(data, cache, config, games, data / "compatdata", data / "tools")
 
     def create(self) -> None:
-        for path in (self.data, self.cache, self.config, self.games, self.prefix, self.tools):
+        for path in (
+            self.data,
+            self.cache,
+            self.config,
+            self.games,
+            self.prefix,
+            self.tools,
+        ):
             path.mkdir(parents=True, exist_ok=True)
         (self.data / "games").mkdir(exist_ok=True)
 
@@ -78,7 +85,9 @@ class Game:
         try:
             value: dict[str, Any] = json.loads(target.read_text())
         except FileNotFoundError as error:
-            raise ValueError(f"unknown game {slug!r}; run 'riftlift add STORE_URL' first") from error
+            raise ValueError(
+                f"unknown game {slug!r}; run 'riftlift add STORE_URL' first"
+            ) from error
         allowed = {field.name for field in fields(cls)}
         return cls(**{key: item for key, item in value.items() if key in allowed})
 

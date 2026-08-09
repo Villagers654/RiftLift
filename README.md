@@ -40,10 +40,9 @@ it there or run `riftlift gui` (equivalently, `riftlift-gui`) to browse your
 library, add games, launch them, refresh artwork, synchronize Steam, and check
 the compatibility stack without using the command line.
 
-The GUI supports current mainstream Linux distributions and Windows 10 or
-newer. Game installation and launch remain Linux-only because they require
-Proton and a Linux OpenXR runtime; Windows opens in clearly labeled library
-mode.
+The GUI and command-line application support current mainstream Linux
+distributions. RiftLift intentionally targets Linux because its compatibility
+path requires Proton and a Linux OpenXR runtime.
 
 ## Sign in once
 

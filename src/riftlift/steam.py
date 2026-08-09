@@ -43,7 +43,9 @@ def shortcut_app_id(executable: str, name: str) -> int:
     return checksum | 0x80000000
 
 
-def _shortcut(game: Game, launcher: Path, app_id: int | None = None, last_played: int = 0) -> dict[str, Any]:
+def _shortcut(
+    game: Game, launcher: Path, app_id: int | None = None, last_played: int = 0
+) -> dict[str, Any]:
     executable = f'"{launcher}"'
     tags = ["VR", "RiftLift", *game.genres]
     return {
@@ -98,6 +100,8 @@ def _install_artwork(game: Game, app_id: int, config: Path) -> None:
 
 def _install_wayvr_metadata(game: Game, app_id: int) -> None:
     cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "wayvr"
+    if not cache.is_dir() and shutil.which("wayvr") is None:
+        return
     cover = Path(game.artwork.get("portrait", ""))
     if cover.is_file():
         target = cache / "cover_arts" / f"{app_id}.bin"
@@ -131,7 +135,9 @@ def _steam_running() -> bool:
     return False
 
 
-def sync(paths: Paths, launcher: Path | None = None, *, allow_running: bool = False) -> Path:
+def sync(
+    paths: Paths, launcher: Path | None = None, *, allow_running: bool = False
+) -> Path:
     if _steam_running() and not allow_running:
         raise RiftLiftError(
             "Steam is running. Exit Steam completely, run 'riftlift steam-sync', then reopen it."
@@ -145,7 +151,9 @@ def sync(paths: Paths, launcher: Path | None = None, *, allow_running: bool = Fa
         try:
             document = loads(target.read_bytes())
         except (OSError, VdfError) as error:
-            raise RiftLiftError(f"cannot read Steam shortcuts safely: {error}") from error
+            raise RiftLiftError(
+                f"cannot read Steam shortcuts safely: {error}"
+            ) from error
     shortcuts = document.setdefault("shortcuts", {})
     if not isinstance(shortcuts, dict):
         raise RiftLiftError("Steam shortcuts file has an unexpected structure")
@@ -171,7 +179,9 @@ def sync(paths: Paths, launcher: Path | None = None, *, allow_running: bool = Fa
     for game in installed_games:
         prior = existing.get(game.slug, {})
         app_id = int(prior.get("appid") or game.steam_app_id or 0) or None
-        shortcut = _shortcut(game, launcher, app_id, int(prior.get("LastPlayTime") or 0))
+        shortcut = _shortcut(
+            game, launcher, app_id, int(prior.get("LastPlayTime") or 0)
+        )
         game.steam_app_id = int(shortcut["appid"])
         new_shortcuts.append(shortcut)
     retained.extend(new_shortcuts)
@@ -196,16 +206,30 @@ def sync_with_restart(paths: Paths, launcher: Path | None = None) -> Path:
     steam = shutil.which("steam")
     if was_running:
         if not steam:
-            raise RiftLiftError("Steam is running but its launcher is not on PATH; exit it and retry")
+            raise RiftLiftError(
+                "Steam is running but its launcher is not on PATH; exit it and retry"
+            )
         print("Restarting Steam once so it can safely import the RiftLift shortcut...")
-        subprocess.run((steam, "-shutdown"), check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            (steam, "-shutdown"),
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         for _ in range(100):
             if not _steam_running():
                 break
             time.sleep(0.2)
         else:
-            raise RiftLiftError("Steam did not exit in time; exit it manually and run 'riftlift steam-sync'")
+            raise RiftLiftError(
+                "Steam did not exit in time; exit it manually and run 'riftlift steam-sync'"
+            )
     target = sync(paths, launcher)
     if was_running and steam:
-        subprocess.Popen((steam, "-silent"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        subprocess.Popen(
+            (steam, "-silent"),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
     return target

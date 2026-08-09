@@ -7,7 +7,6 @@ from pathlib import Path
 from .config import Paths
 from .util import RiftLiftError
 
-
 _TOKEN_KEY = b"riftlift-token"
 _TOKEN_PATTERN = re.compile(rb"[A-Za-z0-9_.|-]{32,4096}")
 
@@ -81,6 +80,8 @@ def runtime_access_token(paths: Paths, *, refresh: bool = False) -> str:
             pass
     token = _electron_token(paths)
     if token is None:
-        raise RiftLiftError("no persistent Meta login found; run 'riftlift login' first")
+        raise RiftLiftError(
+            "no persistent Meta login found; run 'riftlift login' first"
+        )
     _save(paths, token)
     return token

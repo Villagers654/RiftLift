@@ -1,11 +1,13 @@
 from pathlib import Path
 
 from riftlift.config import Game
-from riftlift.steam import _existing_by_slug, _shortcut
+from riftlift.steam import _existing_by_slug, _install_wayvr_metadata, _shortcut
 
 
 def game() -> Game:
-    return Game("example", "Example VR", "123", "example", "/games/example", "game.exe", [])
+    return Game(
+        "example", "Example VR", "123", "example", "/games/example", "game.exe", []
+    )
 
 
 def test_existing_shortcut_id_is_preserved() -> None:
@@ -28,3 +30,14 @@ def test_shortcut_uses_catalog_icon() -> None:
     result = _shortcut(value, Path("/home/person/.local/bin/riftlift"))
     assert result["icon"] == "/metadata/example/icon.png"
     assert list(result["tags"].values()) == ["VR", "RiftLift", "Action", "Narrative"]
+
+
+def test_wayvr_metadata_is_not_created_when_wayvr_is_absent(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    monkeypatch.setattr("riftlift.steam.shutil.which", lambda _name: None)
+
+    _install_wayvr_metadata(game(), 123)
+
+    assert not (tmp_path / "wayvr").exists()

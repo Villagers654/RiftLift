@@ -14,4 +14,3 @@ def test_binary_vdf_roundtrip() -> None:
         }
     }
     assert loads(dumps(value)) == value
-

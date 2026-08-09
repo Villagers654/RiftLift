@@ -13,7 +13,6 @@ from pathlib import Path
 from .config import Paths
 from .util import RiftLiftError, download, linux_to_windows, run
 
-
 PROTON_VERSION = "GE-Proton11-3"
 PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{PROTON_VERSION}/{PROTON_VERSION}.tar.gz"
 PROTON_SHA256 = "861c2edc8d40d051fb1e7a692deb953be52bd339c46d90f2b7dde50ddad91266"
@@ -37,10 +36,24 @@ class MetaPackage:
 # setup must be reproducible; `riftlift doctor` reports when newer metadata is
 # available rather than silently changing a working prefix.
 META_PACKAGES = (
-    MetaPackage("oculus-runtime", "3766757683456363", "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009"),
-    MetaPackage("oculus-client", "3476193069202515", "e87446a3c828912aea47db2bfc4113d3676f570731d5e854619859ab127f737e"),
-    MetaPackage("oculus-platform-runtime", "28039291642329992", "69a6dedbf6f997459038e9b9e54d6562431c1a107bec17637d59626ab0d36892"),
+    MetaPackage(
+        "oculus-runtime",
+        "3766757683456363",
+        "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009",
+    ),
+    MetaPackage(
+        "oculus-client",
+        "3476193069202515",
+        "e87446a3c828912aea47db2bfc4113d3676f570731d5e854619859ab127f737e",
+    ),
+    MetaPackage(
+        "oculus-platform-runtime",
+        "28039291642329992",
+        "69a6dedbf6f997459038e9b9e54d6562431c1a107bec17637d59626ab0d36892",
+    ),
 )
+
+META_CLIENT_COMPAT_MARKER = ".riftlift-client-compat-v11"
 
 
 META_RUNTIME_PATCHES = {
@@ -83,13 +96,19 @@ def patch_meta_runtime(runtime: Path) -> None:
         if digest == recipe["output"]:
             continue
         if digest != recipe["input"]:
-            raise RiftLiftError(f"unsupported {name} build ({digest[:12]}); refusing an unsafe patch")
+            raise RiftLiftError(
+                f"unsupported {name} build ({digest[:12]}); refusing an unsafe patch"
+            )
         for offset, before, after in recipe["changes"]:
             if payload[offset : offset + len(before)] != before:
-                raise RiftLiftError(f"{name} compatibility patch did not match at {offset}")
+                raise RiftLiftError(
+                    f"{name} compatibility patch did not match at {offset}"
+                )
             payload[offset : offset + len(before)] = after
         if hashlib.sha256(payload).hexdigest() != recipe["output"]:
-            raise RiftLiftError(f"{name} compatibility patch produced an unexpected result")
+            raise RiftLiftError(
+                f"{name} compatibility patch produced an unexpected result"
+            )
         temporary = target.with_suffix(target.suffix + ".riftlift.tmp")
         temporary.write_bytes(payload)
         os.replace(temporary, target)
@@ -130,39 +149,23 @@ def patch_meta_client(client: Path) -> None:
     # deadlock. Change the already-supported policy to show on DOM-ready. Keep
     # the ASAR byte length unchanged so its file offsets and integrity stay valid.
     archive = resources / "app.asar"
-    marker = client / ".riftlift-client-compat-v10"
+    marker = client / META_CLIENT_COMPAT_MARKER
     if marker.is_file():
         return
     payload = archive.read_bytes()
     replacements = (
-        (b'showBehavior:"whenSignaled"', b'showBehavior:"whenLoaded"  ', {0, 1, 2}),
-        (b'show:!1,title:"Meta Horizon Link Client"', b'show:!0,title:"Meta Horizon Link Client"', {0, 1, 2}),
-        # Undo the short-lived v3 development patch, if present. Keeping the
-        # token store's normal promise semantics is essential after login.
+        (b'showBehavior:"whenSignaled"', b'showBehavior:"whenLoaded"  ', 2),
         (
-            b'this.promise=Promise.resolve("")            ',
-            b"this.promise=new Promise(e=>this._resolve=e)",
-            {0, 6},
+            b'show:!1,title:"Meta Horizon Link Client"',
+            b'show:!0,title:"Meta Horizon Link Client"',
+            2,
         ),
-        # Normalize the earlier bounded OAF-read patch, then make RiftLift's
-        # private Electron profile the durable token source. OAF FastIPC never
-        # returns /auth/gettoken under Wine, even after accepting token writes.
-        (
-            b'fetchAccessToken:async()=>Promise.race([(0,i.default)(r.default.GET_AUTH_TOKEN),new Promise(e=>setTimeout(e,5e3,""))]),invalidateAccessToken:async()=>0    ',
-            b'fetchAccessToken:async()=>(0,i.default)(r.default.GET_AUTH_TOKEN),invalidateAccessToken:async()=>{throw new Error("invalidateAccessToken not implemented")}',
-            {0, 3},
-        ),
+        # OAF FastIPC never returns /auth/gettoken under Wine. Keep the token in
+        # RiftLift's isolated Electron profile, which persists with the prefix.
         (
             b'fetchAccessToken:async()=>(0,i.default)(r.default.GET_AUTH_TOKEN),invalidateAccessToken:async()=>{throw new Error("invalidateAccessToken not implemented")}',
             b'fetchAccessToken:async()=>localStorage.getItem("riftlift-token")||"",invalidateAccessToken:async()=>0                                                      ',
-            {0, 3},
-        ),
-        # Undo the v5 experiment, if present, before applying the final locale
-        # initialization below.
-        (
-            b't.initialize=()=>{h.set();r.default.fetchLanguageTag(f).then(e=>f(e,"never",!0),()=>0)}    ',
-            b't.initialize=async()=>{const e=await r.default.fetchLanguageTag(f);f(e,"never",!0),h.set()}',
-            {0, 2},
+            3,
         ),
         # Proton has a valid built-in en-US locale, but OAF's language request
         # hangs for a fresh prefix. Initialize FBT with Meta's own compiled-in
@@ -171,36 +174,31 @@ def patch_meta_client(client: Path) -> None:
         (
             b't.initialize=async()=>{const e=await r.default.fetchLanguageTag(f);f(e,"never",!0),h.set()}',
             b't.initialize=()=>{f(o.LANGUAGE_TAG,"never",!0),h.set()}                                    ',
-            {0, 2},
+            2,
         ),
         # OAF consumes these token writes but its Wine FastIPC server does not
         # acknowledge them. Do not deadlock the login state machine waiting for
         # acknowledgements; the calls still run and the primary access token is
         # also committed to the renderer's token store immediately afterward.
         (
-            b"await(0,d.default)(c.default.SET_AUTH_TOKEN,{token:e}),r.default.set(e)",
-            b"void (0,d.default)(c.default.SET_AUTH_TOKEN,{token:e}),r.default.set(e)",
-            {0, 1},
-        ),
-        (
-            b"t.setAccessToken=async(e,t)=>{void (0,d.default)(c.default.SET_AUTH_TOKEN,{token:e}),r.default.set(e),t.initialize&&await(0,p.initialize)(!0)};",
+            b"t.setAccessToken=async(e,t)=>{await(0,d.default)(c.default.SET_AUTH_TOKEN,{token:e}),r.default.set(e),t.initialize&&await(0,p.initialize)(!0)};",
             b't.setAccessToken=async(e,t)=>{localStorage.setItem("riftlift-token",e),r.default.set(e),t.initialize&&await(0,p.initialize)(!0)};              ',
-            {0, 1},
+            1,
         ),
         (
             b"await(0,d.default)(c.default.SET_FRL_AUTH_TOKEN,{token:e})",
             b"void (0,d.default)(c.default.SET_FRL_AUTH_TOKEN,{token:e})",
-            {0, 1},
+            1,
         ),
         (
             b"await(0,d.default)(c.default.SET_AUTH_META_TOKEN,{metatoken:e})",
             b"void (0,d.default)(c.default.SET_AUTH_META_TOKEN,{metatoken:e})",
-            {0, 1},
+            1,
         ),
         (
             b"await(0,d.default)(c.default.SET_AUTH_TOKENTYPE,{tokentype:e})",
             b"void (0,d.default)(c.default.SET_AUTH_TOKENTYPE,{tokentype:e})",
-            {0, 1},
+            1,
         ),
         # Session initialization fans out across account state plus many
         # Windows-only hardware/social helpers. Preserve every initializer and
@@ -209,7 +207,7 @@ def patch_meta_client(client: Path) -> None:
         (
             b'const _=async e=>{try{await e()}catch(e){throw(0,i.logUnexpectedError)("Skyline",e),e}};',
             b"const _=e=>Promise.race([e(),new Promise(e=>setTimeout(e,5e3))]);                       ",
-            {0, 1},
+            1,
         ),
         # Wine's optional native focus helper expects a Windows HWND string but
         # receives Electron's integer pipe response. The callback URL has
@@ -218,13 +216,15 @@ def patch_meta_client(client: Path) -> None:
         (
             b"A&&A.giveFocus(e.readUInt32LE(0))",
             b"0&&A.giveFocus(e.readUInt32LE(0))",
-            {1},
+            1,
         ),
     )
     for old, new, expected in replacements:
         count = payload.count(old)
-        if count not in expected:
-            raise RiftLiftError(f"Meta client visibility patch found an unexpected {count} sites")
+        if count != expected:
+            raise RiftLiftError(
+                f"pinned Meta client patch expected {expected} matching sites, found {count}"
+            )
         payload = payload.replace(old, new)
     temporary = archive.with_suffix(".asar.riftlift.tmp")
     temporary.write_bytes(payload)
@@ -262,7 +262,9 @@ def install_proton(paths: Paths) -> Path:
     target = proton_dir()
     if (target / "proton").is_file():
         return target
-    archive = download(PROTON_URL, paths.cache / f"{PROTON_VERSION}.tar.gz", PROTON_SHA256)
+    archive = download(
+        PROTON_URL, paths.cache / f"{PROTON_VERSION}.tar.gz", PROTON_SHA256
+    )
     target.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive) as source:
         source.extractall(target.parent, filter="data")
@@ -299,9 +301,13 @@ def proton_environment(paths: Paths, game_dir: Path | None = None) -> dict[str, 
     return environment
 
 
-def proton(paths: Paths, *arguments: str, game_dir: Path | None = None, **kwargs: object) -> subprocess.CompletedProcess[str]:
+def proton(
+    paths: Paths, *arguments: str, game_dir: Path | None = None, **kwargs: object
+) -> subprocess.CompletedProcess[str]:
     executable = install_proton(paths) / "proton"
-    return run((executable, *arguments), env=proton_environment(paths, game_dir), **kwargs)
+    return run(
+        (executable, *arguments), env=proton_environment(paths, game_dir), **kwargs
+    )
 
 
 def initialize_prefix(paths: Paths) -> Path:
@@ -311,9 +317,10 @@ def initialize_prefix(paths: Paths) -> Path:
     prefix = paths.prefix / "pfx"
     # OAF treats this legacy Known Folder as mandatory even though RiftLift
     # never creates a Windows shortcut there. Proton does not create it.
-    (prefix / "drive_c/users/steamuser/AppData/Roaming/Microsoft/Internet Explorer/Quick Launch").mkdir(
-        parents=True, exist_ok=True
-    )
+    (
+        prefix
+        / "drive_c/users/steamuser/AppData/Roaming/Microsoft/Internet Explorer/Quick Launch"
+    ).mkdir(parents=True, exist_ok=True)
     return prefix
 
 
@@ -321,19 +328,33 @@ def install_meta_runtime(paths: Paths) -> Path:
     prefix = initialize_prefix(paths)
     support = prefix / "drive_c/Program Files/Oculus/Support"
     for package in META_PACKAGES:
-        archive = download(package.url, paths.cache / "meta" / f"{package.name}.pkg", package.sha256)
+        archive = download(
+            package.url, paths.cache / "meta" / f"{package.name}.pkg", package.sha256
+        )
         destination = support / package.name
         marker = destination / ".riftlift-package.json"
         if marker.is_file():
             try:
-                if json.loads(marker.read_text()).get("sha256") == package.sha256:
+                current_package = (
+                    json.loads(marker.read_text()).get("sha256") == package.sha256
+                )
+                current_client_patch = (
+                    package.name != "oculus-client"
+                    or (destination / META_CLIENT_COMPAT_MARKER).is_file()
+                )
+                if current_package and current_client_patch:
                     continue
             except (OSError, json.JSONDecodeError):
                 pass
         if destination.exists():
             shutil.rmtree(destination)
         _safe_zip(archive, destination)
-        marker.write_text(json.dumps({"binary_id": package.binary_id, "sha256": package.sha256}, indent=2) + "\n")
+        marker.write_text(
+            json.dumps(
+                {"binary_id": package.binary_id, "sha256": package.sha256}, indent=2
+            )
+            + "\n"
+        )
 
     patch_meta_client(support / "oculus-client")
 
@@ -347,51 +368,173 @@ def install_meta_runtime(paths: Paths) -> Path:
             r"HKLM\Software\Oculus VR, LLC\Oculus",
             r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus",
         ):
-            proton(paths, "runinprefix", "reg.exe", "add", key, "/v", "Base", "/t", "REG_SZ", "/d", base, "/f")
-            proton(paths, "runinprefix", "reg.exe", "add", key, "/v", "UseSystemProxy", "/t", "REG_DWORD", "/d", "0", "/f")
+            proton(
+                paths,
+                "runinprefix",
+                "reg.exe",
+                "add",
+                key,
+                "/v",
+                "Base",
+                "/t",
+                "REG_SZ",
+                "/d",
+                base,
+                "/f",
+            )
+            proton(
+                paths,
+                "runinprefix",
+                "reg.exe",
+                "add",
+                key,
+                "/v",
+                "UseSystemProxy",
+                "/t",
+                "REG_DWORD",
+                "/d",
+                "0",
+                "/f",
+            )
         for key in (
             r"HKLM\Software\Oculus VR, LLC\Oculus",
             r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus",
         ):
-            proton(paths, "runinprefix", "reg.exe", "add", key, "/v", "Gestalt", "/t", "REG_DWORD", "/d", "1", "/f")
+            proton(
+                paths,
+                "runinprefix",
+                "reg.exe",
+                "add",
+                key,
+                "/v",
+                "Gestalt",
+                "/t",
+                "REG_DWORD",
+                "/d",
+                "1",
+                "/f",
+            )
         for key in (
             r"HKCU\Software\Oculus VR, LLC\Oculus\Config",
             r"HKLM\Software\Oculus VR, LLC\Oculus\Config",
             r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus\Config",
         ):
-            proton(paths, "runinprefix", "reg.exe", "add", key, "/v", "UseSystemProxy", "/t", "REG_DWORD", "/d", "0", "/f")
+            proton(
+                paths,
+                "runinprefix",
+                "reg.exe",
+                "add",
+                key,
+                "/v",
+                "UseSystemProxy",
+                "/t",
+                "REG_DWORD",
+                "/d",
+                "0",
+                "/f",
+            )
         wow_config = r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus\Config"
-        for name, value in (("CldrLocaleCode", "en"), ("FbtLocaleCode", "en_US"), ("LanguageTag", "en-US")):
-            proton(paths, "runinprefix", "reg.exe", "add", wow_config, "/v", name, "/t", "REG_SZ", "/d", value, "/f")
-        proton(paths, "runinprefix", "reg.exe", "add", wow_config, "/v", "HomeDemoMode", "/t", "REG_DWORD", "/d", "0", "/f")
-        protocol = r'"C:\Program Files\Oculus\Support\oculus-client\Client.exe" -- --url "%1"'
-        proton(paths, "runinprefix", "reg.exe", "add", r"HKCU\Software\Classes\oculus\shell\open\command", "/ve", "/t", "REG_SZ", "/d", protocol, "/f")
+        for name, value in (
+            ("CldrLocaleCode", "en"),
+            ("FbtLocaleCode", "en_US"),
+            ("LanguageTag", "en-US"),
+        ):
+            proton(
+                paths,
+                "runinprefix",
+                "reg.exe",
+                "add",
+                wow_config,
+                "/v",
+                name,
+                "/t",
+                "REG_SZ",
+                "/d",
+                value,
+                "/f",
+            )
+        proton(
+            paths,
+            "runinprefix",
+            "reg.exe",
+            "add",
+            wow_config,
+            "/v",
+            "HomeDemoMode",
+            "/t",
+            "REG_DWORD",
+            "/d",
+            "0",
+            "/f",
+        )
+        protocol = (
+            r'"C:\Program Files\Oculus\Support\oculus-client\Client.exe" -- --url "%1"'
+        )
+        proton(
+            paths,
+            "runinprefix",
+            "reg.exe",
+            "add",
+            r"HKCU\Software\Classes\oculus\shell\open\command",
+            "/ve",
+            "/t",
+            "REG_SZ",
+            "/d",
+            protocol,
+            "/f",
+        )
         service = r"HKLM\System\CurrentControlSet\Services\OVRService"
         values = (
             ("DisplayName", "REG_SZ", "Oculus VR Runtime Service"),
             ("Description", "REG_SZ", "Oculus VR Runtime Service"),
-            ("ImagePath", "REG_EXPAND_SZ", r'"C:\Program Files\Oculus\Support\oculus-runtime\OVRServiceLauncher.exe"'),
+            (
+                "ImagePath",
+                "REG_EXPAND_SZ",
+                r'"C:\Program Files\Oculus\Support\oculus-runtime\OVRServiceLauncher.exe"',
+            ),
             ("ObjectName", "REG_SZ", "LocalSystem"),
             ("Type", "REG_DWORD", "16"),
             ("Start", "REG_DWORD", "2"),
             ("ErrorControl", "REG_DWORD", "1"),
         )
         for name, kind, value in values:
-            proton(paths, "runinprefix", "reg.exe", "add", service, "/v", name, "/t", kind, "/d", value, "/f")
+            proton(
+                paths,
+                "runinprefix",
+                "reg.exe",
+                "add",
+                service,
+                "/v",
+                name,
+                "/t",
+                kind,
+                "/d",
+                value,
+                "/f",
+            )
         registration.write_text("1\n")
     return support
 
 
 def install_revive(paths: Paths) -> Path:
     destination = paths.tools / "revive"
-    required = ("ReviveInjector.exe", "LibReviveXR64.dll", "openvr_api64.dll", "LibOVRPlatformImpl64_1.dll")
+    required = (
+        "ReviveInjector.exe",
+        "LibReviveXR64.dll",
+        "openvr_api64.dll",
+        "LibOVRPlatformImpl64_1.dll",
+    )
     if all((destination / name).is_file() for name in required):
         return destination
     override = os.environ.get("RIFTLIFT_REVIVE_ARCHIVE")
     archive = (
         Path(override).expanduser()
         if override
-        else download(REVIVE_URL, paths.cache / f"riftlift-compat-{REVIVE_VERSION}.zip", REVIVE_SHA256)
+        else download(
+            REVIVE_URL,
+            paths.cache / f"riftlift-compat-{REVIVE_VERSION}.zip",
+            REVIVE_SHA256,
+        )
     )
     if destination.exists():
         shutil.rmtree(destination)
@@ -430,7 +573,9 @@ def install_platform_compat(paths: Paths) -> Path:
     bundled = paths.tools / "revive" / "LibOVRPlatformImpl64_1.dll"
     shim = Path(override).expanduser() if override else bundled
     if not shim.is_file():
-        raise RiftLiftError("RiftLift platform compatibility DLL is missing from the release payload")
+        raise RiftLiftError(
+            "RiftLift platform compatibility DLL is missing from the release payload"
+        )
     shutil.copy2(shim, destination / "LibOVRPlatformImpl64_1.dll")
     shutil.copy2(shim, runtime_impl)
     return destination
@@ -490,7 +635,9 @@ def complete_login(paths: Paths, callback_url: str) -> int:
 def login(paths: Paths) -> int:
     support = install_meta_runtime(paths)
     client = support / "oculus-client/Client.exe"
-    print("Sign in in the Meta Horizon Link window. RiftLift keeps this shared prefix for future games.")
+    print(
+        "Sign in in the Meta Horizon Link window. RiftLift keeps this shared prefix for future games."
+    )
     arguments = ["run", str(client)]
     if debug_port := os.environ.get("RIFTLIFT_CLIENT_DEBUG_PORT"):
         arguments.append(f"--remote-debugging-port={int(debug_port)}")
@@ -507,8 +654,16 @@ def active_runtime_json() -> Path:
     # named Monado manifests are fallbacks for distributions that install the
     # runtime but omit the user-level selector.
     data_dirs = [Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))]
-    data_dirs.extend(Path(item) for item in os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":") if item)
-    candidates.extend(directory / "openxr/1/openxr_monado.json" for directory in data_dirs)
+    data_dirs.extend(
+        Path(item)
+        for item in os.environ.get(
+            "XDG_DATA_DIRS", "/usr/local/share:/usr/share"
+        ).split(":")
+        if item
+    )
+    candidates.extend(
+        directory / "openxr/1/openxr_monado.json" for directory in data_dirs
+    )
     candidates.append(Path("/etc/openxr/1/active_runtime.json"))
 
     seen: set[Path] = set()
@@ -524,7 +679,9 @@ def active_runtime_json() -> Path:
             library = manifest["runtime"]["library_path"]
         except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
             if explicit and candidate == Path(explicit).expanduser():
-                raise RiftLiftError(f"XR_RUNTIME_JSON is not a valid OpenXR runtime manifest: {candidate}") from error
+                raise RiftLiftError(
+                    f"XR_RUNTIME_JSON is not a valid OpenXR runtime manifest: {candidate}"
+                ) from error
             continue
         if not isinstance(library, str) or not library:
             continue
@@ -535,7 +692,9 @@ def active_runtime_json() -> Path:
     )
 
 
-def launch_environment(paths: Paths, game_dir: Path, platform_shim: bool, platform_offline: bool = False) -> dict[str, str]:
+def launch_environment(
+    paths: Paths, game_dir: Path, platform_shim: bool, platform_offline: bool = False
+) -> dict[str, str]:
     environment = proton_environment(paths, game_dir)
     runtime = active_runtime_json()
     existing_overrides = environment.get("WINEDLLOVERRIDES", "").strip(";")
@@ -554,7 +713,9 @@ def launch_environment(paths: Paths, game_dir: Path, platform_shim: bool, platfo
     if platform_shim:
         compatibility = install_platform_compat(paths)
         compatibility_win = linux_to_windows(compatibility)
-        meta_runtime = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime"
+        meta_runtime = (
+            paths.prefix / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime"
+        )
         meta_runtime_win = linux_to_windows(meta_runtime)
         # Do not set LIBOVR_DLL_DIR here. OVRPlugin uses that variable for the
         # VR runtime as well as the Platform SDK; pointing it at our platform

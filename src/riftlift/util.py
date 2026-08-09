@@ -21,8 +21,12 @@ def command(name: str) -> str:
     return value
 
 
-def run(arguments: Iterable[str | os.PathLike[str]], **kwargs: object) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([os.fspath(value) for value in arguments], check=True, text=True, **kwargs)
+def run(
+    arguments: Iterable[str | os.PathLike[str]], **kwargs: object
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [os.fspath(value) for value in arguments], check=True, text=True, **kwargs
+    )
 
 
 def sha256(path: Path) -> str:
@@ -49,7 +53,9 @@ def download(url: str, target: Path, expected_sha256: str = "") -> Path:
     actual = sha256(temporary)
     if expected_sha256 and actual != expected_sha256:
         temporary.unlink(missing_ok=True)
-        raise RiftLiftError(f"checksum mismatch for {target.name}: expected {expected_sha256}, got {actual}")
+        raise RiftLiftError(
+            f"checksum mismatch for {target.name}: expected {expected_sha256}, got {actual}"
+        )
     temporary.chmod(0o644)
     temporary.replace(target)
     return target
@@ -58,4 +64,3 @@ def download(url: str, target: Path, expected_sha256: str = "") -> Path:
 def linux_to_windows(path: Path) -> str:
     absolute = path.expanduser().resolve()
     return "Z:" + str(absolute).replace("/", "\\")
-

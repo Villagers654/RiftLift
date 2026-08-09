@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "riftlift"
-version = "0.3.1"
+version = "0.4.0"
 description = "Plug-and-play Meta Rift games for working Linux OpenXR runtimes"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,3 +39,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.black]
+target-version = ["py310"]

@@ -15,7 +15,6 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 from .config import Game, Paths
 from .util import RiftLiftError
 
-
 STORE_URL = "https://www.meta.com/experiences/pcvr/{app_id}/"
 USER_AGENT = "RiftLift/0.2 (+https://github.com/Villagers654/RiftLift)"
 
@@ -29,7 +28,10 @@ class _JsonLdParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
-        if tag.lower() == "script" and values.get("type", "").lower() == "application/ld+json":
+        if (
+            tag.lower() == "script"
+            and values.get("type", "").lower() == "application/ld+json"
+        ):
             self._capturing = True
             self._chunks = []
 
@@ -79,23 +81,26 @@ def parse_catalog_html(payload: str, app_id: str) -> CatalogMetadata:
         if isinstance(values, list):
             graph.extend(value for value in values if isinstance(value, dict))
     entities = {
-        value["@id"]: value
-        for value in graph
-        if isinstance(value.get("@id"), str)
+        value["@id"]: value for value in graph if isinstance(value.get("@id"), str)
     }
     application = next(
         (
             value
             for value in graph
             if str(value.get("sku", "")) == app_id
-            and "SoftwareApplication" in (
-                value.get("@type") if isinstance(value.get("@type"), list) else [value.get("@type")]
+            and "SoftwareApplication"
+            in (
+                value.get("@type")
+                if isinstance(value.get("@type"), list)
+                else [value.get("@type")]
             )
         ),
         None,
     )
     if application is None:
-        raise RiftLiftError(f"Meta's store page has no catalog metadata for app {app_id}")
+        raise RiftLiftError(
+            f"Meta's store page has no catalog metadata for app {app_id}"
+        )
     images = application.get("image", [])
     if not isinstance(images, list):
         images = [images]
@@ -104,7 +109,9 @@ def parse_catalog_html(payload: str, app_id: str) -> CatalogMetadata:
         if isinstance(image, str):
             image_url = image
         elif isinstance(image, dict):
-            image_url = str(image.get("contentUrl") or image.get("url") or image.get("@id") or "")
+            image_url = str(
+                image.get("contentUrl") or image.get("url") or image.get("@id") or ""
+            )
         if image_url:
             break
     categories = application.get("applicationSubCategory", [])
@@ -122,10 +129,14 @@ def parse_catalog_html(payload: str, app_id: str) -> CatalogMetadata:
 
 
 def fetch_catalog_metadata(app_id: str) -> CatalogMetadata:
-    request = urllib.request.Request(STORE_URL.format(app_id=app_id), headers={"User-Agent": USER_AGENT})
+    request = urllib.request.Request(
+        STORE_URL.format(app_id=app_id), headers={"User-Agent": USER_AGENT}
+    )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            payload = response.read().decode(response.headers.get_content_charset() or "utf-8", errors="replace")
+            payload = response.read().decode(
+                response.headers.get_content_charset() or "utf-8", errors="replace"
+            )
     except (OSError, TimeoutError) as error:
         raise RiftLiftError(f"could not read Meta catalog metadata: {error}") from error
     return parse_catalog_html(payload, app_id)
@@ -137,15 +148,24 @@ def _request_bytes(url: str) -> bytes:
         with urllib.request.urlopen(request, timeout=30) as response:
             return response.read()
     except (OSError, TimeoutError) as error:
-        raise RiftLiftError(f"could not download Meta catalog artwork: {error}") from error
+        raise RiftLiftError(
+            f"could not download Meta catalog artwork: {error}"
+        ) from error
 
 
 def _portrait(source: Image.Image, size: tuple[int, int]) -> Image.Image:
-    background = ImageOps.fit(source.convert("RGB"), size, method=Image.Resampling.LANCZOS)
+    background = ImageOps.fit(
+        source.convert("RGB"), size, method=Image.Resampling.LANCZOS
+    )
     background = background.filter(ImageFilter.GaussianBlur(max(size) / 35))
     foreground = source.convert("RGB").copy()
-    foreground.thumbnail((int(size[0] * 0.94), int(size[1] * 0.94)), Image.Resampling.LANCZOS)
-    background.paste(foreground, ((size[0] - foreground.width) // 2, (size[1] - foreground.height) // 2))
+    foreground.thumbnail(
+        (int(size[0] * 0.94), int(size[1] * 0.94)), Image.Resampling.LANCZOS
+    )
+    background.paste(
+        foreground,
+        ((size[0] - foreground.width) // 2, (size[1] - foreground.height) // 2),
+    )
     return background
 
 
@@ -166,13 +186,28 @@ def _logo(name: str, size: tuple[int, int]) -> Image.Image:
     font_size = 150
     while font_size >= 28:
         font = _font(font_size)
-        box = draw.multiline_textbbox((0, 0), text, font=font, align="center", stroke_width=5)
+        box = draw.multiline_textbbox(
+            (0, 0), text, font=font, align="center", stroke_width=5
+        )
         if box[2] - box[0] <= size[0] - 20 and box[3] - box[1] <= size[1] - 20:
             break
         font_size -= 4
-    box = draw.multiline_textbbox((0, 0), text, font=font, align="center", stroke_width=5)
-    at = ((size[0] - (box[2] - box[0])) // 2, (size[1] - (box[3] - box[1])) // 2 - box[1])
-    draw.multiline_text(at, text, font=font, fill="white", stroke_width=5, stroke_fill="black", align="center")
+    box = draw.multiline_textbbox(
+        (0, 0), text, font=font, align="center", stroke_width=5
+    )
+    at = (
+        (size[0] - (box[2] - box[0])) // 2,
+        (size[1] - (box[3] - box[1])) // 2 - box[1],
+    )
+    draw.multiline_text(
+        at,
+        text,
+        font=font,
+        fill="white",
+        stroke_width=5,
+        stroke_fill="black",
+        align="center",
+    )
     return image
 
 
@@ -183,12 +218,20 @@ def generate_artwork(paths: Paths, game: Game, image_payload: bytes) -> dict[str
         source = Image.open(io.BytesIO(image_payload))
         source.load()
     except (OSError, ValueError) as error:
-        raise RiftLiftError(f"Meta catalog artwork could not be decoded: {error}") from error
+        raise RiftLiftError(
+            f"Meta catalog artwork could not be decoded: {error}"
+        ) from error
     images = {
-        "grid": ImageOps.fit(source.convert("RGB"), (920, 430), method=Image.Resampling.LANCZOS),
+        "grid": ImageOps.fit(
+            source.convert("RGB"), (920, 430), method=Image.Resampling.LANCZOS
+        ),
         "portrait": _portrait(source, (600, 900)),
-        "hero": ImageOps.fit(source.convert("RGB"), (1920, 620), method=Image.Resampling.LANCZOS),
-        "icon": ImageOps.fit(source.convert("RGB"), (256, 256), method=Image.Resampling.LANCZOS),
+        "hero": ImageOps.fit(
+            source.convert("RGB"), (1920, 620), method=Image.Resampling.LANCZOS
+        ),
+        "icon": ImageOps.fit(
+            source.convert("RGB"), (256, 256), method=Image.Resampling.LANCZOS
+        ),
         "logo": _logo(game.name, (1200, 400)),
     }
     result: dict[str, str] = {}

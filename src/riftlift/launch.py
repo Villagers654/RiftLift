@@ -39,12 +39,18 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         *game.arguments,
         *extra_arguments,
     ]
-    environment = launch_environment(paths, game.game_dir, game.platform_shim, game.platform_offline)
+    environment = launch_environment(
+        paths, game.game_dir, game.platform_shim, game.platform_offline
+    )
     wrapper_value = os.environ.get("RIFTLIFT_LAUNCH_WRAPPER", "").strip()
     wrapper: list[str] = []
     if wrapper_value:
         wrapper = shlex.split(wrapper_value)
         if not wrapper or not shutil.which(wrapper[0]):
-            raise RiftLiftError(f"configured launch wrapper was not found: {wrapper_value}")
-    print(f"Launching {game.name} through ReviveXR -> WineOpenXR -> active OpenXR runtime...")
+            raise RiftLiftError(
+                f"configured launch wrapper was not found: {wrapper_value}"
+            )
+    print(
+        f"Launching {game.name} through ReviveXR -> WineOpenXR -> active OpenXR runtime..."
+    )
     return subprocess.call([*wrapper, *arguments], cwd=game.game_dir, env=environment)

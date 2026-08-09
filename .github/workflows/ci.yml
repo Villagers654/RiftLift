@@ -16,8 +16,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install pytest Pillow
+      - run: python -m pip install black pytest Pillow
       - run: python -m pip install "git+https://github.com/Villagers654/meta-pcvr-downloader.git@v0.1.1" . --no-deps
       - run: pytest -q
+      - run: black --check src tests
       - run: python -m compileall -q src
       - run: bash -n install.sh scripts/*.sh

@@ -4,7 +4,6 @@ import struct
 from collections.abc import Mapping
 from typing import Any
 
-
 TYPE_OBJECT = 0x00
 TYPE_STRING = 0x01
 TYPE_INT32 = 0x02
