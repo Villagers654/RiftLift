@@ -23,5 +23,7 @@ def test_injector_uses_existing_prefix_and_windows_game_path(tmp_path: Path, mon
     game = Game("sample", "Sample", "1", "sample-key", str(executable.parents[1]), "Binaries/Game.exe", ["-vr"])
     assert launch(paths, game, []) == 0
     assert captured["command"][1] == "runinprefix"
-    assert captured["command"][6].startswith("Z:\\")
-    assert captured["command"][6].endswith("\\Binaries\\Game.exe")
+    assert "/wait" in captured["command"]
+    game_path = captured["command"][captured["command"].index("sample-key") + 1]
+    assert game_path.startswith("Z:\\")
+    assert game_path.endswith("\\Binaries\\Game.exe")
