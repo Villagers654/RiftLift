@@ -523,12 +523,16 @@ def launch_environment(paths: Paths, game_dir: Path, platform_shim: bool, platfo
     if platform_shim:
         compatibility = install_platform_compat(paths)
         compatibility_win = linux_to_windows(compatibility)
+        meta_runtime = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime"
+        meta_runtime_win = linux_to_windows(meta_runtime)
         # Do not set LIBOVR_DLL_DIR here. OVRPlugin uses that variable for the
         # VR runtime as well as the Platform SDK; pointing it at our platform
         # shim makes it reject LibOVRRT before ReviveXR can intercept the load.
-        # WINEPATH is sufficient to select the public Platform SDK loader and
-        # keeps the VR runtime lookup on Revive's normal compatibility path.
-        environment["WINEPATH"] = compatibility_win
+        # Put the compatibility directory first so the Platform SDK still uses
+        # our shim, followed by Meta's signed runtime loader. Newer OVRPlugin
+        # builds verify that signed LibOVRRT file before calling LoadLibrary;
+        # ReviveXR intercepts that final load and substitutes itself.
+        environment["WINEPATH"] = f"{compatibility_win};{meta_runtime_win}"
         if platform_offline:
             environment["RIFTLIFT_PLATFORM_OFFLINE"] = "1"
     return environment
