@@ -25,8 +25,8 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         "runinprefix",
         str(revive / "ReviveInjector.exe"),
         # Keep the launch wrapper alive until the injected title exits. This
-        # preserves compositor ownership and prevents WayVR/Steam from being
-        # restored on top of a game whose injector has already detached.
+        # preserves compositor ownership and prevents a host dashboard from
+        # being restored on top of a game whose injector has already detached.
         "/wait",
         "/openxr",
         "/app",

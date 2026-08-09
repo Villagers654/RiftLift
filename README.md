@@ -121,8 +121,8 @@ This verifies the active OpenXR runtime, Steam, GE-Proton, ReviveXR, Meta
 client, platform bridge, and every registered executable without printing
 account secrets. Set `RIFTLIFT_PROTON_LOG=1` for a Proton log. Set
 `RIFTLIFT_LAUNCH_WRAPPER='your-runtime-start-wrapper'` when a headset integration
-must start or hand off its compositor before the game. If
-`psvr2-fossvr-run` is installed, RiftLift discovers it automatically.
+must start or hand off its compositor before the game. RiftLift never guesses a
+device-specific wrapper; a normally running Monado setup needs no wrapper.
 
 ## Updating
 
