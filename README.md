@@ -1,7 +1,7 @@
 # RiftLift
 
 RiftLift brings owned Meta Rift PC games into standards-based Linux OpenXR. It
-combines maintained Revive and xrizer forks, GE-Proton, WineOpenXR, Meta's PC
+combines a maintained Revive fork, GE-Proton, WineOpenXR, Meta's PC
 client/runtime, and the entitlement-respecting
 [meta-pcvr-downloader](https://github.com/Villagers654/meta-pcvr-downloader)
 behind one small command-line interface. The primary path targets Monado and
@@ -13,8 +13,9 @@ does not require SteamVR.
 
 ## Install
 
-Requirements: an x86-64 Linux desktop, Steam, a working OpenXR runtime such as
-Monado, Python 3.10+, and roughly 1 GiB for compatibility tools (plus games).
+Requirements: an x86-64 Linux desktop, Steam, a working Monado/OpenXR setup,
+Python 3.10+, and roughly 1 GiB for compatibility tools (plus games). RiftLift
+does not install or patch headset drivers, Monado, or a compositor.
 
 ```bash
 git clone https://github.com/Villagers654/RiftLift.git
@@ -26,6 +27,13 @@ The installer creates an isolated environment under
 `~/.local/share/riftlift`, installs the current GE-Proton and compatibility
 payload, and creates one reusable Proton prefix. It does not modify a system
 Wine installation.
+
+RiftLift discovers the standard active OpenXR manifest automatically. No
+PSVR2-specific scripts, Envision profile, SteamVR compositor, or device-specific
+Monado fork is required. If your working Monado setup uses a nonstandard
+manifest location, export `XR_RUNTIME_JSON=/path/to/openxr_monado.json`.
+See [Architecture and ownership](docs/ARCHITECTURE.md) for the stable boundary
+between RiftLift and headset integrations.
 
 It also installs a native Qt 6 RiftLift desktop app in your application menu. Open
 it there or run `riftlift gui` (equivalently, `riftlift-gui`) to browse your
@@ -95,12 +103,13 @@ responses only after the downloader has verified ownership. Unhandled Platform
 SDK functions and messages forward to Meta's original DLL. This is a Wine
 compatibility fix, not DRM or purchase bypass tooling.
 
-The maintained forks are:
+The maintained compatibility projects are:
 
 - [RiftLift Revive](https://github.com/Villagers654/Revive), with WineOpenXR,
   Vulkan swapchain, session lifecycle, and Monado fixes.
-- [RiftLift xrizer](https://github.com/Villagers654/xrizer), with Linux loader
-  fallback and OpenXR stage-bound chaperone support for OpenVR fallbacks.
+- [RiftLift xrizer](https://github.com/Villagers654/xrizer), maintained
+  independently for OpenVR-on-OpenXR setups. Rift games use ReviveXR directly,
+  so RiftLift does not replace or inject over a host's existing xrizer.
 
 ## Troubleshooting
 

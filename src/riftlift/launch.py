@@ -41,14 +41,10 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
     ]
     environment = launch_environment(paths, game.game_dir, game.platform_shim, game.platform_offline)
     wrapper_value = os.environ.get("RIFTLIFT_LAUNCH_WRAPPER", "").strip()
-    if not wrapper_value:
-        # Headset integrations can own runtime startup and dashboard handoff
-        # without RiftLift depending on a specific device.
-        automatic = shutil.which("psvr2-fossvr-run")
-        wrapper = [automatic] if automatic else []
-    else:
+    wrapper: list[str] = []
+    if wrapper_value:
         wrapper = shlex.split(wrapper_value)
         if not wrapper or not shutil.which(wrapper[0]):
             raise RiftLiftError(f"configured launch wrapper was not found: {wrapper_value}")
-    print(f"Launching {game.name} through ReviveXR -> WineOpenXR -> Monado...")
+    print(f"Launching {game.name} through ReviveXR -> WineOpenXR -> active OpenXR runtime...")
     return subprocess.call([*wrapper, *arguments], cwd=game.game_dir, env=environment)

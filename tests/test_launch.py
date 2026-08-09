@@ -2,7 +2,8 @@ from pathlib import Path
 
 from riftlift.config import Game, Paths
 from riftlift.launch import launch
-from riftlift.runtime import launch_environment
+from riftlift.runtime import launch_environment, setup
+from riftlift.util import RiftLiftError
 
 
 def test_injector_uses_existing_prefix_and_windows_game_path(tmp_path: Path, monkeypatch) -> None:
@@ -17,7 +18,6 @@ def test_injector_uses_existing_prefix_and_windows_game_path(tmp_path: Path, mon
     monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
     monkeypatch.setattr("riftlift.launch.install_revive", lambda _paths: revive)
     monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
-    monkeypatch.setattr("riftlift.launch.shutil.which", lambda _name: None)
     captured = {}
     monkeypatch.setattr("riftlift.launch.subprocess.call", lambda command, **kwargs: captured.update(command=command, **kwargs) or 0)
 
@@ -45,3 +45,49 @@ def test_platform_shim_does_not_redirect_oculus_vr_runtime(tmp_path: Path, monke
     assert runtime_path.endswith("\\Program Files\\Oculus\\Support\\oculus-runtime")
     assert "LIBOVR_DLL_DIR" not in environment
     assert environment["WINEDLLOVERRIDES"] == "d3d11=n;dxgi=n"
+
+
+def test_active_runtime_uses_explicit_standard_manifest(tmp_path: Path, monkeypatch) -> None:
+    runtime = tmp_path / "custom-monado.json"
+    runtime.write_text('{"file_format_version":"1.0.0","runtime":{"library_path":"libopenxr_monado.so"}}')
+    monkeypatch.setenv("XR_RUNTIME_JSON", str(runtime))
+
+    from riftlift.runtime import active_runtime_json
+
+    assert active_runtime_json() == runtime.resolve()
+
+
+def test_setup_checks_openxr_before_installing_components(tmp_path: Path, monkeypatch) -> None:
+    paths = Paths(tmp_path / "data", tmp_path / "cache", tmp_path / "config", tmp_path / "games", tmp_path / "prefix", tmp_path / "tools")
+    actions: list[str] = []
+    monkeypatch.setattr("riftlift.runtime.active_runtime_json", lambda: (_ for _ in ()).throw(RiftLiftError("no runtime")))
+    monkeypatch.setattr("riftlift.runtime.install_proton", lambda _paths: actions.append("proton"))
+
+    try:
+        setup(paths)
+    except RiftLiftError as error:
+        assert str(error) == "no runtime"
+    else:
+        raise AssertionError("setup unexpectedly continued without OpenXR")
+    assert actions == []
+
+
+def test_launch_has_no_device_specific_wrapper(tmp_path: Path, monkeypatch) -> None:
+    paths = Paths(tmp_path / "data", tmp_path / "cache", tmp_path / "config", tmp_path / "games", tmp_path / "prefix", tmp_path / "tools")
+    executable = paths.games / "sample/Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    revive = tmp_path / "revive"
+    proton.mkdir()
+    revive.mkdir()
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr("riftlift.launch.install_revive", lambda _paths: revive)
+    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
+    monkeypatch.delenv("RIFTLIFT_LAUNCH_WRAPPER", raising=False)
+    captured: dict[str, object] = {}
+    monkeypatch.setattr("riftlift.launch.subprocess.call", lambda command, **kwargs: captured.update(command=command, **kwargs) or 0)
+
+    game = Game("sample", "Sample", "1", "sample-key", str(executable.parent), executable.name, [])
+    assert launch(paths, game, []) == 0
+    assert captured["command"][0] == str(proton / "proton")

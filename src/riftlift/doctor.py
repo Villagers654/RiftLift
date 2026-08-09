@@ -18,7 +18,7 @@ def doctor(paths: Paths) -> int:
         except Exception as error:
             checks.append((label, False, str(error)))
 
-    check("OpenXR runtime", active_runtime_json)
+    check("Active OpenXR runtime", active_runtime_json)
     check("Steam", steam_root)
     check("GE-Proton", lambda: (proton_dir() / "proton") if (proton_dir() / "proton").is_file() else (_ for _ in ()).throw(FileNotFoundError("not installed")))
     check("ReviveXR", lambda: paths.tools / "revive/LibReviveXR64.dll" if (paths.tools / "revive/LibReviveXR64.dll").is_file() else (_ for _ in ()).throw(FileNotFoundError("not installed")))

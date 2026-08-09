@@ -437,6 +437,10 @@ def install_platform_compat(paths: Paths) -> Path:
 
 
 def setup(paths: Paths) -> None:
+    # Fail before downloading gigabytes if the host is not actually ready to
+    # run OpenXR applications. RiftLift consumes an existing runtime; headset
+    # drivers and compositor lifecycle remain the host setup's responsibility.
+    active_runtime_json()
     paths.create()
     install_proton(paths)
     install_meta_runtime(paths)
@@ -496,17 +500,39 @@ def login(paths: Paths) -> int:
 def active_runtime_json() -> Path:
     explicit = os.environ.get("XR_RUNTIME_JSON")
     candidates = [Path(explicit)] if explicit else []
-    candidates.extend(
-        (
-            Path.home() / ".config/openxr/1/active_runtime.json",
-            Path("/usr/share/openxr/1/openxr_monado.json"),
-            Path("/usr/local/share/openxr/1/openxr_monado.json"),
-        )
-    )
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    candidates.append(config_home / "openxr/1/active_runtime.json")
+
+    # A correctly configured loader normally exposes active_runtime.json. The
+    # named Monado manifests are fallbacks for distributions that install the
+    # runtime but omit the user-level selector.
+    data_dirs = [Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))]
+    data_dirs.extend(Path(item) for item in os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":") if item)
+    candidates.extend(directory / "openxr/1/openxr_monado.json" for directory in data_dirs)
+    candidates.append(Path("/etc/openxr/1/active_runtime.json"))
+
+    seen: set[Path] = set()
     for candidate in candidates:
-        if candidate.is_file():
-            return candidate.resolve()
-    raise RiftLiftError("no active Linux OpenXR runtime was found; install/start Monado and retry")
+        candidate = candidate.expanduser()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if not candidate.is_file():
+            continue
+        try:
+            manifest = json.loads(candidate.read_text())
+            library = manifest["runtime"]["library_path"]
+        except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+            if explicit and candidate == Path(explicit).expanduser():
+                raise RiftLiftError(f"XR_RUNTIME_JSON is not a valid OpenXR runtime manifest: {candidate}") from error
+            continue
+        if not isinstance(library, str) or not library:
+            continue
+        return candidate.resolve()
+    raise RiftLiftError(
+        "no active OpenXR runtime was found; select your working Monado manifest with "
+        "~/.config/openxr/1/active_runtime.json or XR_RUNTIME_JSON"
+    )
 
 
 def launch_environment(paths: Paths, game_dir: Path, platform_shim: bool, platform_offline: bool = False) -> dict[str, str]:
