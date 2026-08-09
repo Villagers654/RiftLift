@@ -20,8 +20,8 @@ jobs:
           curl --fail --location --output revive.zip \
             "https://github.com/Villagers654/Revive/releases/download/riftlift-0.1.0/riftlift-revive.zip"
           curl --fail --location --output platform.pkg \
-            "https://securecdn-atl3-3.oculus.com/binaries/download/?id=28039291642329992"
-          echo "69a6dedbf6f997459038e9b9e54d6562431c1a107bec17637d59626ab0d36892  platform.pkg" | sha256sum -c -
+            "https://securecdn-atl3-3.oculus.com/binaries/download/?id=3766757683456363"
+          echo "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009  platform.pkg" | sha256sum -c -
       - name: Build generic Platform SDK bridge
         run: |
           unzip -q platform.pkg LibOVRPlatformImpl64_1.dll

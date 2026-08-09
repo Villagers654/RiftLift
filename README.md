@@ -35,10 +35,11 @@ riftlift login
 
 Sign in to Meta in the Horizon Link window and complete its browser handoff.
 The Meta client, OAF session database, and browser login live in persistent
-locations, so you do not paste or store a fixed access token. RiftLift's game
-downloader reads the short-lived `oc_ac_at` cookie from your signed-in native
-Firefox/Chromium profile only when contacting Meta; it never writes that token
-to disk. If the browser session expires, run `riftlift login` again.
+locations, so you never paste a token or repeat login for every game. RiftLift
+caches the scoped runtime access token created by Horizon Link in a private
+mode-0600 file and refreshes it from that persistent client profile. It does not
+scrape an unrelated browser profile. If Meta expires the session, run
+`riftlift login` again.
 
 ## Download a Rift game and add it to Steam
 
@@ -105,11 +106,10 @@ are preserved, and incompatible partial downloads are rejected.
 ## Legal and security
 
 RiftLift is unaffiliated with Meta, Oculus, Valve, Collabora, or Sony. You must
-own the games you download. Account tokens are consumed in memory and are never
-included in diagnostic output. Runtime archives are pinned and verified before
+own the games you download. The cached runtime token is readable only by your
+user and is never included in diagnostic output. Runtime archives are pinned and verified before
 extraction, archive paths are validated, and Steam's shortcut file is backed up
 before an atomic replacement.
 
 RiftLift is GPL-3.0-or-later. Bundled/upstream components keep their own license
 and notice files.
-

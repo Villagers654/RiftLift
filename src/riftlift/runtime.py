@@ -443,19 +443,20 @@ def install_login_protocol_handler() -> Path:
         "Name=RiftLift Meta Login\n"
         "NoDisplay=true\n"
         f"Exec={executable} callback %u\n"
-        "MimeType=x-scheme-handler/oculus;\n"
+        "MimeType=x-scheme-handler/oculus;x-scheme-handler/oculus-client;\n"
     )
     desktop.chmod(0o755)
     if update_database := shutil.which("update-desktop-database"):
         run((update_database, str(applications)))
     if xdg_mime := shutil.which("xdg-mime"):
         run((xdg_mime, "default", desktop.name, "x-scheme-handler/oculus"))
+        run((xdg_mime, "default", desktop.name, "x-scheme-handler/oculus-client"))
     return desktop
 
 
 def complete_login(paths: Paths, callback_url: str) -> int:
     """Forward a browser's oculus:// callback into the persistent prefix."""
-    if not callback_url.startswith("oculus://"):
+    if not callback_url.startswith(("oculus://", "oculus-client://")):
         raise RiftLiftError("Meta login callback must use the oculus:// scheme")
     support = install_meta_runtime(paths)
     client = support / "oculus-client/Client.exe"
