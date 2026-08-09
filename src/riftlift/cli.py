@@ -12,6 +12,7 @@ from .config import Game, Paths, games
 from .doctor import doctor
 from .launch import launch
 from .library import add
+from .metadata import populate_game_metadata
 from .runtime import complete_login, login, setup
 from .steam import sync_with_restart
 from .util import RiftLiftError
@@ -44,6 +45,9 @@ def parser() -> argparse.ArgumentParser:
     launch_command.add_argument("arguments", nargs=argparse.REMAINDER)
     commands.add_parser("list", help="list installed RiftLift games")
     commands.add_parser("steam-sync", help="safely synchronize all RiftLift games into Steam")
+    metadata_command = commands.add_parser("metadata", help="fetch artwork and catalog metadata")
+    metadata_command.add_argument("slug", nargs="?", help="one installed game (default: all)")
+    metadata_command.add_argument("--refresh", action="store_true", help="refresh cached catalog data and artwork")
     commands.add_parser("doctor", help="verify the runtime, Steam, and installed games")
     return root
 
@@ -86,6 +90,12 @@ def run(arguments: argparse.Namespace) -> int:
         return 0
     if arguments.command == "steam-sync":
         print(sync_with_restart(paths))
+        return 0
+    if arguments.command == "metadata":
+        installed = [Game.load(paths, arguments.slug)] if arguments.slug else games(paths)
+        for game in installed:
+            populate_game_metadata(paths, game, refresh=arguments.refresh)
+            print(f"Updated metadata for {game.name}.")
         return 0
     if arguments.command == "doctor":
         return doctor(paths)

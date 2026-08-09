@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "riftlift"
-version = "0.1.0"
+version = "0.2.0"
 description = "Run owned Meta Rift games on standards-based Linux OpenXR runtimes"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -18,7 +18,10 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Games/Entertainment",
 ]
-dependencies = ["meta-pcvr-downloader @ git+https://github.com/Villagers654/meta-pcvr-downloader.git@v0.1.1"]
+dependencies = [
+  "meta-pcvr-downloader @ git+https://github.com/Villagers654/meta-pcvr-downloader.git@v0.1.1",
+  "Pillow>=10",
+]
 
 [project.urls]
 Homepage = "https://github.com/Villagers654/RiftLift"

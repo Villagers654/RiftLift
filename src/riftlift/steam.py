@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import binascii
+import json
 import os
 import shutil
 import subprocess
@@ -42,14 +43,15 @@ def shortcut_app_id(executable: str, name: str) -> int:
     return checksum | 0x80000000
 
 
-def _shortcut(game: Game, launcher: Path) -> dict[str, Any]:
+def _shortcut(game: Game, launcher: Path, app_id: int | None = None, last_played: int = 0) -> dict[str, Any]:
     executable = f'"{launcher}"'
+    tags = ["VR", "RiftLift", *game.genres]
     return {
-        "appid": shortcut_app_id(executable, game.name),
+        "appid": app_id or shortcut_app_id(executable, game.name),
         "appname": game.name,
         "exe": executable,
         "StartDir": f'"{game.game_dir}"',
-        "icon": "",
+        "icon": game.artwork.get("icon", ""),
         "ShortcutPath": "",
         "LaunchOptions": f"launch {game.slug}",
         "IsHidden": 0,
@@ -58,10 +60,65 @@ def _shortcut(game: Game, launcher: Path) -> dict[str, Any]:
         "OpenVR": 1,
         "Devkit": 0,
         "DevkitGameID": "",
-        "LastPlayTime": 0,
+        "LastPlayTime": last_played,
         "FlatpakAppID": "",
-        "tags": {"0": "VR", "1": "RiftLift"},
+        "tags": {str(index): value for index, value in enumerate(dict.fromkeys(tags))},
     }
+
+
+def _existing_by_slug(shortcuts: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for value in shortcuts.values():
+        if not isinstance(value, dict):
+            continue
+        tags = value.get("tags")
+        if not isinstance(tags, dict) or "RiftLift" not in tags.values():
+            continue
+        options = str(value.get("LaunchOptions") or "").split()
+        if len(options) >= 2 and options[0] == "launch":
+            result[options[1]] = value
+    return result
+
+
+def _install_artwork(game: Game, app_id: int, config: Path) -> None:
+    grid = config / "grid"
+    grid.mkdir(parents=True, exist_ok=True)
+    names = {
+        "grid": f"{app_id}.png",
+        "portrait": f"{app_id}p.png",
+        "hero": f"{app_id}_hero.png",
+        "logo": f"{app_id}_logo.png",
+        "icon": f"{app_id}_icon.png",
+    }
+    for kind, filename in names.items():
+        source = Path(game.artwork.get(kind, ""))
+        if source.is_file():
+            shutil.copy2(source, grid / filename)
+
+
+def _install_wayvr_metadata(game: Game, app_id: int) -> None:
+    cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "wayvr"
+    cover = Path(game.artwork.get("portrait", ""))
+    if cover.is_file():
+        target = cache / "cover_arts" / f"{app_id}.bin"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(cover, target)
+    details = {
+        "type": "game",
+        "name": game.name,
+        "is_free": False,
+        "detailed_description": game.description,
+        "short_description": game.description.split("\n\n", 1)[0],
+        "developers": [game.developer] if game.developer else [],
+        "publishers": [game.publisher] if game.publisher else [],
+        "genres": game.genres,
+        "store_url": game.store_url,
+    }
+    target = cache / "app_details" / f"{app_id}.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(details, ensure_ascii=False, indent=2) + "\n")
+    os.replace(temporary, target)
 
 
 def _steam_running() -> bool:
@@ -79,7 +136,9 @@ def sync(paths: Paths, launcher: Path | None = None, *, allow_running: bool = Fa
         raise RiftLiftError(
             "Steam is running. Exit Steam completely, run 'riftlift steam-sync', then reopen it."
         )
-    launcher = (launcher or Path.home() / ".local/bin/riftlift").resolve()
+    launcher = (launcher or Path.home() / ".local/bin/riftlift").expanduser()
+    if not launcher.is_absolute():
+        launcher = launcher.absolute()
     target = user_config() / "shortcuts.vdf"
     document: dict[str, Any] = {"shortcuts": {}}
     if target.is_file():
@@ -91,6 +150,8 @@ def sync(paths: Paths, launcher: Path | None = None, *, allow_running: bool = Fa
     if not isinstance(shortcuts, dict):
         raise RiftLiftError("Steam shortcuts file has an unexpected structure")
 
+    existing = _existing_by_slug(shortcuts)
+
     retained = [
         value
         for value in shortcuts.values()
@@ -98,14 +159,29 @@ def sync(paths: Paths, launcher: Path | None = None, *, allow_running: bool = Fa
             isinstance(value, dict)
             and (
                 value.get("exe") == f'"{launcher}"'
-                or "RiftLift" in (value.get("tags") or {}).values()
+                or (
+                    isinstance(value.get("tags"), dict)
+                    and "RiftLift" in value["tags"].values()
+                )
             )
         )
     ]
-    retained.extend(_shortcut(game, launcher) for game in games(paths))
+    installed_games = games(paths)
+    new_shortcuts = []
+    for game in installed_games:
+        prior = existing.get(game.slug, {})
+        app_id = int(prior.get("appid") or game.steam_app_id or 0) or None
+        shortcut = _shortcut(game, launcher, app_id, int(prior.get("LastPlayTime") or 0))
+        game.steam_app_id = int(shortcut["appid"])
+        new_shortcuts.append(shortcut)
+    retained.extend(new_shortcuts)
     document["shortcuts"] = {str(index): value for index, value in enumerate(retained)}
 
     target.parent.mkdir(parents=True, exist_ok=True)
+    for game in installed_games:
+        game.save(paths)
+        _install_artwork(game, game.steam_app_id, target.parent)
+        _install_wayvr_metadata(game, game.steam_app_id)
     if target.is_file():
         backup = target.with_name(f"shortcuts.vdf.riftlift-{int(time.time())}.bak")
         shutil.copy2(target, backup)

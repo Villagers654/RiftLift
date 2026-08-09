@@ -55,11 +55,19 @@ RiftLift will:
 2. download the newest PC build with per-segment and per-file SHA-256 checks;
 3. save the game's manifest and compatibility record;
 4. safely add a tagged VR shortcut to Steam; and
-5. restart Steam once if it was open, preventing it from overwriting the edit.
+5. install cover, hero, logo, icon, description, developer, publisher, and genre
+   metadata for Steam and WayVR; and
+6. restart Steam once if it was open, preventing it from overwriting the edit.
 
 Start the game from Steam like any other VR title, or run
 `riftlift launch GAME-SLUG`. Future Rift titles use the same command and shared
 prefix. Use `riftlift list` to see their slugs.
+
+RiftLift reads public JSON-LD metadata from the title's official Meta store
+page and keeps a persistent local copy. Run `riftlift metadata` to backfill
+older installs or `riftlift metadata GAME-SLUG --refresh` to refresh it. Steam
+shortcut IDs are preserved across updates, so custom artwork and controller
+layouts do not become detached when RiftLift itself moves or updates.
 
 For unusual manifests, `--executable PATH` and `--arguments '...'` provide an
 explicit escape hatch. `riftlift add --help` documents all options.

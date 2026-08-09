@@ -9,6 +9,8 @@ from meta_pcvr_downloader.download import Downloader, fetch_manifest
 
 from .auth import runtime_access_token
 from .config import Game, Paths
+from .metadata import populate_game_metadata
+from .util import RiftLiftError
 
 
 KNOWN_LAUNCHES = {
@@ -79,4 +81,8 @@ def add(
         platform_offline=app_id == "2031736060288351",
     )
     game.save(paths)
+    try:
+        populate_game_metadata(paths, game)
+    except RiftLiftError as error:
+        print(f"warning: catalog metadata was not available: {error}")
     return game

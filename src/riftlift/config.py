@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +48,13 @@ class Game:
     version: str = ""
     platform_shim: bool = True
     platform_offline: bool = False
+    store_url: str = ""
+    description: str = ""
+    developer: str = ""
+    publisher: str = ""
+    genres: list[str] = field(default_factory=list)
+    artwork: dict[str, str] = field(default_factory=dict)
+    steam_app_id: int = 0
 
     @property
     def game_dir(self) -> Path:
