@@ -44,3 +44,4 @@ def test_platform_shim_does_not_redirect_oculus_vr_runtime(tmp_path: Path, monke
     assert platform_path.endswith("\\platform-compat")
     assert runtime_path.endswith("\\Program Files\\Oculus\\Support\\oculus-runtime")
     assert "LIBOVR_DLL_DIR" not in environment
+    assert environment["WINEDLLOVERRIDES"] == "d3d11=n;dxgi=n"

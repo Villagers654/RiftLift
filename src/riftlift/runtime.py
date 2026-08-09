@@ -512,12 +512,17 @@ def active_runtime_json() -> Path:
 def launch_environment(paths: Paths, game_dir: Path, platform_shim: bool, platform_offline: bool = False) -> dict[str, str]:
     environment = proton_environment(paths, game_dir)
     runtime = active_runtime_json()
+    existing_overrides = environment.get("WINEDLLOVERRIDES", "").strip(";")
     environment.update(
         {
             "XR_RUNTIME_JSON": str(runtime),
             "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
             "OXR_ZERO_TIME_IS_NOW": "1",
             "RIFTLIFT_XRIZER": "1",
+            # Proton's runinprefix verb does not apply its normal per-game DXVK
+            # override. WineD3D lacks IDXGIVkInteropDevice, so WineOpenXR rejects
+            # Revive's D3D11 graphics binding before input can be attached.
+            "WINEDLLOVERRIDES": f"d3d11=n;dxgi=n{';' + existing_overrides if existing_overrides else ''}",
         }
     )
     if platform_shim:
