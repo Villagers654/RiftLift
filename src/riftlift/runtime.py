@@ -17,7 +17,7 @@ from .util import RiftLiftError, download, linux_to_windows, run
 PROTON_VERSION = "GE-Proton11-3"
 PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{PROTON_VERSION}/{PROTON_VERSION}.tar.gz"
 PROTON_SHA256 = "861c2edc8d40d051fb1e7a692deb953be52bd339c46d90f2b7dde50ddad91266"
-REVIVE_VERSION = "riftlift-0.1.0"
+REVIVE_VERSION = "riftlift-0.1.1"
 REVIVE_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.1.0/riftlift-compat.zip"
 
 
