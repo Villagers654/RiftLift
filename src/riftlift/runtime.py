@@ -164,7 +164,10 @@ def install_revive(paths: Paths) -> Path:
 
 
 def install_platform_compat(paths: Paths) -> Path:
-    source = install_meta_runtime(paths) / "oculus-platform-runtime"
+    # The legacy PC Platform SDK DLLs live in the main runtime package. The
+    # similarly named oculus-platform-runtime package is a newer service and
+    # does not contain the link/import DLLs used by Rift games.
+    source = install_meta_runtime(paths) / "oculus-runtime"
     destination = paths.tools / "platform-compat"
     destination.mkdir(parents=True, exist_ok=True)
     for name in ("LibOVRPlatform64_1.dll", "LibOVRP2P64_1.dll"):
