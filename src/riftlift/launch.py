@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .config import Game, Paths
 from .runtime import install_proton, install_revive, launch_environment
-from .util import RiftLiftError
+from .util import RiftLiftError, linux_to_windows
 
 
 def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
@@ -18,12 +18,20 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
     proton = install_proton(paths) / "proton"
     arguments = [
         str(proton),
-        "run",
+        # A persistent Horizon Link prefix always has a Proton wineserver. The
+        # normal `run` verb serializes through Proton's Steam shim and can wait
+        # forever behind that long-lived process; `runinprefix` starts the game
+        # in the existing prefix without that unrelated launch lock.
+        "runinprefix",
         str(revive / "ReviveInjector.exe"),
         "/openxr",
         "/app",
         game.app_key,
-        str(game.executable_path),
+        # ReviveInjector passes this string directly to CreateProcessW. Proton
+        # converts its own executable argument, but it cannot infer that a later
+        # positional argument is another executable. Always give the injector a
+        # Windows path so fresh prefixes do not stall on a Unix pathname.
+        linux_to_windows(game.executable_path),
         *game.arguments,
         *extra_arguments,
     ]
