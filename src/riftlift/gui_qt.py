@@ -19,7 +19,10 @@ from .launch import launch
 from .library import add
 from .metadata import fetch_catalog_metadata, populate_game_metadata
 from .steam import sync_with_restart
+from .steam_oculus import add_steam_game
+from .steam_ui import SteamGamesDialog
 from .theme import STYLE
+from .util import RiftLiftError
 
 LINK_VALIDATION_DELAY_MS = 350
 
@@ -173,8 +176,10 @@ class Window(QtWidgets.QMainWindow):
             self.show_auth,
         )
         self.signin.setObjectName("nav")
+        self.steam_games = self.button("Steam Games", self.steam_dialog)
+        self.steam_games.setObjectName("nav")
         self.addbtn = self.button("Add Game", self.add_dialog, True)
-        for b in (self.check, self.signin, self.addbtn):
+        for b in (self.check, self.signin, self.steam_games, self.addbtn):
             head.addWidget(b)
         outer.addLayout(head)
         outer.addSpacing(20)
@@ -307,6 +312,27 @@ class Window(QtWidgets.QMainWindow):
         elif not is_signed_in(self.paths):
             self.status.setText("Signed out of Meta")
         self.signin.setText("Account" if is_signed_in(self.paths) else "Sign In")
+
+    def steam_dialog(self):
+        dialog = SteamGamesDialog(self.paths, self)
+        if dialog.exec() != QtWidgets.QDialog.Accepted or dialog.selected_game is None:
+            return
+        selected = dialog.selected_game
+
+        def operation():
+            game = add_steam_game(self.paths, selected)
+            try:
+                populate_game_metadata(self.paths, game, refresh=True)
+            except RiftLiftError as error:
+                print(f"warning: Steam catalog metadata was not available: {error}")
+            return game.slug
+
+        self.run_task(
+            f"Adding {selected.name} from Steam",
+            operation,
+            f"Added {selected.name} from Steam",
+            refresh=True,
+        )
 
     def selected(self, item, _old):
         if item and (

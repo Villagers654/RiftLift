@@ -1,7 +1,12 @@
 from pathlib import Path
 
-from riftlift.config import Game
-from riftlift.steam import _existing_by_slug, _install_wayvr_metadata, _shortcut
+from riftlift.config import Game, Paths
+from riftlift.steam import (
+    _existing_by_slug,
+    _install_wayvr_metadata,
+    _shortcut,
+    _shortcut_games,
+)
 
 
 def game() -> Game:
@@ -41,3 +46,28 @@ def test_wayvr_metadata_is_not_created_when_wayvr_is_absent(
     _install_wayvr_metadata(game(), 123)
 
     assert not (tmp_path / "wayvr").exists()
+
+
+def test_native_steam_games_do_not_create_duplicate_shortcuts(tmp_path: Path) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    rift = game()
+    steam = Game(
+        "steam-game",
+        "Steam Game",
+        "456",
+        "steam.app.456",
+        "/games/steam",
+        "game.exe",
+        [],
+    )
+    rift.save(paths)
+    steam.save(paths)
+
+    assert _shortcut_games(paths) == [rift]

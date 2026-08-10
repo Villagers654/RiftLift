@@ -67,6 +67,7 @@ def test_gui_exposes_only_the_primary_library_actions(tmp_path: Path) -> None:
     assert {
         "System",
         "Sign In",
+        "Steam Games",
         "Add Game",
         "⟳",
         "View Activity",

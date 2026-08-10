@@ -82,6 +82,10 @@ def _existing_by_slug(shortcuts: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _shortcut_games(paths: Paths) -> list[Game]:
+    return [game for game in games(paths) if not game.app_key.startswith("steam.app.")]
+
+
 def _install_artwork(game: Game, app_id: int, config: Path) -> None:
     grid = config / "grid"
     grid.mkdir(parents=True, exist_ok=True)
@@ -174,7 +178,7 @@ def sync(
             )
         )
     ]
-    installed_games = games(paths)
+    installed_games = _shortcut_games(paths)
     new_shortcuts = []
     for game in installed_games:
         prior = existing.get(game.slug, {})

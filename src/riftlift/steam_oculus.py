@@ -4,7 +4,7 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
-from .config import Game
+from .config import Game, Paths, games
 from .detection import (
     best_windows_executable,
     is_unreal_shipping,
@@ -126,3 +126,22 @@ def steam_oculus_game(app_id: str, root: Path | None = None) -> Game:
     raise RiftLiftError(
         f"Steam app {app_id} is not an installed 64-bit Oculus PC runtime title"
     )
+
+
+def add_steam_game(paths: Paths, game: Game) -> Game:
+    existing = next(
+        (installed for installed in games(paths) if installed.app_key == game.app_key),
+        None,
+    )
+    if existing is not None:
+        game = replace(game, slug=existing.slug)
+    elif (paths.data / "games" / f"{game.slug}.json").exists():
+        base = f"{game.slug}-steam"
+        slug = base
+        suffix = 2
+        while (paths.data / "games" / f"{slug}.json").exists():
+            slug = f"{base}-{suffix}"
+            suffix += 1
+        game = replace(game, slug=slug)
+    game.save(paths)
+    return game

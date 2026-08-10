@@ -78,6 +78,7 @@ The desktop app is the recommended way to use RiftLift:
 - **System** checks whether RiftLift and your OpenXR setup are ready.
 - **Sign In** opens Meta's sign-in flow.
 - **Add Game** downloads an owned Rift game and optionally adds it to Steam.
+- **Steam Games** finds installed Steam titles with a compatible Oculus mode.
 - **Launch in VR** starts the selected game through your active OpenXR runtime.
 - The **⟳** button reloads games added elsewhere and refreshes store details
   and artwork.
@@ -142,34 +143,34 @@ Rift Store manifests can use `riftlift add --executable PATH` and
 Download concurrency adapts to the CPUs available to RiftLift; use `--jobs` only
 when you want to override it.
 
-## Steam games with an Oculus mode (advanced)
+## Steam games with an Oculus mode
 
-Some Steam games include an Oculus mode even though they were not downloaded
-from the Meta store. Install those games normally in Steam. RiftLift can detect
-64-bit Unity, Unreal, and native Oculus SDK games with:
+Some Windows VR games on Steam include an Oculus mode that RiftLift can send to
+your Linux OpenXR headset. Steam still owns, installs, and updates these games;
+RiftLift only adds the compatible launch path.
 
-```bash
-riftlift steam-oculus-ids
-```
+### Add an installed Steam game
 
-A headset integration can route those Steam app IDs through:
+1. Install the Windows VR game normally in Steam.
+2. Open RiftLift and choose **Steam Games** at the top of the window.
+3. Wait for the scan to finish, select the game, and choose **Add to RiftLift**.
+   No game files are copied or downloaded.
+4. Select the game in RiftLift's library and choose **Launch in VR**.
 
-```bash
-riftlift launch-steam APP_ID -- %command%
-```
+![RiftLift finding installed Steam games with an Oculus mode](docs/images/riftlift-steam-games.png)
 
-This keeps Steam ownership, updates, achievements, artwork, and its normal Play
-button. If a game offers both Oculus and SteamVR/OpenVR modes, RiftLift respects
-the mode selected in Steam instead of forcing Oculus mode.
+Games that are already in the RiftLift library are labeled clearly and can be
+refreshed from the same screen. RiftLift gets their name, description,
+developer, genres, store link, and official artwork from Steam. Use the library
+**⟳** button whenever you want to refresh that information.
 
-For these games, RiftLift reads the title, description, developer, genres, and
-official library artwork from the Steam catalog instead of treating the Steam
-app ID as a Meta store ID. The library **⟳** button updates that cached Steam
-data and portrait artwork at any time.
+If a game does not appear, make sure it is fully installed, choose **Scan
+again**, and confirm that its Windows version actually includes an Oculus mode.
+Quest-only games and SteamVR/OpenVR-only games will not be listed.
 
-RiftLift does not keep a list of specially supported titles. It uses the
-game's own manifest, engine layout, executable format, and Steam launch command
-to find the correct 64-bit game executable and arguments.
+RiftLift does not rely on a hand-maintained compatibility list. It checks each
+installed game's manifest, engine layout, executable format, and bundled VR
+runtime to detect compatible 64-bit Unity, Unreal, and native Oculus SDK games.
 
 ## Star history
 

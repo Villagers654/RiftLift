@@ -3,7 +3,9 @@ from pathlib import Path
 
 import pytest
 
+from riftlift.config import Game, Paths
 from riftlift.steam_oculus import (
+    add_steam_game,
     game_from_steam_command,
     steam_command_uses_oculus,
     steam_oculus_game,
@@ -116,3 +118,35 @@ def test_rejects_unknown_or_non_oculus_game(tmp_path: Path) -> None:
     _pe64(tmp_path / "steamapps/common/DesktopGame/DesktopGame.exe")
     with pytest.raises(RiftLiftError):
         steam_oculus_game("123", tmp_path)
+
+
+def test_adds_steam_game_without_overwriting_same_named_rift_game(
+    tmp_path: Path,
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    rift = Game("canvas", "Canvas", "123", "rift.canvas", "/rift", "game.exe", [])
+    steam = Game(
+        "canvas",
+        "Canvas",
+        "456",
+        "steam.app.456",
+        "/steam",
+        "game.exe",
+        [],
+    )
+    rift.save(paths)
+
+    added = add_steam_game(paths, steam)
+    refreshed = add_steam_game(paths, steam)
+
+    assert added.slug == "canvas-steam"
+    assert refreshed.slug == added.slug
+    assert Game.load(paths, "canvas").app_key == "rift.canvas"
+    assert Game.load(paths, "canvas-steam").app_key == "steam.app.456"
