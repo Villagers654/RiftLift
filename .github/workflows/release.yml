@@ -16,7 +16,8 @@ jobs:
       - name: Download pinned compatibility inputs
         run: |
           curl --fail --location --output revive.zip \
-            "https://github.com/Villagers654/Revive/releases/download/riftlift-0.1.1/riftlift-revive.zip"
+            "https://github.com/Villagers654/Revive/releases/download/riftlift-0.1.2/riftlift-revive.zip"
+          echo "dc7c199763cea4f5b798b315af4761062b1e1eb994ee2f5866919304792df996  revive.zip" | sha256sum -c -
           curl --fail --location --output platform.pkg \
             "https://securecdn-atl3-3.oculus.com/binaries/download/?id=3766757683456363"
           echo "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009  platform.pkg" | sha256sum -c -
