@@ -11,12 +11,8 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from .auth import (
-    available_browsers,
-    complete_browser_login,
-    launch_browser_login,
-    sign_out,
-)
+from .auth import complete_browser_login, sign_out
+from .auth_browser import default_browser, launch_browser_login
 from .config import Paths
 from .util import RiftLiftError, download, linux_to_windows, run
 
@@ -640,15 +636,10 @@ def complete_login(paths: Paths, callback_url: str) -> int:
 
 def login(paths: Paths) -> int:
     """Run the browser-backed sign-in flow for command-line users."""
-    browsers = available_browsers()
-    if not browsers:
-        raise RiftLiftError("install Microsoft Edge or Firefox to sign in to Meta")
-    browser = browsers[0]
+    browser = default_browser()
     sign_out(paths)
     process = launch_browser_login(paths, browser)
-    print(
-        f"Finish signing in to Meta in {'Microsoft Edge' if browser == 'edge' else 'Firefox'}."
-    )
+    print(f"Finish signing in to Meta in {browser.name}.")
     while process.poll() is None:
         try:
             complete_browser_login(paths, browser)

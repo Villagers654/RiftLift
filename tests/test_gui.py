@@ -6,9 +6,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6 import QtWidgets
 
+from riftlift.auth_browser import Browser
+from riftlift.auth_ui import AuthDialog
 from riftlift.cli import parser
 from riftlift.config import Paths
-from riftlift.auth_ui import AuthDialog
 from riftlift.gui_qt import Window, is_valid_rift_store_url
 from riftlift.metadata import CatalogMetadata
 from riftlift.util import RiftLiftError
@@ -81,7 +82,7 @@ def test_gui_exposes_only_the_primary_library_actions(tmp_path: Path) -> None:
     app.processEvents()
 
 
-def test_auth_dialog_offers_edge_and_firefox_without_vendor_client(
+def test_auth_dialog_uses_one_default_browser_action(
     tmp_path: Path, monkeypatch
 ) -> None:
     paths = Paths(
@@ -95,16 +96,20 @@ def test_auth_dialog_offers_edge_and_firefox_without_vendor_client(
     paths.create()
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     monkeypatch.setattr(
-        "riftlift.auth_ui.available_browsers", lambda: ["edge", "firefox"]
+        "riftlift.auth_ui.default_browser",
+        lambda: Browser("firefox", "Firefox", "firefox", ("firefox",)),
+    )
+    monkeypatch.setattr(
+        "riftlift.auth_ui.QtCore.QTimer.singleShot", lambda *_args: None
     )
 
     dialog = AuthDialog(paths)
     buttons = {button.text() for button in dialog.findChildren(QtWidgets.QPushButton)}
 
-    assert "Continue with Microsoft Edge" in buttons
-    assert "Continue with Firefox" in buttons
+    assert "Open default browser" in buttons
+    assert not any(text.startswith("Continue with") for text in buttons)
     assert "Meta Horizon Link" not in " ".join(buttons)
-    assert "RiftLift is signed out" in dialog.status.text()
+    assert "default browser" in dialog.status.text()
     dialog.close()
     app.processEvents()
 
@@ -131,7 +136,13 @@ def test_auth_dialog_detects_browser_completion_and_returns(
         def terminate(self):
             stopped.append(True)
 
-    monkeypatch.setattr("riftlift.auth_ui.available_browsers", lambda: ["edge"])
+    monkeypatch.setattr(
+        "riftlift.auth_ui.default_browser",
+        lambda: Browser("edge", "Microsoft Edge", "chromium", ("edge",)),
+    )
+    monkeypatch.setattr(
+        "riftlift.auth_ui.QtCore.QTimer.singleShot", lambda *_args: None
+    )
     monkeypatch.setattr(
         "riftlift.auth_ui.launch_browser_login", lambda *_args: Process()
     )
@@ -143,7 +154,7 @@ def test_auth_dialog_detects_browser_completion_and_returns(
     monkeypatch.setattr("riftlift.auth_ui.complete_browser_login", complete)
     dialog = AuthDialog(paths)
 
-    dialog.start("edge")
+    dialog.start()
     dialog.check_login()
 
     assert dialog.completed

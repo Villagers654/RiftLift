@@ -4,13 +4,8 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
 
-from .auth import (
-    available_browsers,
-    complete_browser_login,
-    is_signed_in,
-    launch_browser_login,
-    sign_out,
-)
+from .auth import complete_browser_login, is_signed_in, sign_out
+from .auth_browser import default_browser, launch_browser_login
 from .config import Paths
 from .theme import STYLE
 
@@ -21,7 +16,7 @@ class AuthDialog(QtWidgets.QDialog):
     def __init__(self, paths: Paths, parent=None):
         super().__init__(parent)
         self.paths = paths
-        self.browser = ""
+        self.browser = None
         self.process = None
         self.completed = False
         self.setWindowTitle("Meta account")
@@ -35,9 +30,9 @@ class AuthDialog(QtWidgets.QDialog):
         title.setObjectName("game")
         layout.addWidget(title)
         explanation = QtWidgets.QLabel(
-            "Choose a browser. RiftLift opens a dedicated sign-in window and "
-            "returns here automatically when Meta finishes. Your password and "
-            "security codes go only to Meta."
+            "RiftLift opens your default browser in a dedicated sign-in window "
+            "and returns here automatically when Meta finishes. Your password "
+            "and security codes go only to Meta."
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
@@ -47,19 +42,10 @@ class AuthDialog(QtWidgets.QDialog):
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
 
-        self.browser_buttons: dict[str, QtWidgets.QPushButton] = {}
-        installed = set(available_browsers())
-        for browser, name in (("edge", "Microsoft Edge"), ("firefox", "Firefox")):
-            button = QtWidgets.QPushButton(f"Continue with {name}")
-            button.setObjectName("primary" if browser == "edge" else "")
-            button.setEnabled(browser in installed)
-            if browser not in installed:
-                button.setText(f"{name} is not installed")
-            button.clicked.connect(
-                lambda _checked=False, value=browser: self.start(value)
-            )
-            layout.addWidget(button)
-            self.browser_buttons[browser] = button
+        self.retry = QtWidgets.QPushButton("Open default browser")
+        self.retry.setObjectName("primary")
+        self.retry.clicked.connect(self.start)
+        layout.addWidget(self.retry)
 
         row = QtWidgets.QHBoxLayout()
         self.reset = QtWidgets.QPushButton("Sign out and reset")
@@ -75,36 +61,35 @@ class AuthDialog(QtWidgets.QDialog):
         self.timer.setInterval(900)
         self.timer.timeout.connect(self.check_login)
         self.show_state()
+        if not is_signed_in(self.paths):
+            QtCore.QTimer.singleShot(0, self.start)
 
     def show_state(self):
         signed_in = is_signed_in(self.paths)
         self.status.setText(
             "RiftLift is signed in to Meta."
             if signed_in
-            else "RiftLift is signed out. Choose Edge or Firefox to continue."
+            else "Opening your default browser…"
         )
+        self.retry.setVisible(False)
         self.reset.setVisible(signed_in)
 
-    def set_browser_buttons_enabled(self, enabled: bool):
-        installed = set(available_browsers())
-        for browser, button in self.browser_buttons.items():
-            button.setEnabled(enabled and browser in installed)
-
-    def start(self, browser: str):
+    def start(self):
         self.stop_browser()
-        sign_out(self.paths)
         try:
+            browser = default_browser()
+            sign_out(self.paths)
             self.process = launch_browser_login(self.paths, browser)
         except Exception as error:
             self.status.setText(str(error))
-            self.set_browser_buttons_enabled(True)
+            self.retry.setText("Try again")
+            self.retry.setVisible(True)
+            self.reset.setVisible(False)
             return
         self.browser = browser
-        self.status.setText(
-            f"Waiting for Meta in {'Microsoft Edge' if browser == 'edge' else 'Firefox'}…"
-        )
-        self.set_browser_buttons_enabled(False)
-        self.reset.setText("Cancel and start over")
+        self.status.setText(f"Waiting for Meta in {browser.name}…")
+        self.retry.setVisible(False)
+        self.reset.setText("Cancel sign-in")
         self.reset.setVisible(True)
         self.timer.start()
 
@@ -116,9 +101,10 @@ class AuthDialog(QtWidgets.QDialog):
                 self.timer.stop()
                 self.process = None
                 self.status.setText(
-                    "The browser closed before sign-in finished. Choose a browser to retry."
+                    "The browser closed before sign-in finished. Try again when ready."
                 )
-                self.set_browser_buttons_enabled(True)
+                self.retry.setText("Try again")
+                self.retry.setVisible(True)
                 self.reset.setText("Sign out and reset")
                 self.reset.setVisible(False)
             return
@@ -137,11 +123,12 @@ class AuthDialog(QtWidgets.QDialog):
         self.timer.stop()
         self.stop_browser()
         sign_out(self.paths)
-        self.browser = ""
-        self.set_browser_buttons_enabled(True)
+        self.browser = None
         self.reset.setText("Sign out and reset")
         self.reset.setVisible(False)
-        self.status.setText("Signed out. Choose a browser to start a fresh sign-in.")
+        self.retry.setText("Open default browser")
+        self.retry.setVisible(True)
+        self.status.setText("Signed out. Open your default browser when ready.")
 
     def reject(self):
         self.timer.stop()
