@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install black pytest Pillow "cryptography>=42"
+      - run: python -m pip install black pytest Pillow "cryptography>=42" "PySide6-Essentials>=6.7,<7"
       - run: python -m pip install "git+https://github.com/Villagers654/meta-pcvr-downloader.git@v0.1.1" . --no-deps
       - run: pytest -q
       - run: black --check src tests
