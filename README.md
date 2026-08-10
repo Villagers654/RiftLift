@@ -164,6 +164,10 @@ RiftLift does not keep a list of specially supported titles. It uses the
 game's own manifest, engine layout, executable format, and Steam launch command
 to find the correct 64-bit game executable and arguments.
 
+## Star history
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Villagers654/RiftLift&type=Date)](https://star-history.com/#Villagers654/RiftLift&Date)
+
 ## How RiftLift works
 
 RiftLift keeps its files under `~/.local/share/riftlift` and uses one reusable
