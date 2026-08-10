@@ -2,10 +2,12 @@
  * RiftLift / Wine compatibility shim for the legacy Oculus Platform SDK.
  *
  * The current Meta runtime authenticates in its Electron client under Wine, but
- * OAF never publishes that session to legacy PC SDK clients.  Vader blocks before
- * it initializes VR while waiting for the SDK's login and entitlement messages.
- * This shim supplies those two local responses for an installed, owned copy and
- * forwards every other export to the original Meta implementation.
+ * OAF never publishes that session to legacy PC SDK clients. Some applications
+ * use the engine-specific initializer while others call the generic Windows
+ * initializer, then block before rendering while the legacy SDK waits for that
+ * unavailable session. This shim supplies the local initialization, login and
+ * entitlement responses for an installed, owned copy and forwards every other
+ * export to the original Meta implementation.
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -111,6 +113,13 @@ __declspec(dllexport) int __cdecl ovr_PlatformInitializeUnrealWindows(const char
 {
     (void)app_id;
     log_call("initialize: success");
+    return 0;
+}
+
+__declspec(dllexport) int __cdecl ovr_PlatformInitializeWindows(const char *app_id)
+{
+    (void)app_id;
+    log_call("initialize windows: success");
     return 0;
 }
 

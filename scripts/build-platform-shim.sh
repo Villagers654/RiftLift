@@ -15,7 +15,7 @@ trap 'rm -rf -- "$build_dir"' EXIT
 command -v llvm-readobj >/dev/null
 command -v x86_64-w64-mingw32-gcc >/dev/null
 
-overrides='^(ovr_PlatformInitializeUnrealWindows|ovr_IsPlatformInitialized|ovr_IsEntitled|ovr_GetLoggedInUserID|ovr_User_GetLoggedInUser|ovr_Entitlement_GetIsViewerEntitled|ovr_Achievements_GetAllDefinitions|ovr_Achievements_GetAllProgress|ovr_CloudStorage_LoadBucketMetadata|ovr_CloudStorage_Load|ovr_User_GetLoggedInUserFriends|ovr_PopMessage|ovr_Message_GetRequestID|ovr_Message_GetType|ovr_Message_IsError|ovr_Message_GetUser|ovr_Message_GetAchievementDefinitionArray|ovr_AchievementDefinitionArray_GetSize|ovr_AchievementDefinitionArray_HasNextPage|ovr_Message_GetAchievementProgressArray|ovr_AchievementProgressArray_GetSize|ovr_AchievementProgressArray_HasNextPage|ovr_Message_GetCloudStorageMetadataArray|ovr_CloudStorageMetadataArray_GetSize|ovr_CloudStorageMetadataArray_HasNextPage|ovr_Message_GetUserArray|ovr_UserArray_GetSize|ovr_UserArray_HasNextPage|ovr_User_GetID|ovr_User_GetOculusID|ovr_FreeMessage)$'
+overrides='^(ovr_PlatformInitializeUnrealWindows|ovr_PlatformInitializeWindows|ovr_IsPlatformInitialized|ovr_IsEntitled|ovr_GetLoggedInUserID|ovr_User_GetLoggedInUser|ovr_Entitlement_GetIsViewerEntitled|ovr_Achievements_GetAllDefinitions|ovr_Achievements_GetAllProgress|ovr_CloudStorage_LoadBucketMetadata|ovr_CloudStorage_Load|ovr_User_GetLoggedInUserFriends|ovr_PopMessage|ovr_Message_GetRequestID|ovr_Message_GetType|ovr_Message_IsError|ovr_Message_GetUser|ovr_Message_GetAchievementDefinitionArray|ovr_AchievementDefinitionArray_GetSize|ovr_AchievementDefinitionArray_HasNextPage|ovr_Message_GetAchievementProgressArray|ovr_AchievementProgressArray_GetSize|ovr_AchievementProgressArray_HasNextPage|ovr_Message_GetCloudStorageMetadataArray|ovr_CloudStorageMetadataArray_GetSize|ovr_CloudStorageMetadataArray_HasNextPage|ovr_Message_GetUserArray|ovr_UserArray_GetSize|ovr_UserArray_HasNextPage|ovr_User_GetID|ovr_User_GetOculusID|ovr_FreeMessage)$'
 
 {
   echo 'LIBRARY LibOVRPlatformImpl64_1'
@@ -36,9 +36,11 @@ x86_64-w64-mingw32-gcc \
   -Wl,--no-insert-timestamp \
   -o "$output"
 
-if ! llvm-readobj --coff-exports "$output" \
-  | grep 'Name: ovr_PlatformInitializeUnrealWindows' >/dev/null; then
-  echo "built DLL is missing the initializer export" >&2
-  exit 1
-fi
+for initializer in ovr_PlatformInitializeUnrealWindows ovr_PlatformInitializeWindows; do
+  if ! llvm-readobj --coff-exports "$output" \
+    | grep "Name: $initializer" >/dev/null; then
+    echo "built DLL is missing the $initializer export" >&2
+    exit 1
+  fi
+done
 echo "Built $output"
