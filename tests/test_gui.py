@@ -7,7 +7,23 @@ from PySide6 import QtWidgets
 
 from riftlift.cli import parser
 from riftlift.config import Paths
-from riftlift.gui_qt import Window
+from riftlift.gui_qt import Window, is_valid_rift_store_url
+
+
+def test_validates_meta_rift_store_urls() -> None:
+    assert is_valid_rift_store_url(
+        "https://www.meta.com/experiences/pcvr/vader-immortal/123456789/"
+    )
+    assert is_valid_rift_store_url(
+        "https://meta.com/experiences/pcvr/lone-echo/123456789/?ref=library"
+    )
+    assert not is_valid_rift_store_url("123456789")
+    assert not is_valid_rift_store_url(
+        "https://www.meta.com/experiences/quest/vader-immortal/123456789/"
+    )
+    assert not is_valid_rift_store_url(
+        "https://example.com/experiences/pcvr/vader-immortal/123456789/"
+    )
 
 
 def test_gui_command_is_available() -> None:
@@ -43,5 +59,43 @@ def test_gui_exposes_only_the_primary_library_actions(tmp_path: Path) -> None:
         label.text() for label in window.findChildren(QtWidgets.QLabel)
     }
 
+    window.close()
+    app.processEvents()
+
+
+def test_install_stays_disabled_until_rift_link_is_valid(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    dialogs = []
+    monkeypatch.setattr(
+        QtWidgets.QDialog, "exec", lambda dialog: dialogs.append(dialog)
+    )
+
+    window.add_dialog()
+    dialog = dialogs[0]
+    entry = dialog.findChild(QtWidgets.QLineEdit)
+    install = next(
+        button
+        for button in dialog.findChildren(QtWidgets.QPushButton)
+        if button.text() == "Install"
+    )
+    assert not install.isEnabled()
+    entry.setText("https://www.meta.com/experiences/pcvr/vader-immortal/123456789/")
+    assert install.isEnabled()
+    entry.setText("https://example.com/not-a-rift-link")
+    assert not install.isEnabled()
+
+    dialog.close()
     window.close()
     app.processEvents()

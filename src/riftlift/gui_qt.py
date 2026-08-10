@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import contextlib
 import io
+import re
 import threading
 from typing import Callable
+from urllib.parse import urlparse
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -22,6 +24,7 @@ QWidget{background:#0b1020;color:#f4f7ff;font:14px sans-serif}
 QLabel#title{font-size:27px;font-weight:700} QLabel#game{background:transparent;font-size:30px;font-weight:700} QLabel#muted{background:transparent;color:#aeb8cd} QLabel#section{font-size:18px;font-weight:500}
 QPushButton{background:#172238;border:1px solid #33415f;border-radius:16px;padding:7px 13px;min-height:20px} QPushButton:hover{background:#22304a} QPushButton:disabled{color:#66728b}
 QPushButton#primary{background:#7c5cff;color:white;border:0;font-weight:700} QPushButton#primary:hover{background:#8b70ff}
+QPushButton#primary:disabled{background:#33415f;color:#7d899e}
 QPushButton#nav{background:transparent;border:0;padding:8px 10px} QPushButton#nav:hover{background:#172238}
 QPushButton#refresh{background:#172238;border:1px solid #33415f;border-radius:7px;padding:0;font-size:20px}
 QPushButton#link{background:transparent;border:0;border-radius:0;color:#aeb8cd;font-size:12px;padding:4px 2px;min-height:0} QPushButton#link:hover{background:transparent;color:#f4f7ff}
@@ -30,6 +33,20 @@ QLineEdit{background:#10182a;border:1px solid #33415f;border-radius:6px;padding:
 QCheckBox{spacing:8px} QCheckBox::indicator{width:16px;height:16px}
 QSplitter::handle{background:#0b1020;width:12px}
 """
+
+
+def is_valid_rift_store_url(value: str) -> bool:
+    """Return whether *value* is a canonical Meta Rift store URL."""
+    try:
+        parsed = urlparse(value.strip())
+        host = (parsed.hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    return bool(
+        parsed.scheme.lower() == "https"
+        and host in {"meta.com", "www.meta.com"}
+        and re.fullmatch(r"/experiences/pcvr/[^/]+/\d{8,}/?", parsed.path)
+    )
 
 
 class Events(QtCore.QObject):
@@ -354,22 +371,38 @@ class Window(QtWidgets.QMainWindow):
                 "Paste the URL of a PC VR game you own on the Meta store.", "muted"
             )
         )
-        l.addWidget(self.label("Meta store URL or app ID", "section"))
+        l.addWidget(self.label("Meta Rift store URL", "section"))
         entry = QtWidgets.QLineEdit()
-        entry.setPlaceholderText("https://www.meta.com/experiences/…")
+        entry.setPlaceholderText("https://www.meta.com/experiences/pcvr/…")
         l.addWidget(entry)
+        validation = self.label(
+            "Paste a valid Meta Rift store link to continue.", "muted"
+        )
+        l.addWidget(validation)
         steam = QtWidgets.QCheckBox("Add to Steam when finished")
         steam.setChecked(True)
         l.addWidget(steam)
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
         submit = buttons.addButton("Install", QtWidgets.QDialogButtonBox.AcceptRole)
         submit.setObjectName("primary")
+        submit.setEnabled(False)
         buttons.rejected.connect(d.reject)
         l.addWidget(buttons)
 
+        def validate(value: str):
+            valid = is_valid_rift_store_url(value)
+            submit.setEnabled(valid)
+            validation.setText(
+                "Ready to install."
+                if valid
+                else "Paste a valid Meta Rift store link to continue."
+            )
+
+        entry.textChanged.connect(validate)
+
         def accept():
             value = entry.text().strip()
-            if not value:
+            if not is_valid_rift_store_url(value):
                 entry.setFocus()
                 return
             sync = steam.isChecked()
