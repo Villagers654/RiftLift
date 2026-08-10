@@ -362,9 +362,7 @@ class Window(QtWidgets.QMainWindow):
         steam.setChecked(True)
         l.addWidget(steam)
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
-        submit = buttons.addButton(
-            "Download game", QtWidgets.QDialogButtonBox.AcceptRole
-        )
+        submit = buttons.addButton("Install", QtWidgets.QDialogButtonBox.AcceptRole)
         submit.setObjectName("primary")
         buttons.rejected.connect(d.reject)
         l.addWidget(buttons)

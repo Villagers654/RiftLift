@@ -51,7 +51,7 @@ Copy the URL of a game you own from the Meta **Rift / PC VR** store. Click
 
 ![RiftLift Add Game window](docs/images/riftlift-add-game.png)
 
-Leave **Add to Steam when finished** checked and click **Download game**. Use
+Leave **Add to Steam when finished** checked and click **Install**. Use
 **View Activity** if you want to watch the download.
 
 > A Quest-only purchase is not a Windows PC game. The store page must offer a
