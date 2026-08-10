@@ -15,7 +15,7 @@ from .config import Game, Paths, games
 from .doctor import doctor
 from .launch import launch
 from .library import add
-from .metadata import populate_game_metadata
+from .metadata import fetch_catalog_metadata, populate_game_metadata
 from .runtime import login
 from .steam import sync_with_restart
 
@@ -34,24 +34,42 @@ QCheckBox{spacing:8px} QCheckBox::indicator{width:16px;height:16px}
 QSplitter::handle{background:#0b1020;width:12px}
 """
 
+LINK_VALIDATION_DELAY_MS = 350
 
-def is_valid_rift_store_url(value: str) -> bool:
-    """Return whether *value* is a canonical Meta Rift store URL."""
+
+def rift_store_app_id(value: str) -> str | None:
+    """Return the app ID from an exact Meta Rift/PCVR product URL."""
     try:
         parsed = urlparse(value.strip())
         host = (parsed.hostname or "").lower().rstrip(".")
+        port = parsed.port
     except ValueError:
-        return False
-    return bool(
+        return None
+    match = re.fullmatch(r"/experiences/pcvr/[^/]+/(?P<app_id>\d{8,})/?", parsed.path)
+    if not (
         parsed.scheme.lower() == "https"
         and host in {"meta.com", "www.meta.com"}
-        and re.fullmatch(r"/experiences/pcvr/[^/]+/\d{8,}/?", parsed.path)
-    )
+        and port in {None, 443}
+        and parsed.username is None
+        and parsed.password is None
+        and match
+    ):
+        return None
+    return match.group("app_id")
+
+
+def is_valid_rift_store_url(value: str) -> bool:
+    """Return whether *value* has the exact shape of a Rift product URL."""
+    return rift_store_app_id(value) is not None
 
 
 class Events(QtCore.QObject):
     output = QtCore.Signal(str)
     complete = QtCore.Signal(str, object, object, object)
+
+
+class LinkValidationEvents(QtCore.QObject):
+    complete = QtCore.Signal(int, str, object, object)
 
 
 class Output(io.TextIOBase):
@@ -389,20 +407,70 @@ class Window(QtWidgets.QMainWindow):
         buttons.rejected.connect(d.reject)
         l.addWidget(buttons)
 
+        validation_timer = QtCore.QTimer(d)
+        validation_timer.setSingleShot(True)
+        validation_events = LinkValidationEvents(d)
+        generation = 0
+        verified_value = ""
+
+        def finish_validation(token: int, value: str, metadata, error):
+            nonlocal verified_value
+            if token != generation or value != entry.text().strip():
+                return
+            if error is not None:
+                message = str(error)
+                validation.setText(
+                    "This Rift store game could not be found."
+                    if "has no catalog metadata" in message
+                    else "Could not verify this link. Check your connection."
+                )
+                return
+            if not metadata or not metadata.name.strip():
+                validation.setText("This Rift store game could not be found.")
+                return
+            verified_value = value
+            submit.setEnabled(True)
+            validation.setText(f"Ready to install {metadata.name}.")
+
+        validation_events.complete.connect(finish_validation)
+
+        def check_catalog():
+            token = generation
+            value = entry.text().strip()
+            app_id = rift_store_app_id(value)
+            if app_id is None:
+                return
+
+            def worker():
+                try:
+                    metadata = fetch_catalog_metadata(app_id)
+                    validation_events.complete.emit(token, value, metadata, None)
+                except Exception as error:
+                    validation_events.complete.emit(token, value, None, error)
+
+            threading.Thread(
+                target=worker, daemon=True, name="riftlift-link-validation"
+            ).start()
+
+        validation_timer.timeout.connect(check_catalog)
+
         def validate(value: str):
-            valid = is_valid_rift_store_url(value)
-            submit.setEnabled(valid)
-            validation.setText(
-                "Ready to install."
-                if valid
-                else "Paste a valid Meta Rift store link to continue."
-            )
+            nonlocal generation, verified_value
+            generation += 1
+            verified_value = ""
+            validation_timer.stop()
+            submit.setEnabled(False)
+            if not is_valid_rift_store_url(value):
+                validation.setText("Paste a valid Meta Rift store link to continue.")
+                return
+            validation.setText("Checking Rift store link…")
+            validation_timer.start(LINK_VALIDATION_DELAY_MS)
 
         entry.textChanged.connect(validate)
 
         def accept():
             value = entry.text().strip()
-            if not is_valid_rift_store_url(value):
+            if value != verified_value:
                 entry.setFocus()
                 return
             sync = steam.isChecked()
