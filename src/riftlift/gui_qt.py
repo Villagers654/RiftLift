@@ -321,6 +321,11 @@ class Window(QtWidgets.QMainWindow):
         self.slug = game.slug
         self.stack.setCurrentIndex(1)
         self.game_name.setText(game.name)
+        self.store_link.setText(
+            "Open in Steam ↗"
+            if game.app_key.startswith("steam.app.")
+            else "Open in Rift Store ↗"
+        )
         self.meta.setText(
             " • ".join(
                 x

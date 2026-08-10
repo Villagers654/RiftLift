@@ -10,7 +10,7 @@ from PySide6 import QtWidgets
 from riftlift.auth_browser import Browser
 from riftlift.auth_ui import AuthDialog
 from riftlift.cli import parser
-from riftlift.config import Paths
+from riftlift.config import Game, Paths
 from riftlift.gui_qt import Window, is_valid_rift_store_url
 from riftlift.metadata import CatalogMetadata
 from riftlift.util import RiftLiftError
@@ -78,6 +78,39 @@ def test_gui_exposes_only_the_primary_library_actions(tmp_path: Path) -> None:
     assert "Your Meta Rift library, lifted into Linux OpenXR" not in {
         label.text() for label in window.findChildren(QtWidgets.QLabel)
     }
+
+    window.close()
+    app.processEvents()
+
+
+def test_store_action_matches_the_selected_game_source(tmp_path: Path) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    rift = Game("rift", "Rift Game", "123", "rift.game", "/tmp", "game.exe", [])
+    steam = Game(
+        "steam",
+        "Steam Game",
+        "456",
+        "steam.app.456",
+        "/tmp",
+        "game.exe",
+        [],
+        store_url="https://store.steampowered.com/app/456/",
+    )
+
+    window.show_game(steam)
+    assert window.store_link.text() == "Open in Steam ↗"
+    window.show_game(rift)
+    assert window.store_link.text() == "Open in Rift Store ↗"
 
     window.close()
     app.processEvents()
