@@ -55,7 +55,11 @@ def parser() -> argparse.ArgumentParser:
         "--arguments", help="override the manifest launch arguments"
     )
     add_command.add_argument(
-        "--jobs", type=int, default=8, choices=range(1, 33), metavar="1-32"
+        "--jobs",
+        type=int,
+        choices=range(1, 33),
+        metavar="1-32",
+        help="download workers (default: adapts to available CPUs)",
     )
     add_command.add_argument(
         "--no-steam", action="store_true", help="download without updating Steam"

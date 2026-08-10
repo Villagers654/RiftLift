@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import shlex
+import os
 from pathlib import Path
 
 from meta_pcvr_downloader.api import list_builds, parse_app_id, select_build
@@ -17,6 +18,16 @@ from .util import RiftLiftError
 def slugify(value: str) -> str:
     value = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return value or "meta-rift-game"
+
+
+def default_download_workers(cpu_count: int | None = None) -> int:
+    """Choose useful download concurrency without overwhelming small hosts."""
+    if cpu_count is None:
+        try:
+            cpu_count = len(os.sched_getaffinity(0))
+        except AttributeError:
+            cpu_count = os.cpu_count() or 1
+    return max(4, min(32, cpu_count * 2))
 
 
 def _path(value: str) -> Path:
@@ -55,7 +66,7 @@ def add(
     build_selector: str | None = None,
     executable: str | None = None,
     arguments: str | None = None,
-    jobs: int = 8,
+    jobs: int | None = None,
 ) -> Game:
     paths.create()
     app_id = parse_app_id(app)
@@ -66,7 +77,9 @@ def add(
     directory = paths.games / slug
     print(f"Downloading {build.app_name} {build.version}...")
     manifest = fetch_manifest(token, build)
-    Downloader(token, build, directory, paths.cache / "segments", jobs).run(manifest)
+    workers = default_download_workers() if jobs is None else jobs
+    print(f"Using {workers} download workers.")
+    Downloader(token, build, directory, paths.cache / "segments", workers).run(manifest)
     launch_file = _best_executable(directory, manifest, executable)
     launch_arguments = _launch_arguments(directory, launch_file, manifest, arguments)
     game = Game(

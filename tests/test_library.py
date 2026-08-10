@@ -1,7 +1,18 @@
 import struct
 from pathlib import Path
 
-from riftlift.library import _best_executable, _launch_arguments
+from riftlift.library import (
+    _best_executable,
+    _launch_arguments,
+    default_download_workers,
+)
+
+
+def test_download_workers_scale_with_available_cpus() -> None:
+    assert default_download_workers(1) == 4
+    assert default_download_workers(4) == 8
+    assert default_download_workers(12) == 24
+    assert default_download_workers(64) == 32
 
 
 def _pe64(path: Path, payload: bytes = b"") -> None:
