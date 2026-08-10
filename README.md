@@ -1,31 +1,31 @@
 # RiftLift
 
-Play the Meta Rift PC VR games you own on Linux with your existing OpenXR
-headset setup. RiftLift handles the Windows compatibility tools, downloads,
-Steam shortcuts, artwork, and launching from one desktop app. SteamVR is not
-required when your headset already works with Monado.
+**Play your Meta Rift PC VR games on Linux.**
+
+RiftLift gives you one desktop app to sign in to Meta, download games you own,
+add them to Steam, and launch them through your existing OpenXR headset setup.
+If your headset works with Monado, SteamVR is not required.
 
 ![RiftLift showing an installed Meta Rift library](docs/images/riftlift-library.png)
 
-> RiftLift is an early release. Many games work, but an individual title can
-> still have a Windows-specific problem. If one does, click **System** and
-> include the results when reporting it.
+> RiftLift is an early release. Many games work, but some titles may still need
+> compatibility fixes.
 
-## Get your first Meta game running
+## Quick start
 
-You need:
+Before you start, you need:
 
 - a 64-bit Linux PC;
 - Steam;
 - a VR headset that already works through Monado/OpenXR; and
 - a Meta account that owns a **Rift / PC VR** game.
 
-RiftLift does not install headset drivers or Monado. If you can already use an
-OpenXR app with your headset, you are ready.
+Your headset must already run OpenXR apps. RiftLift does not install headset
+drivers or Monado.
 
 ### 1. Install RiftLift
 
-Open your terminal, copy this whole block, and press Enter:
+Open a terminal and paste:
 
 ```bash
 git clone https://github.com/Villagers654/RiftLift.git
@@ -33,109 +33,99 @@ cd RiftLift
 ./install.sh
 ```
 
-The first install can take a while. RiftLift downloads about 1 GiB of shared
-compatibility tools, creates its own isolated game environment, and adds
-**RiftLift** to your application menu. It does not replace your system Wine or
-change your headset setup.
+The first install can take a while while RiftLift downloads its shared
+compatibility files. It will add **RiftLift** to your application menu.
 
-### 2. Open the RiftLift app
+### 2. Check your setup and sign in
 
-Open your desktop's application menu and choose **RiftLift**. You can also open
-it from the terminal with `riftlift gui`.
+Open **RiftLift** from your application menu and click **System**. If something
+is not ready, open **View Activity** for the details.
 
-Click **System**. When it finishes, **View Activity** shows each checked
-component and whether it is ready.
+Click **Sign In** and complete Meta's normal sign-in flow. RiftLift keeps that
+session for future downloads; if it expires, use **Sign In** again.
 
-### 3. Sign in to Meta
+### 3. Add a game
 
-Click **Sign In** at the top of RiftLift. Meta Horizon Link will open in its own
-window. Sign in normally and finish any browser or email confirmation Meta
-requests, then return to RiftLift.
-
-Your sign-in is saved in RiftLift's private game environment. You should not
-need to sign in again for every game. If Meta expires the session later, click
-**Sign In** again.
-
-### 4. Add a game you own
-
-Find the game's **Rift / PC VR** page on the Meta store and copy its web
-address. In RiftLift, click **Add Game** and paste that address.
+Copy the URL of a game you own from the Meta **Rift / PC VR** store. Click
+**Add Game** in RiftLift and paste it.
 
 ![RiftLift Add Game window](docs/images/riftlift-add-game.png)
 
-Leave **Add to Steam when finished** checked, then click **Download game**.
-RiftLift confirms that your account owns the game, downloads and verifies it,
-and adds its name and artwork to Steam. Large games may take some time; click
-**View Activity** to see progress.
+Leave **Add to Steam when finished** checked and click **Download game**. Use
+**View Activity** if you want to watch the download.
 
 > A Quest-only purchase is not a Windows PC game. The store page must offer a
 > Rift or PC VR build. Cross-buy titles work when the PC version is present on
 > your Meta account.
 
-### 5. Put on your headset and play
+### 4. Play
 
 Select the game in RiftLift and click **Launch in VR**. You can also launch its
 new shortcut from Steam or from a headset dashboard that reads your Steam VR
 library, such as WayVR.
 
-That is the complete everyday workflow: open RiftLift, add a game, and launch
-it. Every Rift Store game shares the same compatibility setup and persistent
-Meta sign-in.
-
-## Using the desktop app
+## Everyday use
 
 The desktop app is the recommended way to use RiftLift:
 
-- **System** checks OpenXR, Steam, Proton, Revive, Meta sign-in support,
-  and every installed game without exposing account secrets.
-- **Sign In** opens Meta's sign-in flow in RiftLift's persistent environment.
+- **System** checks whether RiftLift and your OpenXR setup are ready.
+- **Sign In** opens Meta's sign-in flow.
 - **Add Game** downloads an owned Rift game and optionally adds it to Steam.
 - **Launch in VR** starts the selected game through your active OpenXR runtime.
 - The **⟳** button reloads games added elsewhere and refreshes store details
   and artwork.
 - **View Activity** shows download, setup, launch, and diagnostic messages.
 
-Steam may restart once when RiftLift adds or updates shortcuts. This prevents
-Steam from overwriting the new library entry.
+Steam may restart once when RiftLift adds or updates shortcuts.
 
-## Command-line setup and use
+## Troubleshooting
 
-Everything in the desktop app is also available from the command line. This is
-useful for remote machines, scripts, troubleshooting, or people who simply
-prefer a terminal.
+Start with **System** in the desktop app, or run `riftlift doctor`.
 
-Install RiftLift with the same installer shown above, then use:
+Common fixes:
+
+- **RiftLift cannot find OpenXR:** start your normal Monado setup and try again.
+- **Meta asks you to sign in again:** click **Sign In**, finish Meta's flow, and
+  retry.
+- **A game is missing from Steam:** close Steam, run `riftlift steam-sync`, and
+  reopen it.
+- **A game fails to launch:** run **System**, then retry from a terminal with
+  `RIFTLIFT_PROTON_LOG=1 riftlift launch GAME-SLUG`.
+
+For a nonstandard Monado manifest, set
+`XR_RUNTIME_JSON=/path/to/openxr_monado.json` before opening RiftLift. If your
+headset setup needs a special start command, set
+`RIFTLIFT_LAUNCH_WRAPPER='your-runtime-start-wrapper'`.
+
+## Updating RiftLift
+
+From the RiftLift folder, run:
 
 ```bash
-# Check that your OpenXR and compatibility setup is ready
+git pull --ff-only
+./install.sh
+```
+
+Your sign-in and installed games are preserved.
+
+## Command line (optional)
+
+Everything in the desktop app is also available from the command line:
+
+```bash
 riftlift doctor
-
-# Sign in to Meta once
 riftlift login
-
-# Download an owned Rift game and add it to Steam
 riftlift add 'https://www.meta.com/experiences/APP_ID/'
-
-# Show installed games and their launch names
 riftlift list
-
-# Launch one of those games
 riftlift launch GAME-SLUG
 ```
 
 Useful maintenance commands:
 
 ```bash
-# Rebuild RiftLift's Steam shortcuts
 riftlift steam-sync
-
-# Fill in missing artwork and store information
 riftlift metadata
-
-# Refresh one game's cached artwork and information
 riftlift metadata GAME-SLUG --refresh
-
-# Reinstall or update the shared compatibility tools
 riftlift setup
 ```
 
@@ -145,7 +135,7 @@ Rift Store manifests can use `riftlift add --executable PATH` and
 Download concurrency adapts to the CPUs available to RiftLift; use `--jobs` only
 when you want to override it.
 
-## Games bought through Steam
+## Steam games with an Oculus mode (advanced)
 
 Some Steam games include an Oculus mode even though they were not downloaded
 from the Meta store. Install those games normally in Steam. RiftLift can detect
@@ -174,44 +164,7 @@ RiftLift does not keep a list of specially supported titles. It uses the
 game's own manifest, engine layout, executable format, and Steam launch command
 to find the correct 64-bit game executable and arguments.
 
-## Troubleshooting
-
-Start with **System** in the desktop app, or run:
-
-```bash
-riftlift doctor
-```
-
-Common fixes:
-
-- **RiftLift cannot find OpenXR:** start your normal Monado setup and try again.
-  RiftLift uses the active OpenXR runtime; it does not start headset drivers.
-- **Meta asks you to sign in again:** click **Sign in**, finish Meta's flow, and
-  retry the download.
-- **A game is missing from Steam:** close Steam, run `riftlift steam-sync`, and
-  reopen it. RiftLift normally handles this restart automatically.
-- **A game fails to launch:** run **System**, then enable a Proton log with
-  `RIFTLIFT_PROTON_LOG=1 riftlift launch GAME-SLUG`.
-- **Your headset setup needs a special start command:** set
-  `RIFTLIFT_LAUNCH_WRAPPER='your-runtime-start-wrapper'`. A normally running
-  Monado setup does not need this.
-
-If your working Monado installation uses a nonstandard runtime manifest, set
-`XR_RUNTIME_JSON=/path/to/openxr_monado.json` before opening RiftLift.
-
-## Updating RiftLift
-
-From the RiftLift folder, run:
-
-```bash
-git pull --ff-only
-./install.sh
-```
-
-Updating preserves your Meta sign-in and installed games. Already downloaded,
-checksum-verified tools are reused when possible.
-
-## What RiftLift installs
+## How RiftLift works
 
 RiftLift keeps its files under `~/.local/share/riftlift` and uses one reusable
 Proton environment. It combines:
