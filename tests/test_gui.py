@@ -260,6 +260,12 @@ def test_install_stays_disabled_until_rift_link_is_valid(
         for button in dialog.findChildren(QtWidgets.QPushButton)
         if button.text() == "Install"
     )
+    cancel = next(
+        button
+        for button in dialog.findChildren(QtWidgets.QPushButton)
+        if button.text() == "Cancel"
+    )
+    assert cancel.icon().isNull()
     assert not install.isEnabled()
     entry.setText("https://www.meta.com/experiences/pcvr/vader-immortal/123456789/")
     assert not install.isEnabled()

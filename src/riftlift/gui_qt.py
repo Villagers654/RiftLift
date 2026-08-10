@@ -401,6 +401,7 @@ class Window(QtWidgets.QMainWindow):
         steam.setChecked(True)
         l.addWidget(steam)
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
+        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setIcon(QtGui.QIcon())
         submit = buttons.addButton("Install", QtWidgets.QDialogButtonBox.AcceptRole)
         submit.setObjectName("primary")
         submit.setEnabled(False)
