@@ -9,15 +9,9 @@ from meta_pcvr_downloader.download import Downloader, fetch_manifest
 
 from .auth import runtime_access_token
 from .config import Game, Paths
+from .detection import best_windows_executable, is_unreal_shipping
 from .metadata import populate_game_metadata
 from .util import RiftLiftError
-
-KNOWN_LAUNCHES = {
-    # The package manifest points at WKND.exe, a flat bootstrapper which exits
-    # before initializing VR under Proton. Launch the shipping Unreal binary
-    # directly, matching the current Rift release layout.
-    "2031736060288351": ("WKND/Binaries/Win64/WKND-Win64-Shipping.exe", ["-vr"]),
-}
 
 
 def slugify(value: str) -> str:
@@ -30,15 +24,28 @@ def _path(value: str) -> Path:
 
 
 def _best_executable(directory: Path, manifest: dict, override: str | None) -> str:
-    if override:
-        candidate = _path(override)
-    else:
-        candidate = _path(str(manifest.get("launchFile") or ""))
-    if not candidate.name:
+    preferred = _path(override or str(manifest.get("launchFile") or ""))
+    if override and not preferred.name:
+        raise ValueError("--executable cannot be empty")
+    if not preferred.name and override is None:
         raise ValueError("Meta manifest has no launch executable; pass --executable")
-    if not (directory / candidate).is_file():
-        raise ValueError(f"launch executable is missing after download: {candidate}")
-    return candidate.as_posix()
+    candidate = best_windows_executable(directory, preferred)
+    return candidate.relative_to(directory.resolve()).as_posix()
+
+
+def _launch_arguments(
+    directory: Path, executable: str, manifest: dict, override: str | None
+) -> list[str]:
+    arguments = (
+        shlex.split(override)
+        if override is not None
+        else shlex.split(str(manifest.get("launchParameters") or ""), posix=False)
+    )
+    if override is None and is_unreal_shipping(directory / executable):
+        vr_options = {"-vr", "-oculus", "-openxr", "-steamvr"}
+        if not any(argument.casefold() in vr_options for argument in arguments):
+            arguments.append("-vr")
+    return arguments
 
 
 def add(
@@ -60,18 +67,8 @@ def add(
     print(f"Downloading {build.app_name} {build.version}...")
     manifest = fetch_manifest(token, build)
     Downloader(token, build, directory, paths.cache / "segments", jobs).run(manifest)
-    known = KNOWN_LAUNCHES.get(app_id) if executable is None else None
-    launch_file = _best_executable(
-        directory, manifest, known[0] if known else executable
-    )
-    launch_arguments = shlex.split(arguments) if arguments is not None else []
-    if arguments is None:
-        if known:
-            launch_arguments = known[1]
-        elif manifest.get("launchParameters"):
-            launch_arguments = shlex.split(
-                str(manifest["launchParameters"]), posix=False
-            )
+    launch_file = _best_executable(directory, manifest, executable)
+    launch_arguments = _launch_arguments(directory, launch_file, manifest, arguments)
     game = Game(
         slug=slug,
         name=build.app_name,
@@ -81,7 +78,10 @@ def add(
         executable=launch_file,
         arguments=launch_arguments,
         version=build.version,
-        platform_offline=app_id == "2031736060288351",
+        # Every Rift Store download is entitlement-checked above. Keep that
+        # verified identity available to legacy Platform SDK titles without a
+        # per-game allowlist.
+        platform_offline=True,
     )
     game.save(paths)
     try:

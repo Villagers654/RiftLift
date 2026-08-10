@@ -125,7 +125,25 @@ def run(arguments: argparse.Namespace) -> int:
     if arguments.command == "launch-steam":
         # Steam expands %command% after `--`. The depot must instead run inside
         # RiftLift's shared prefix so Revive can inject before Oculus starts.
-        return launch(paths, steam_oculus_game(arguments.app_id), [])
+        import subprocess
+
+        from .steam_oculus import game_from_steam_command, steam_command_uses_oculus
+
+        discovered = steam_oculus_game(arguments.app_id)
+        if not steam_command_uses_oculus(discovered, arguments.steam_command):
+            # The title also supports OpenVR and Steam selected that mode. Keep
+            # the host's existing XRizer path instead of forcing Revive onto a
+            # non-Oculus launch choice.
+            command = (
+                arguments.steam_command[1:]
+                if arguments.steam_command[:1] == ["--"]
+                else arguments.steam_command
+            )
+            if not command:
+                raise RiftLiftError("Steam did not provide an expanded launch command")
+            return subprocess.call(command, cwd=discovered.game_dir)
+        game = game_from_steam_command(discovered, arguments.steam_command)
+        return launch(paths, game, [])
     if arguments.command == "steam-oculus-ids":
         for game in steam_oculus_games():
             print(game.app_id)

@@ -39,8 +39,15 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         *game.arguments,
         *extra_arguments,
     ]
+    # Every non-Steam record registered by RiftLift came from an entitlement-
+    # checked Rift Store download. Apply its persistent Platform SDK identity
+    # generically, including records made by older RiftLift versions.
+    verified_rift_download = not game.app_key.startswith("steam.app.")
     environment = launch_environment(
-        paths, game.game_dir, game.platform_shim, game.platform_offline
+        paths,
+        game.game_dir,
+        game.platform_shim,
+        game.platform_offline or verified_rift_download,
     )
     wrapper_value = os.environ.get("RIFTLIFT_LAUNCH_WRAPPER", "").strip()
     wrapper: list[str] = []

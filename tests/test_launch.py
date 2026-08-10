@@ -26,8 +26,11 @@ def test_injector_uses_existing_prefix_and_windows_game_path(
     revive.mkdir()
     monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
     monkeypatch.setattr("riftlift.launch.install_revive", lambda _paths: revive)
-    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
     captured = {}
+    monkeypatch.setattr(
+        "riftlift.launch.launch_environment",
+        lambda *args: captured.update(environment_args=args) or {},
+    )
     monkeypatch.setattr(
         "riftlift.launch.subprocess.call",
         lambda command, **kwargs: captured.update(command=command, **kwargs) or 0,
@@ -48,6 +51,7 @@ def test_injector_uses_existing_prefix_and_windows_game_path(
     game_path = captured["command"][captured["command"].index("sample-key") + 1]
     assert game_path.startswith("Z:\\")
     assert game_path.endswith("\\Binaries\\Game.exe")
+    assert captured["environment_args"][-1] is True
 
 
 def test_platform_shim_does_not_redirect_oculus_vr_runtime(

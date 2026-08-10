@@ -63,7 +63,7 @@ scrape an unrelated browser profile. If Meta expires the session, run
 Copy the URL of an owned PC VR/Rift game from the Meta store, then run:
 
 ```bash
-riftlift add 'https://www.meta.com/experiences/2031736060288351/'
+riftlift add 'META_RIFT_STORE_URL_OR_APP_ID'
 ```
 
 RiftLift will:
@@ -80,12 +80,21 @@ Start the game from Steam like any other VR title, or run
 `riftlift launch GAME-SLUG`. Future Rift titles use the same command and shared
 prefix. Use `riftlift list` to see their slugs.
 
-Steam titles built only for the Oculus PC runtime are supported too. RiftLift
-detects installed 64-bit Unity Oculus XR games with `riftlift steam-oculus-ids`.
+Steam titles built for the Oculus PC runtime are supported too. RiftLift
+detects installed 64-bit Unity, Unreal, and native Oculus SDK games with
+`riftlift steam-oculus-ids`.
 Host integrations can route those app IDs through
 `riftlift launch-steam APP_ID -- %command%`, preserving Steam ownership,
 updates, metadata, and the normal library launch button while running the game
 inside RiftLift's persistent compatibility prefix.
+
+There is no per-title compatibility list. Rift Store manifests select the
+preferred executable and arguments, while engine layout and 64-bit PE
+inspection bypass generic Unreal bootstrap processes when necessary. For Steam,
+the expanded `%command%` remains authoritative, including alternate launch
+choices and title-specific arguments. Multi-runtime games pass through the
+host's normal OpenVR/XRizer path when Steam selects SteamVR mode; selecting an
+Oculus launch option uses Revive automatically.
 
 RiftLift reads public JSON-LD metadata from the title's official Meta store
 page and keeps a persistent local copy. Run `riftlift metadata` to backfill
