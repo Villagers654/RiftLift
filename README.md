@@ -1,21 +1,31 @@
 # RiftLift
 
-RiftLift brings owned Meta Rift PC games into standards-based Linux OpenXR. It
-combines a maintained Revive fork, GE-Proton, WineOpenXR, Meta's PC
-client/runtime, and the entitlement-respecting
-[meta-pcvr-downloader](https://github.com/Villagers654/meta-pcvr-downloader)
-behind one small command-line interface. The primary path targets Monado and
-does not require SteamVR.
+Play the Meta Rift PC VR games you own on Linux with your existing OpenXR
+headset setup. RiftLift handles the Windows compatibility tools, downloads,
+Steam shortcuts, artwork, and launching from one desktop app. SteamVR is not
+required when your headset already works with Monado.
 
-> Early release: the compatibility foundation is usable, but individual games
-> can still expose Windows assumptions. Please report the game and attach the
-> output from `riftlift doctor`.
+![RiftLift showing an installed Meta Rift library](docs/images/riftlift-library.png)
 
-## Install
+> RiftLift is an early release. Many games work, but an individual title can
+> still have a Windows-specific problem. If one does, click **Check system** and
+> include the results when reporting it.
 
-Requirements: an x86-64 Linux desktop, Steam, a working Monado/OpenXR setup,
-Python 3.10+, and roughly 1 GiB for compatibility tools (plus games). RiftLift
-does not install or patch headset drivers, Monado, or a compositor.
+## Get your first Meta game running
+
+You need:
+
+- a 64-bit Linux PC;
+- Steam;
+- a VR headset that already works through Monado/OpenXR; and
+- a Meta account that owns a **Rift / PC VR** game.
+
+RiftLift does not install headset drivers or Monado. If you can already use an
+OpenXR app with your headset, you are ready.
+
+### 1. Install RiftLift
+
+Open your terminal, copy this whole block, and press Enter:
 
 ```bash
 git clone https://github.com/Villagers654/RiftLift.git
@@ -23,135 +33,213 @@ cd RiftLift
 ./install.sh
 ```
 
-The installer creates an isolated environment under
-`~/.local/share/riftlift`, installs the current GE-Proton and compatibility
-payload, and creates one reusable Proton prefix. It does not modify a system
-Wine installation.
+The first install can take a while. RiftLift downloads about 1 GiB of shared
+compatibility tools, creates its own isolated game environment, and adds
+**RiftLift** to your application menu. It does not replace your system Wine or
+change your headset setup.
 
-RiftLift discovers the standard active OpenXR manifest automatically. No
-PSVR2-specific scripts, Envision profile, SteamVR compositor, or device-specific
-Monado fork is required. If your working Monado setup uses a nonstandard
-manifest location, export `XR_RUNTIME_JSON=/path/to/openxr_monado.json`.
-See [Architecture and ownership](docs/ARCHITECTURE.md) for the stable boundary
-between RiftLift and headset integrations.
+### 2. Open the RiftLift app
 
-It also installs a native Qt 6 RiftLift desktop app in your application menu. Open
-it there or run `riftlift gui` (equivalently, `riftlift-gui`) to browse your
-library, add games, launch them, refresh artwork, synchronize Steam, and check
-the compatibility stack without using the command line.
+Open your desktop's application menu and choose **RiftLift**. You can also open
+it from the terminal with `riftlift gui`.
 
-The GUI and command-line application support current mainstream Linux
-distributions. RiftLift intentionally targets Linux because its compatibility
-path requires Proton and a Linux OpenXR runtime.
+Click **Check system**. When it finishes, **View activity** shows each checked
+component and whether it is ready.
 
-## Sign in once
+### 3. Sign in to Meta
+
+Click **Sign in** at the top of RiftLift. Meta Horizon Link will open in its own
+window. Sign in normally and finish any browser or email confirmation Meta
+requests, then return to RiftLift.
+
+Your sign-in is saved in RiftLift's private game environment. You should not
+need to sign in again for every game. If Meta expires the session later, click
+**Sign in** again.
+
+### 4. Add a game you own
+
+Find the game's **Rift / PC VR** page on the Meta store and copy its web
+address. In RiftLift, click **Add game** and paste that address.
+
+![RiftLift Add Game window](docs/images/riftlift-add-game.png)
+
+Leave **Add to Steam when finished** checked, then click **Download game**.
+RiftLift confirms that your account owns the game, downloads and verifies it,
+and adds its name and artwork to Steam. Large games may take some time; click
+**View activity** to see progress.
+
+> A Quest-only purchase is not a Windows PC game. The store page must offer a
+> Rift or PC VR build. Cross-buy titles work when the PC version is present on
+> your Meta account.
+
+### 5. Put on your headset and play
+
+Select the game in RiftLift and click **Launch in VR**. You can also launch its
+new shortcut from Steam or from a headset dashboard that reads your Steam VR
+library, such as WayVR.
+
+That is the complete everyday workflow: open RiftLift, add a game, and launch
+it. Every Rift Store game shares the same compatibility setup and persistent
+Meta sign-in.
+
+## Using the desktop app
+
+The desktop app is the recommended way to use RiftLift:
+
+- **Check system** checks OpenXR, Steam, Proton, Revive, Meta sign-in support,
+  and every installed game without exposing account secrets.
+- **Sign in** opens Meta's sign-in flow in RiftLift's persistent environment.
+- **Add game** downloads an owned Rift game and optionally adds it to Steam.
+- **Launch in VR** starts the selected game through your active OpenXR runtime.
+- **Refresh info** downloads updated store details and artwork.
+- **Refresh library** reloads games that were added or changed elsewhere.
+- **View activity** shows download, setup, launch, and diagnostic messages.
+
+Steam may restart once when RiftLift adds or updates shortcuts. This prevents
+Steam from overwriting the new library entry.
+
+## Command-line setup and use
+
+Everything in the desktop app is also available from the command line. This is
+useful for remote machines, scripts, troubleshooting, or people who simply
+prefer a terminal.
+
+Install RiftLift with the same installer shown above, then use:
 
 ```bash
+# Check that your OpenXR and compatibility setup is ready
+riftlift doctor
+
+# Sign in to Meta once
 riftlift login
+
+# Download an owned Rift game and add it to Steam
+riftlift add 'https://www.meta.com/experiences/APP_ID/'
+
+# Show installed games and their launch names
+riftlift list
+
+# Launch one of those games
+riftlift launch GAME-SLUG
 ```
 
-Sign in to Meta in the Horizon Link window and complete its browser handoff.
-The Meta client, OAF session database, and browser login live in persistent
-locations, so you never paste a token or repeat login for every game. RiftLift
-caches the scoped runtime access token created by Horizon Link in a private
-mode-0600 file and refreshes it from that persistent client profile. It does not
-scrape an unrelated browser profile. If Meta expires the session, run
-`riftlift login` again.
-
-## Download a Rift game and add it to Steam
-
-Copy the URL of an owned PC VR/Rift game from the Meta store, then run:
+Useful maintenance commands:
 
 ```bash
-riftlift add 'META_RIFT_STORE_URL_OR_APP_ID'
+# Rebuild RiftLift's Steam shortcuts
+riftlift steam-sync
+
+# Fill in missing artwork and store information
+riftlift metadata
+
+# Refresh one game's cached artwork and information
+riftlift metadata GAME-SLUG --refresh
+
+# Reinstall or update the shared compatibility tools
+riftlift setup
 ```
 
-RiftLift will:
+Run `riftlift --help` or `riftlift COMMAND --help` for every option. Unusual
+Rift Store manifests can use `riftlift add --executable PATH` and
+`--arguments '...'`, but normal games should not need either override.
 
-1. verify the account's entitlement with Meta;
-2. download the newest PC build with per-segment and per-file SHA-256 checks;
-3. save the game's manifest and compatibility record;
-4. safely add a tagged VR shortcut to Steam; and
-5. install cover, hero, logo, icon, description, developer, publisher, and genre
-   metadata for Steam and WayVR; and
-6. restart Steam once if it was open, preventing it from overwriting the edit.
+## Games bought through Steam
 
-Start the game from Steam like any other VR title, or run
-`riftlift launch GAME-SLUG`. Future Rift titles use the same command and shared
-prefix. Use `riftlift list` to see their slugs.
+Some Steam games include an Oculus mode even though they were not downloaded
+from the Meta store. Install those games normally in Steam. RiftLift can detect
+64-bit Unity, Unreal, and native Oculus SDK games with:
 
-Steam titles built for the Oculus PC runtime are supported too. RiftLift
-detects installed 64-bit Unity, Unreal, and native Oculus SDK games with
-`riftlift steam-oculus-ids`.
-Host integrations can route those app IDs through
-`riftlift launch-steam APP_ID -- %command%`, preserving Steam ownership,
-updates, metadata, and the normal library launch button while running the game
-inside RiftLift's persistent compatibility prefix.
-
-There is no per-title compatibility list. Rift Store manifests select the
-preferred executable and arguments, while engine layout and 64-bit PE
-inspection bypass generic Unreal bootstrap processes when necessary. For Steam,
-the expanded `%command%` remains authoritative, including alternate launch
-choices and title-specific arguments. Multi-runtime games pass through the
-host's normal OpenVR/XRizer path when Steam selects SteamVR mode; selecting an
-Oculus launch option uses Revive automatically.
-
-RiftLift reads public JSON-LD metadata from the title's official Meta store
-page and keeps a persistent local copy. Run `riftlift metadata` to backfill
-older installs or `riftlift metadata GAME-SLUG --refresh` to refresh it. Steam
-shortcut IDs are preserved across updates, so custom artwork and controller
-layouts do not become detached when RiftLift itself moves or updates.
-
-For unusual manifests, `--executable PATH` and `--arguments '...'` provide an
-explicit escape hatch. `riftlift add --help` documents all options.
-
-## How it works
-
-The default rendering path is:
-
-```text
-Rift game -> RiftLift ReviveXR -> GE-Proton WineOpenXR -> active Linux OpenXR runtime -> headset
+```bash
+riftlift steam-oculus-ids
 ```
 
-The bundled legacy Platform SDK bridge supplies local login/entitlement
-responses only after the downloader has verified ownership. Unhandled Platform
-SDK functions and messages forward to Meta's original DLL. This is a Wine
-compatibility fix, not DRM or purchase bypass tooling.
+A headset integration can route those Steam app IDs through:
 
-The maintained compatibility projects are:
+```bash
+riftlift launch-steam APP_ID -- %command%
+```
 
-- [RiftLift Revive](https://github.com/Villagers654/Revive), with WineOpenXR,
-  Vulkan swapchain, session lifecycle, and Monado fixes.
-- [RiftLift xrizer](https://github.com/Villagers654/xrizer), maintained
-  independently for OpenVR-on-OpenXR setups. Rift games use ReviveXR directly,
-  so RiftLift does not replace or inject over a host's existing xrizer.
+This keeps Steam ownership, updates, achievements, artwork, and its normal Play
+button. If a game offers both Oculus and SteamVR/OpenVR modes, RiftLift respects
+the mode selected in Steam instead of forcing Oculus mode.
+
+RiftLift does not keep a list of specially supported titles. It uses the
+game's own manifest, engine layout, executable format, and Steam launch command
+to find the correct 64-bit game executable and arguments.
 
 ## Troubleshooting
+
+Start with **Check system** in the desktop app, or run:
 
 ```bash
 riftlift doctor
 ```
 
-This verifies the active OpenXR runtime, Steam, GE-Proton, ReviveXR, Meta
-client, platform bridge, and every registered executable without printing
-account secrets. Set `RIFTLIFT_PROTON_LOG=1` for a Proton log. Set
-`RIFTLIFT_LAUNCH_WRAPPER='your-runtime-start-wrapper'` when a headset integration
-must start or hand off its compositor before the game. RiftLift never guesses a
-device-specific wrapper; a normally running Monado setup needs no wrapper.
+Common fixes:
 
-## Updating
+- **RiftLift cannot find OpenXR:** start your normal Monado setup and try again.
+  RiftLift uses the active OpenXR runtime; it does not start headset drivers.
+- **Meta asks you to sign in again:** click **Sign in**, finish Meta's flow, and
+  retry the download.
+- **A game is missing from Steam:** close Steam, run `riftlift steam-sync`, and
+  reopen it. RiftLift normally handles this restart automatically.
+- **A game fails to launch:** run **Check system**, then enable a Proton log with
+  `RIFTLIFT_PROTON_LOG=1 riftlift launch GAME-SLUG`.
+- **Your headset setup needs a special start command:** set
+  `RIFTLIFT_LAUNCH_WRAPPER='your-runtime-start-wrapper'`. A normally running
+  Monado setup does not need this.
 
-Pull a tagged release and rerun `./install.sh`. Setup is idempotent: pinned,
-checksum-verified components are reused, the login prefix and installed games
-are preserved, and incompatible partial downloads are rejected.
+If your working Monado installation uses a nonstandard runtime manifest, set
+`XR_RUNTIME_JSON=/path/to/openxr_monado.json` before opening RiftLift.
+
+## Updating RiftLift
+
+From the RiftLift folder, run:
+
+```bash
+git pull --ff-only
+./install.sh
+```
+
+Updating preserves your Meta sign-in and installed games. Already downloaded,
+checksum-verified tools are reused when possible.
+
+## What RiftLift installs
+
+RiftLift keeps its files under `~/.local/share/riftlift` and uses one reusable
+Proton environment. It combines:
+
+- the maintained [RiftLift Revive](https://github.com/Villagers654/Revive) fork;
+- GE-Proton and WineOpenXR;
+- the parts of Meta's PC client needed for account sign-in;
+- the entitlement-respecting
+  [meta-pcvr-downloader](https://github.com/Villagers654/meta-pcvr-downloader);
+  and
+- a small compatibility bridge for older Oculus Platform SDK games.
+
+The rendering path is:
+
+```text
+Rift game -> RiftLift ReviveXR -> GE-Proton WineOpenXR -> your OpenXR runtime -> headset
+```
+
+RiftLift uses Meta's entitlement service before downloading a game. The legacy
+Platform SDK bridge supplies local login and entitlement responses only for a
+download whose ownership was already verified; other SDK calls continue to
+Meta's original library. RiftLift is compatibility software, not a purchase or
+DRM bypass.
+
+Headset drivers, Monado, compositor lifecycle, and device-specific setup remain
+the responsibility of the host VR setup. See
+[Architecture and ownership](docs/ARCHITECTURE.md) for the technical boundary.
 
 ## Legal and security
 
 RiftLift is unaffiliated with Meta, Oculus, Valve, Collabora, or Sony. You must
-own the games you download. The cached runtime token is readable only by your
-user and is never included in diagnostic output. Runtime archives are pinned and verified before
-extraction, archive paths are validated, and Steam's shortcut file is backed up
-before an atomic replacement.
+own the games you download. Its cached Meta runtime token is readable only by
+your user and is never included in diagnostic output. Downloads are pinned and
+verified before extraction, archive paths are validated, and Steam's shortcut
+file is backed up before an atomic replacement.
 
-RiftLift is GPL-3.0-or-later. Bundled/upstream components keep their own license
-and notice files.
+RiftLift is GPL-3.0-or-later. Bundled and upstream components retain their own
+licenses and notices.

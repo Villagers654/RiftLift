@@ -29,12 +29,17 @@ echo "Installed RiftLift at $bin_root/riftlift"
 "$bin_root/riftlift" setup
 cat <<'EOF'
 
-RiftLift is ready. Sign into Meta once:
-  riftlift login
+RiftLift is ready.
 
-Open the desktop app from your application menu, or run:
+Open RiftLift from your application menu, then:
+  1. Click Check system.
+  2. Click Sign in and finish Meta's sign-in.
+  3. Click Add game and paste an owned Rift / PC VR store URL.
+
+To open the desktop app from a terminal:
   riftlift gui
 
-Then add an owned Rift game using its Meta store URL:
+Command-line setup is also available:
+  riftlift login
   riftlift add 'https://www.meta.com/experiences/APP_ID/'
 EOF
