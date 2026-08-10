@@ -80,6 +80,13 @@ Start the game from Steam like any other VR title, or run
 `riftlift launch GAME-SLUG`. Future Rift titles use the same command and shared
 prefix. Use `riftlift list` to see their slugs.
 
+Steam titles built only for the Oculus PC runtime are supported too. RiftLift
+detects installed 64-bit Unity Oculus XR games with `riftlift steam-oculus-ids`.
+Host integrations can route those app IDs through
+`riftlift launch-steam APP_ID -- %command%`, preserving Steam ownership,
+updates, metadata, and the normal library launch button while running the game
+inside RiftLift's persistent compatibility prefix.
+
 RiftLift reads public JSON-LD metadata from the title's official Meta store
 page and keeps a persistent local copy. Run `riftlift metadata` to backfill
 older installs or `riftlift metadata GAME-SLUG --refresh` to refresh it. Steam

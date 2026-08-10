@@ -15,6 +15,7 @@ from .library import add
 from .metadata import populate_game_metadata
 from .runtime import complete_login, login, setup
 from .steam import sync_with_restart
+from .steam_oculus import steam_oculus_game, steam_oculus_games
 from .util import RiftLiftError
 
 
@@ -63,6 +64,14 @@ def parser() -> argparse.ArgumentParser:
     launch_command = commands.add_parser("launch", help="launch an installed game")
     launch_command.add_argument("slug")
     launch_command.add_argument("arguments", nargs=argparse.REMAINDER)
+    steam_launch = commands.add_parser(
+        "launch-steam", help="launch an installed Steam Oculus XR game"
+    )
+    steam_launch.add_argument("app_id")
+    steam_launch.add_argument("steam_command", nargs=argparse.REMAINDER)
+    commands.add_parser(
+        "steam-oculus-ids", help="list installed Steam games needing RiftLift"
+    )
     commands.add_parser("list", help="list installed RiftLift games")
     commands.add_parser(
         "steam-sync", help="safely synchronize all RiftLift games into Steam"
@@ -113,6 +122,14 @@ def run(arguments: argparse.Namespace) -> int:
         return 0
     if arguments.command == "launch":
         return launch(paths, Game.load(paths, arguments.slug), arguments.arguments)
+    if arguments.command == "launch-steam":
+        # Steam expands %command% after `--`. The depot must instead run inside
+        # RiftLift's shared prefix so Revive can inject before Oculus starts.
+        return launch(paths, steam_oculus_game(arguments.app_id), [])
+    if arguments.command == "steam-oculus-ids":
+        for game in steam_oculus_games():
+            print(game.app_id)
+        return 0
     if arguments.command == "list":
         installed = games(paths)
         if not installed:
