@@ -35,6 +35,9 @@ def test_gui_exposes_only_the_primary_library_actions(tmp_path: Path) -> None:
         "⟳",
         "View Activity",
     } <= buttons
+    assert "Refresh Info" not in buttons
+    assert "Store" not in buttons
+    assert "Open in Rift Store ↗" in buttons
     assert not window.findChildren(QtWidgets.QSpinBox)
     assert "Your Meta Rift library, lifted into Linux OpenXR" not in {
         label.text() for label in window.findChildren(QtWidgets.QLabel)

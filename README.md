@@ -91,8 +91,8 @@ The desktop app is the recommended way to use RiftLift:
 - **Sign In** opens Meta's sign-in flow in RiftLift's persistent environment.
 - **Add Game** downloads an owned Rift game and optionally adds it to Steam.
 - **Launch in VR** starts the selected game through your active OpenXR runtime.
-- **Refresh Info** downloads updated store details and artwork.
-- **Refresh** reloads games that were added or changed elsewhere.
+- The **⟳** button reloads games added elsewhere and refreshes store details
+  and artwork.
 - **View Activity** shows download, setup, launch, and diagnostic messages.
 
 Steam may restart once when RiftLift adds or updates shortcuts. This prevents
@@ -167,8 +167,8 @@ the mode selected in Steam instead of forcing Oculus mode.
 
 For these games, RiftLift reads the title, description, developer, genres, and
 official library artwork from the Steam catalog instead of treating the Steam
-app ID as a Meta store ID. **Refresh Info** updates that cached Steam data and
-portrait artwork at any time.
+app ID as a Meta store ID. The library **⟳** button updates that cached Steam
+data and portrait artwork at any time.
 
 RiftLift does not keep a list of specially supported titles. It uses the
 game's own manifest, engine layout, executable format, and Steam launch command

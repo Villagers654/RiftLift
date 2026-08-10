@@ -24,6 +24,7 @@ QPushButton{background:#172238;border:1px solid #33415f;border-radius:16px;paddi
 QPushButton#primary{background:#7c5cff;color:white;border:0;font-weight:700} QPushButton#primary:hover{background:#8b70ff}
 QPushButton#nav{background:transparent;border:0;padding:8px 10px} QPushButton#nav:hover{background:#172238}
 QPushButton#refresh{background:#172238;border:1px solid #33415f;border-radius:7px;padding:0;font-size:20px}
+QPushButton#link{background:transparent;border:0;border-radius:0;color:#aeb8cd;font-size:12px;padding:4px 2px;min-height:0} QPushButton#link:hover{background:transparent;color:#f4f7ff}
 QListWidget{background:transparent;border:0;outline:0} QListWidget::item{background:#111a2c;border:1px solid #293650;border-radius:8px;margin:4px 0;padding:8px 10px} QListWidget::item:hover{background:#172238} QListWidget::item:selected{background:#172238;border:1px solid #7c5cff}
 QLineEdit{background:#10182a;border:1px solid #33415f;border-radius:6px;padding:9px} QTextEdit{background:#080c17;color:#ccd5e8;border:1px solid #263552;border-radius:6px;font-family:monospace}
 QCheckBox{spacing:8px} QCheckBox::indicator{width:16px;height:16px}
@@ -137,6 +138,7 @@ class Window(QtWidgets.QMainWindow):
         outer.setContentsMargins(20, 17, 20, 15)
         outer.setSpacing(0)
         head = QtWidgets.QHBoxLayout()
+        head.setSpacing(10)
         head.addWidget(self.label("RiftLift", "title"))
         head.addStretch()
         self.check = self.button(
@@ -167,11 +169,11 @@ class Window(QtWidgets.QMainWindow):
         self.count = self.label("", "muted")
         lh.addWidget(self.count)
         lh.addStretch()
-        refresh = self.button("⟳", self.refresh)
-        refresh.setObjectName("refresh")
-        refresh.setToolTip("Refresh library")
-        refresh.setFixedSize(34, 34)
-        lh.addWidget(refresh)
+        self.refresh_button = self.button("⟳", self.refresh_library)
+        self.refresh_button.setObjectName("refresh")
+        self.refresh_button.setToolTip("Refresh library and game info")
+        self.refresh_button.setFixedSize(34, 34)
+        lh.addWidget(self.refresh_button)
         ll.addLayout(lh)
         self.library = QtWidgets.QListWidget()
         self.library.setIconSize(QtCore.QSize(40, 40))
@@ -218,12 +220,14 @@ class Window(QtWidgets.QMainWindow):
         info.addWidget(self.meta)
         info.addSpacing(14)
         actions = QtWidgets.QHBoxLayout()
+        actions.setSpacing(10)
         self.launch = self.button("Launch in VR", self.launch_game, True)
         actions.addWidget(self.launch)
         actions.addWidget(self.button("Files", self.open_folder))
-        actions.addWidget(self.button("Store", self.open_store))
-        self.metadata = self.button("Refresh Info", self.refresh_metadata)
-        actions.addWidget(self.metadata)
+        self.store_link = self.button("Open in Rift Store ↗", self.open_store)
+        self.store_link.setObjectName("link")
+        self.store_link.setCursor(QtCore.Qt.PointingHandCursor)
+        actions.addWidget(self.store_link, alignment=QtCore.Qt.AlignVCenter)
         actions.addStretch()
         info.addLayout(actions)
         info.addStretch()
@@ -308,13 +312,21 @@ class Window(QtWidgets.QMainWindow):
                 f"{g.name} closed",
             )
 
-    def refresh_metadata(self):
-        if g := self.game():
-            self.run_task(
-                f"Refreshing {g.name}",
-                lambda: populate_game_metadata(self.paths, g, refresh=True),
-                refresh=g.slug,
-            )
+    def refresh_library(self):
+        installed = games(self.paths)
+        if not installed:
+            self.refresh()
+            return
+        preferred = self.slug
+
+        def operation():
+            for game in installed:
+                populate_game_metadata(self.paths, game, refresh=True)
+            return preferred
+
+        self.run_task(
+            "Refreshing library", operation, "Library refreshed", refresh=True
+        )
 
     def open_folder(self):
         if g := self.game():
@@ -384,6 +396,7 @@ class Window(QtWidgets.QMainWindow):
         self.busy = True
         self.status.setText(label + "…")
         self.addbtn.setEnabled(False)
+        self.refresh_button.setEnabled(False)
 
         def worker():
             try:
@@ -401,6 +414,7 @@ class Window(QtWidgets.QMainWindow):
     def _finish(self, message, result, refresh, error):
         self.busy = False
         self.addbtn.setEnabled(True)
+        self.refresh_button.setEnabled(True)
         if error:
             self.status.setText(str(error))
             self._append_log(f"\nError: {error}\n")
@@ -446,4 +460,5 @@ def main() -> int:
     app.setStyle("Fusion")
     window = Window()
     app._riftlift_window = window
+    window.show()
     return app.exec()
