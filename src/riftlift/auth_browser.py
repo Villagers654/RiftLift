@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 import re
+import signal
 import shlex
 import shutil
 import subprocess
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -208,6 +210,10 @@ def _prepare_firefox_profile(profile: Path) -> None:
         "browser.startup.homepage_override.mstone": "ignore",
         "datareporting.policy.dataSubmissionPolicyBypassNotification": True,
         "datareporting.policy.firstRunURL": "",
+        "network.protocol-handler.external.oculus": True,
+        "network.protocol-handler.external.oculus-client": True,
+        "network.protocol-handler.warn-external.oculus": False,
+        "network.protocol-handler.warn-external.oculus-client": False,
         "trailhead.firstrun.didSeeAboutWelcome": True,
     }
     lines = []
@@ -217,7 +223,22 @@ def _prepare_firefox_profile(profile: Path) -> None:
     (profile / "user.js").write_text("\n".join(lines) + "\n")
 
 
-def launch_browser_login(paths: Paths, browser: Browser) -> subprocess.Popen[bytes]:
+def _prepare_chromium_profile(profile: Path) -> None:
+    target = profile / "Default/Preferences"
+    try:
+        preferences = json.loads(target.read_text())
+    except (FileNotFoundError, json.JSONDecodeError, UnicodeError):
+        preferences = {}
+    protocol_handler = preferences.setdefault("protocol_handler", {})
+    allowed = protocol_handler.setdefault("allowed_origin_protocol_pairs", {})
+    allowed["https://auth.meta.com"] = {"oculus": True, "oculus-client": True}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(preferences, separators=(",", ":")))
+
+
+def launch_browser_login(
+    paths: Paths, browser: Browser, url: str = META_LOGIN_URL
+) -> subprocess.Popen[bytes]:
     """Open Meta's hosted login in a RiftLift-owned, isolated browser profile."""
     home = browser_home(paths, browser)
     home.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -249,21 +270,60 @@ def launch_browser_login(paths: Paths, browser: Browser) -> subprocess.Popen[byt
         launch_command.insert(flatpak_run + 2, f"--filesystem={home}")
     _link_cookie_profile(home, profile, browser.family)
     if browser.family == "chromium":
+        _prepare_chromium_profile(profile)
         arguments = [
             f"--user-data-dir={profile}",
             "--no-first-run",
             "--no-default-browser-check",
             "--new-window",
-            META_LOGIN_URL,
+            url,
         ]
     else:
         _prepare_firefox_profile(profile)
-        arguments = ["--no-remote", "--profile", str(profile), META_LOGIN_URL]
+        arguments = ["--no-remote", "--profile", str(profile), url]
     return subprocess.Popen(
         [*launch_command, *arguments],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
+    )
+
+
+def stop_browser(paths: Paths, browser: Browser, process) -> None:
+    """Stop only browser processes using RiftLift's isolated auth profile."""
+    if process is not None and process.poll() is None:
+        process.terminate()
+    home = browser_home(paths, browser)
+    marker = home / "external-profile"
+    try:
+        profile = (
+            marker.resolve(strict=True) if marker.is_symlink() else home / "profile"
+        )
+    except OSError:
+        profile = home / "profile"
+    for pid in _profile_processes(profile):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            pass
+
+
+def _profile_processes(profile: Path):
+    encoded_profile = os.fsencode(profile)
+    for command_line in Path("/proc").glob("[0-9]*/cmdline"):
+        try:
+            arguments = command_line.read_bytes().split(b"\0")
+            pid = int(command_line.parent.name)
+        except (OSError, ValueError):
+            continue
+        if _command_uses_profile(arguments, encoded_profile):
+            yield pid
+
+
+def _command_uses_profile(arguments: list[bytes], profile: bytes) -> bool:
+    return any(
+        argument == profile or argument.endswith(b"=" + profile)
+        for argument in arguments
     )
 
 

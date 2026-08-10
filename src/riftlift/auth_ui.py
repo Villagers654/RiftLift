@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
+
 from PySide6 import QtCore, QtWidgets
 
 from .auth import complete_browser_login, is_signed_in, sign_out
-from .auth_browser import default_browser, launch_browser_login
+from .auth_browser import default_browser, launch_browser_login, stop_browser
 from .config import Paths
+from .meta_auth import MetaAuthSession
 from .theme import STYLE
 
 
@@ -17,7 +20,13 @@ class AuthDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.paths = paths
         self.browser = None
+        self.session = None
         self.process = None
+        self.pending: Future | None = None
+        self.operation = "idle"
+        self.executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="meta-auth"
+        )
         self.completed = False
         self.setWindowTitle("Meta account")
         self.setMinimumWidth(520)
@@ -47,15 +56,9 @@ class AuthDialog(QtWidgets.QDialog):
         self.retry.clicked.connect(self.start)
         layout.addWidget(self.retry)
 
-        row = QtWidgets.QHBoxLayout()
         self.reset = QtWidgets.QPushButton("Sign out and reset")
         self.reset.clicked.connect(self.reset_login)
-        row.addWidget(self.reset)
-        row.addStretch()
-        close = QtWidgets.QPushButton("Close")
-        close.clicked.connect(self.reject)
-        row.addWidget(close)
-        layout.addLayout(row)
+        layout.addWidget(self.reset)
 
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(900)
@@ -79,44 +82,78 @@ class AuthDialog(QtWidgets.QDialog):
         try:
             browser = default_browser()
             sign_out(self.paths)
-            self.process = launch_browser_login(self.paths, browser)
         except Exception as error:
-            self.status.setText(str(error))
-            self.retry.setText("Try again")
-            self.retry.setVisible(True)
-            self.reset.setVisible(False)
+            self.show_error(error)
             return
         self.browser = browser
-        self.status.setText(f"Waiting for Meta in {browser.name}…")
+        self.session = None
+        self.operation = "begin"
+        self.pending = self.executor.submit(MetaAuthSession.begin, self.paths)
+        self.status.setText("Preparing a secure Meta sign-in…")
         self.retry.setVisible(False)
         self.reset.setText("Cancel sign-in")
         self.reset.setVisible(True)
         self.timer.start()
 
     def check_login(self):
-        try:
-            complete_browser_login(self.paths, self.browser)
-        except Exception:
+        if self.operation == "begin":
+            if self.pending is None or not self.pending.done():
+                return
+            try:
+                self.session = self.pending.result()
+                self.process = launch_browser_login(
+                    self.paths, self.browser, self.session.login_url
+                )
+            except Exception as error:
+                self.show_error(error)
+                return
+            self.pending = None
+            self.operation = "waiting"
+            self.status.setText(f"Waiting for Meta in {self.browser.name}…")
+            return
+        if self.operation == "waiting":
+            if self.session is not None and self.session.callback_ready():
+                self.operation = "complete"
+                self.pending = self.executor.submit(
+                    complete_browser_login, self.paths, self.session
+                )
+                self.status.setText("Finishing sign-in securely…")
+                return
             if self.process is not None and self.process.poll() is not None:
-                self.timer.stop()
-                self.process = None
-                self.status.setText(
+                self.show_error(
                     "The browser closed before sign-in finished. Try again when ready."
                 )
-                self.retry.setText("Try again")
-                self.retry.setVisible(True)
-                self.reset.setText("Sign out and reset")
-                self.reset.setVisible(False)
+            return
+        if self.operation != "complete" or self.pending is None:
+            return
+        if not self.pending.done():
+            return
+        try:
+            self.pending.result()
+        except Exception as error:
+            self.show_error(error)
             return
         self.timer.stop()
+        self.operation = "idle"
+        self.pending = None
         self.completed = True
         self.status.setText("Signed in. Returning to RiftLift…")
         self.stop_browser()
         QtCore.QTimer.singleShot(500, self.accept)
 
+    def show_error(self, error):
+        self.timer.stop()
+        self.pending = None
+        self.operation = "idle"
+        self.status.setText(str(error))
+        self.retry.setText("Try again")
+        self.retry.setVisible(True)
+        self.reset.setText("Sign out and reset")
+        self.reset.setVisible(False)
+
     def stop_browser(self):
-        if self.process is not None and self.process.poll() is None:
-            self.process.terminate()
+        if self.process is not None and self.browser is not None:
+            stop_browser(self.paths, self.browser, self.process)
         self.process = None
 
     def reset_login(self):
@@ -124,6 +161,9 @@ class AuthDialog(QtWidgets.QDialog):
         self.stop_browser()
         sign_out(self.paths)
         self.browser = None
+        self.session = None
+        self.pending = None
+        self.operation = "idle"
         self.reset.setText("Sign out and reset")
         self.reset.setVisible(False)
         self.retry.setText("Open default browser")
@@ -133,4 +173,5 @@ class AuthDialog(QtWidgets.QDialog):
     def reject(self):
         self.timer.stop()
         self.stop_browser()
+        self.executor.shutdown(wait=False, cancel_futures=True)
         super().reject()

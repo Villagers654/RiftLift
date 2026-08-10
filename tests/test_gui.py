@@ -1,6 +1,7 @@
 import os
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -146,8 +147,15 @@ def test_auth_dialog_detects_browser_completion_and_returns(
     monkeypatch.setattr(
         "riftlift.auth_ui.launch_browser_login", lambda *_args: Process()
     )
+    session = SimpleNamespace(
+        login_url="https://auth.meta.com/native_sso/confirm",
+        callback_ready=lambda: True,
+    )
+    monkeypatch.setattr(
+        "riftlift.auth_ui.MetaAuthSession.begin", lambda _paths: session
+    )
 
-    def complete(login_paths, _browser):
+    def complete(login_paths, _session):
         target = login_paths.config / "meta-access-token"
         target.write_text("FRL" + "a" * 176)
 
@@ -155,6 +163,10 @@ def test_auth_dialog_detects_browser_completion_and_returns(
     dialog = AuthDialog(paths)
 
     dialog.start()
+    assert wait_until(app, lambda: dialog.pending is not None and dialog.pending.done())
+    dialog.check_login()
+    dialog.check_login()
+    assert wait_until(app, lambda: dialog.pending is not None and dialog.pending.done())
     dialog.check_login()
 
     assert dialog.completed

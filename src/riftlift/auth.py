@@ -1,4 +1,4 @@
-"""Meta token persistence built on RiftLift's isolated browser profiles."""
+"""Meta token persistence for RiftLift's native-SSO flow."""
 
 from __future__ import annotations
 
@@ -6,27 +6,17 @@ import os
 import re
 from pathlib import Path
 
-from meta_pcvr_downloader.auth import AuthenticationError, get_access_token
-
-from .auth_browser import (
-    Browser,
-    browser_home,
-    cleanup_browser_profiles,
-    default_browser,
-    launch_browser_login,
-)
+from .auth_browser import cleanup_browser_profiles
 from .config import Paths
+from .meta_auth import MetaAuthSession, clear_callback
 from .util import RiftLiftError
 
 _TOKEN_PATTERN = re.compile(rb"[A-Za-z0-9_.|-]{32,4096}")
 
 
-def complete_browser_login(paths: Paths, browser: Browser) -> str:
-    """Import the Meta session created in RiftLift's managed browser profile."""
-    try:
-        token = get_access_token(browser_home(paths, browser) / "cookie-home")
-    except AuthenticationError as error:
-        raise RiftLiftError(str(error)) from error
+def complete_browser_login(paths: Paths, session: MetaAuthSession) -> str:
+    """Finish Meta native SSO and persist the resulting Oculus profile token."""
+    token = session.complete()
     _save(paths, token)
     return token
 
@@ -34,6 +24,7 @@ def complete_browser_login(paths: Paths, browser: Browser) -> str:
 def sign_out(paths: Paths) -> None:
     """Forget RiftLift's token and its isolated browser login profiles."""
     (paths.config / "meta-access-token").unlink(missing_ok=True)
+    clear_callback(paths)
     cleanup_browser_profiles(paths)
 
 

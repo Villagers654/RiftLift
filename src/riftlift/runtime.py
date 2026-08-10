@@ -12,8 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .auth import complete_browser_login, sign_out
-from .auth_browser import default_browser, launch_browser_login
+from .auth_browser import default_browser, launch_browser_login, stop_browser
 from .config import Paths
+from .meta_auth import MetaAuthSession, install_protocol_handler, record_callback
 from .util import RiftLiftError, download, linux_to_windows, run
 
 PROTON_VERSION = "GE-Proton11-3"
@@ -35,9 +36,6 @@ class MetaPackage:
         return f"https://securecdn-atl3-3.oculus.com/binaries/download/?id={self.binary_id}"
 
 
-# These are current Meta Horizon Link 205.0 packages. They are pinned because
-# setup must be reproducible; `riftlift doctor` reports when newer metadata is
-# available rather than silently changing a working prefix.
 META_PACKAGES = (
     MetaPackage(
         "oculus-runtime",
@@ -116,11 +114,6 @@ def patch_meta_runtime(runtime: Path) -> None:
         temporary.write_bytes(payload)
         os.replace(temporary, target)
 
-    # Monado owns headset discovery and display access. Meta's legacy Rift
-    # hardware plug-ins recurse through Wine's synthetic SetupAPI devices until
-    # OVRServer stack-overflows; keeping them loaded provides no functionality
-    # to RiftLift. Preserve the files for inspection/recovery instead of deleting
-    # them, while leaving OAF, IPC, and account services intact.
     plugins = runtime / "server-plugins"
     # Keep quarantined DLLs outside server-plugins: Meta scans that tree
     # recursively, including dot-prefixed directories.
@@ -279,9 +272,6 @@ def install_proton(paths: Paths) -> Path:
 def proton_environment(paths: Paths, game_dir: Path | None = None) -> dict[str, str]:
     root = steam_root()
     environment = os.environ.copy()
-    # A host integration may export xrizer's OpenVR override session-wide.
-    # RiftLift uses ReviveXR/WineOpenXR directly; injecting xrizer into Meta's
-    # client, reg.exe, or prefix bootstrap is both unnecessary and harmful.
     for variable in (
         "VR_OVERRIDE",
         "XR_RUNTIME_JSON",
@@ -318,8 +308,6 @@ def initialize_prefix(paths: Paths) -> Path:
     if not (paths.prefix / "pfx/drive_c").is_dir():
         proton(paths, "run", "cmd.exe", "/c", "exit")
     prefix = paths.prefix / "pfx"
-    # OAF treats this legacy Known Folder as mandatory even though RiftLift
-    # never creates a Windows shortcut there. Proton does not create it.
     (
         prefix
         / "drive_c/users/steamuser/AppData/Roaming/Microsoft/Internet Explorer/Quick Launch"
@@ -553,9 +541,6 @@ def install_revive(paths: Paths) -> Path:
 
 
 def install_platform_compat(paths: Paths) -> Path:
-    # The legacy PC Platform SDK DLLs live in the main runtime package. The
-    # similarly named oculus-platform-runtime package is a newer service and
-    # does not contain the link/import DLLs used by Rift games.
     source = install_meta_runtime(paths) / "oculus-runtime"
     destination = paths.tools / "platform-compat"
     destination.mkdir(parents=True, exist_ok=True)
@@ -585,9 +570,6 @@ def install_platform_compat(paths: Paths) -> Path:
 
 
 def setup(paths: Paths) -> None:
-    # Fail before downloading gigabytes if the host is not actually ready to
-    # run OpenXR applications. RiftLift consumes an existing runtime; headset
-    # drivers and compositor lifecycle remain the host setup's responsibility.
     active_runtime_json()
     paths.create()
     install_proton(paths)
@@ -598,55 +580,27 @@ def setup(paths: Paths) -> None:
 
 def install_login_protocol_handler() -> Path:
     """Register Meta's oculus:// browser callback with the host desktop."""
-    applications = Path.home() / ".local/share/applications"
-    applications.mkdir(parents=True, exist_ok=True)
-    desktop = applications / "riftlift-meta-login.desktop"
-    executable = Path.home() / ".local/bin/riftlift"
-    desktop.write_text(
-        "[Desktop Entry]\n"
-        "Type=Application\n"
-        "Name=RiftLift Meta Login\n"
-        "NoDisplay=true\n"
-        f"Exec={executable} callback %u\n"
-        "MimeType=x-scheme-handler/oculus;x-scheme-handler/oculus-client;\n"
-    )
-    desktop.chmod(0o755)
-    if update_database := shutil.which("update-desktop-database"):
-        run((update_database, str(applications)))
-    if xdg_mime := shutil.which("xdg-mime"):
-        run((xdg_mime, "default", desktop.name, "x-scheme-handler/oculus"))
-        run((xdg_mime, "default", desktop.name, "x-scheme-handler/oculus-client"))
-    return desktop
+    return install_protocol_handler()
 
 
 def complete_login(paths: Paths, callback_url: str) -> int:
-    """Forward a browser's oculus:// callback into the persistent prefix."""
-    if not callback_url.startswith(("oculus://", "oculus-client://")):
-        raise RiftLiftError("Meta login callback must use the oculus:// scheme")
-    support = install_meta_runtime(paths)
-    client = support / "oculus-client/Client.exe"
-    # The browser callback arrives while Client.exe is already running. Proton's
-    # regular `run` path serializes through its Steam launch wrapper and can
-    # deadlock behind that process; runinprefix starts the Electron singleton
-    # directly, which forwards the URL to the existing client and exits.
-    # Use the equals form so Proton cannot consume Electron's option/value
-    # separator while forwarding the custom-scheme URL.
-    return proton(paths, "runinprefix", str(client), f"--url={callback_url}").returncode
+    """Hand a browser's oculus:// callback to RiftLift's active auth session."""
+    return record_callback(paths, callback_url)
 
 
 def login(paths: Paths) -> int:
     """Run the browser-backed sign-in flow for command-line users."""
     browser = default_browser()
     sign_out(paths)
-    process = launch_browser_login(paths, browser)
+    session = MetaAuthSession.begin(paths)
+    process = launch_browser_login(paths, browser, session.login_url)
     print(f"Finish signing in to Meta in {browser.name}.")
     while process.poll() is None:
-        try:
-            complete_browser_login(paths, browser)
-        except RiftLiftError:
+        if not session.callback_ready():
             time.sleep(1)
             continue
-        process.terminate()
+        complete_browser_login(paths, session)
+        stop_browser(paths, browser, process)
         print("RiftLift is signed in to Meta.")
         return 0
     raise RiftLiftError("the browser closed before Meta sign-in finished")
@@ -658,9 +612,6 @@ def active_runtime_json() -> Path:
     config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     candidates.append(config_home / "openxr/1/active_runtime.json")
 
-    # A correctly configured loader normally exposes active_runtime.json. The
-    # named Monado manifests are fallbacks for distributions that install the
-    # runtime but omit the user-level selector.
     data_dirs = [Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))]
     data_dirs.extend(
         Path(item)
@@ -712,9 +663,6 @@ def launch_environment(
             "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
             "OXR_ZERO_TIME_IS_NOW": "1",
             "RIFTLIFT_XRIZER": "1",
-            # Proton's runinprefix verb does not apply its normal per-game DXVK
-            # override. WineD3D lacks IDXGIVkInteropDevice, so WineOpenXR rejects
-            # Revive's D3D11 graphics binding before input can be attached.
             "WINEDLLOVERRIDES": f"d3d11=n;dxgi=n{';' + existing_overrides if existing_overrides else ''}",
         }
     )
@@ -725,13 +673,6 @@ def launch_environment(
             paths.prefix / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime"
         )
         meta_runtime_win = linux_to_windows(meta_runtime)
-        # Do not set LIBOVR_DLL_DIR here. OVRPlugin uses that variable for the
-        # VR runtime as well as the Platform SDK; pointing it at our platform
-        # shim makes it reject LibOVRRT before ReviveXR can intercept the load.
-        # Put the compatibility directory first so the Platform SDK still uses
-        # our shim, followed by Meta's signed runtime loader. Newer OVRPlugin
-        # builds verify that signed LibOVRRT file before calling LoadLibrary;
-        # ReviveXR intercepts that final load and substitutes itself.
         environment["WINEPATH"] = f"{compatibility_win};{meta_runtime_win}"
         if platform_offline:
             environment["RIFTLIFT_PLATFORM_OFFLINE"] = "1"

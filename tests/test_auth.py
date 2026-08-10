@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
+import json
 
 from riftlift.auth import complete_browser_login, sign_out
 from riftlift.auth_browser import (
@@ -8,6 +9,8 @@ from riftlift.auth_browser import (
     browser_home,
     default_browser,
     launch_browser_login,
+    stop_browser,
+    _command_uses_profile,
 )
 from riftlift.config import Paths
 
@@ -108,6 +111,12 @@ def test_edge_login_uses_an_isolated_riftlift_profile(
     assert f"--user-data-dir={browser_home(paths, browser) / 'profile'}" in command
     assert command[-1] == META_LOGIN_URL
     assert options["start_new_session"] is True
+    preferences = json.loads(
+        (browser_home(paths, browser) / "profile/Default/Preferences").read_text()
+    )
+    assert preferences["protocol_handler"]["allowed_origin_protocol_pairs"][
+        "https://auth.meta.com"
+    ]["oculus"]
 
 
 def test_firefox_login_uses_an_isolated_riftlift_profile(
@@ -131,6 +140,10 @@ def test_firefox_login_uses_an_isolated_riftlift_profile(
     assert 'user_pref("browser.aboutwelcome.enabled", false);' in preferences
     assert (
         'user_pref("datareporting.policy.dataSubmissionPolicyBypassNotification", true);'
+        in preferences
+    )
+    assert (
+        'user_pref("network.protocol-handler.warn-external.oculus", false);'
         in preferences
     )
 
@@ -201,10 +214,9 @@ def test_browser_login_imports_and_protects_the_token(
 ) -> None:
     paths = paths_in(tmp_path)
     token = "FRL" + "a" * 176
-    browser = Browser("firefox", "Firefox", "firefox", ("firefox",))
-    monkeypatch.setattr("riftlift.auth.get_access_token", lambda _home: token)
+    session = SimpleNamespace(complete=lambda: token)
 
-    assert complete_browser_login(paths, browser) == token
+    assert complete_browser_login(paths, session) == token
     target = paths.config / "meta-access-token"
     assert target.read_text().strip() == token
     assert target.stat().st_mode & 0o777 == 0o600
@@ -227,3 +239,33 @@ def test_sign_out_removes_only_riftlift_auth_state(tmp_path: Path) -> None:
     assert not token.exists()
     assert not (paths.config / "auth").exists()
     assert unrelated.read_text() == "keep"
+
+
+def test_stopping_login_closes_detached_profile_processes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = paths_in(tmp_path)
+    browser = Browser("firefox", "Firefox", "firefox", ("firefox",))
+    stopped = []
+    process = SimpleNamespace(poll=lambda: 0)
+    monkeypatch.setattr(
+        "riftlift.auth_browser._profile_processes", lambda _profile: [123]
+    )
+    monkeypatch.setattr(
+        "riftlift.auth_browser.os.kill",
+        lambda pid, signal: stopped.append((pid, signal)),
+    )
+
+    stop_browser(paths, browser, process)
+
+    assert stopped and stopped[0][0] == 123
+
+
+def test_profile_process_matching_supports_firefox_and_chromium() -> None:
+    profile = b"/tmp/riftlift/profile"
+
+    assert _command_uses_profile([b"firefox", b"--profile", profile], profile)
+    assert _command_uses_profile([b"chromium", b"--user-data-dir=" + profile], profile)
+    assert not _command_uses_profile(
+        [b"chromium", b"--user-data-dir=/tmp/regular-profile"], profile
+    )

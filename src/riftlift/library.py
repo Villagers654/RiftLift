@@ -91,9 +91,6 @@ def add(
         executable=launch_file,
         arguments=launch_arguments,
         version=build.version,
-        # Every Rift Store download is entitlement-checked above. Keep that
-        # verified identity available to legacy Platform SDK titles without a
-        # per-game allowlist.
         platform_offline=True,
     )
     game.save(paths)
