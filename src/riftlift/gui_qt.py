@@ -19,11 +19,12 @@ from .steam import sync_with_restart
 
 STYLE = """
 QWidget{background:#0b1020;color:#f4f7ff;font:14px sans-serif}
-QLabel#title{font-size:24px;font-weight:700} QLabel#game{font-size:22px;font-weight:700} QLabel#muted{color:#9eabc3} QLabel#section{font-weight:700}
-QLabel#cover{background:#10182a;border:1px solid #263552;border-radius:8px}
-QPushButton{background:#172238;border:1px solid #33415f;border-radius:6px;padding:8px 12px;min-height:18px} QPushButton:hover{background:#22304a} QPushButton:disabled{color:#66728b}
-QPushButton#primary{background:#7c5cff;color:white;border:0;font-weight:700} QPushButton#primary:hover{background:#9178ff}
-QListWidget{background:#10182a;border:1px solid #263552;border-radius:6px;outline:0} QListWidget::item{padding:10px 8px} QListWidget::item:hover{background:#172238} QListWidget::item:selected{background:#7c5cff}
+QLabel#title{font-size:27px;font-weight:700} QLabel#game{background:transparent;font-size:30px;font-weight:700} QLabel#muted{background:transparent;color:#aeb8cd} QLabel#section{font-size:18px;font-weight:500}
+QPushButton{background:#172238;border:1px solid #33415f;border-radius:16px;padding:7px 13px;min-height:20px} QPushButton:hover{background:#22304a} QPushButton:disabled{color:#66728b}
+QPushButton#primary{background:#7c5cff;color:white;border:0;font-weight:700} QPushButton#primary:hover{background:#8b70ff}
+QPushButton#nav{background:transparent;border:0;padding:8px 10px} QPushButton#nav:hover{background:#172238}
+QPushButton#refresh{background:#172238;border:1px solid #33415f;border-radius:7px;padding:0;font-size:20px}
+QListWidget{background:transparent;border:0;outline:0} QListWidget::item{background:#111a2c;border:1px solid #293650;border-radius:8px;margin:4px 0;padding:8px 10px} QListWidget::item:hover{background:#172238} QListWidget::item:selected{background:#172238;border:1px solid #7c5cff}
 QLineEdit{background:#10182a;border:1px solid #33415f;border-radius:6px;padding:9px} QTextEdit{background:#080c17;color:#ccd5e8;border:1px solid #263552;border-radius:6px;font-family:monospace}
 QCheckBox{spacing:8px} QCheckBox::indicator{width:16px;height:16px}
 QSplitter::handle{background:#0b1020;width:12px}
@@ -48,6 +49,57 @@ class Output(io.TextIOBase):
         pass
 
 
+class HeroPanel(QtWidgets.QWidget):
+    """Selected-game artwork with a readable, content-first text area."""
+
+    def __init__(self):
+        super().__init__()
+        self.hero = QtGui.QPixmap()
+
+    def set_artwork(self, path: str) -> None:
+        self.hero = QtGui.QPixmap(path)
+        self.update()
+
+    def paintEvent(self, _event):
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
+        clip = QtGui.QPainterPath()
+        clip.addRoundedRect(QtCore.QRectF(self.rect()), 10, 10)
+        painter.setClipPath(clip)
+        painter.fillRect(self.rect(), QtGui.QColor("#0b1020"))
+        if not self.hero.isNull():
+            artwork_rect = QtCore.QRect(
+                self.width() - int(self.width() * 0.54),
+                0,
+                int(self.width() * 0.54),
+                self.height(),
+            )
+            artwork = self.hero.scaled(
+                artwork_rect.size(),
+                QtCore.Qt.KeepAspectRatioByExpanding,
+                QtCore.Qt.SmoothTransformation,
+            )
+            source = QtCore.QRect(
+                (artwork.width() - artwork_rect.width()) // 2,
+                (artwork.height() - artwork_rect.height()) // 2,
+                artwork_rect.width(),
+                artwork_rect.height(),
+            )
+            painter.drawPixmap(artwork_rect, artwork, source)
+
+        horizontal = QtGui.QLinearGradient(0, 0, self.width(), 0)
+        horizontal.setColorAt(0.0, QtGui.QColor(11, 16, 32, 250))
+        horizontal.setColorAt(0.48, QtGui.QColor(11, 16, 32, 235))
+        horizontal.setColorAt(0.72, QtGui.QColor(11, 16, 32, 100))
+        horizontal.setColorAt(1.0, QtGui.QColor(11, 16, 32, 12))
+        painter.fillRect(self.rect(), horizontal)
+
+        vertical = QtGui.QLinearGradient(0, self.height() * 0.45, 0, self.height())
+        vertical.setColorAt(0.0, QtGui.QColor(11, 16, 32, 0))
+        vertical.setColorAt(1.0, QtGui.QColor(11, 16, 32, 235))
+        painter.fillRect(self.rect(), vertical)
+
+
 class Window(QtWidgets.QMainWindow):
     def __init__(self, paths: Paths | None = None):
         super().__init__()
@@ -61,8 +113,8 @@ class Window(QtWidgets.QMainWindow):
         self.events.output.connect(self._append_log)
         self.events.complete.connect(self._finish)
         self.setWindowTitle("RiftLift")
-        self.resize(1000, 620)
-        self.setMinimumSize(860, 560)
+        self.resize(1024, 637)
+        self.setMinimumSize(1024, 637)
         self.setStyleSheet(STYLE)
         self._build()
         self.refresh()
@@ -82,49 +134,57 @@ class Window(QtWidgets.QMainWindow):
         root = QtWidgets.QWidget()
         self.setCentralWidget(root)
         outer = QtWidgets.QVBoxLayout(root)
-        outer.setContentsMargins(20, 18, 20, 16)
-        outer.setSpacing(14)
+        outer.setContentsMargins(20, 17, 20, 15)
+        outer.setSpacing(0)
         head = QtWidgets.QHBoxLayout()
         head.addWidget(self.label("RiftLift", "title"))
         head.addStretch()
         self.check = self.button(
-            "Check system",
+            "System",
             lambda: self.run_task("Checking your system", lambda: doctor(self.paths)),
         )
+        self.check.setObjectName("nav")
         self.signin = self.button(
-            "Sign in",
+            "Sign In",
             lambda: self.run_task("Opening Meta sign-in", lambda: login(self.paths)),
         )
-        self.addbtn = self.button("Add game", self.add_dialog, True)
+        self.signin.setObjectName("nav")
+        self.addbtn = self.button("Add Game", self.add_dialog, True)
         for b in (self.check, self.signin, self.addbtn):
             head.addWidget(b)
         outer.addLayout(head)
-        split = QtWidgets.QSplitter()
-        split.setChildrenCollapsible(False)
-        outer.addWidget(split, 1)
+        outer.addSpacing(20)
+        content = QtWidgets.QHBoxLayout()
+        content.setSpacing(20)
+        outer.addLayout(content, 1)
         left = QtWidgets.QWidget()
+        left.setFixedWidth(280)
         ll = QtWidgets.QVBoxLayout(left)
-        ll.setContentsMargins(0, 0, 0, 0)
+        ll.setContentsMargins(0, 19, 0, 0)
+        ll.setSpacing(12)
         lh = QtWidgets.QHBoxLayout()
         lh.addWidget(self.label("Library", "section"))
-        lh.addStretch()
         self.count = self.label("", "muted")
         lh.addWidget(self.count)
+        lh.addStretch()
+        refresh = self.button("⟳", self.refresh)
+        refresh.setObjectName("refresh")
+        refresh.setToolTip("Refresh library")
+        refresh.setFixedSize(34, 34)
+        lh.addWidget(refresh)
         ll.addLayout(lh)
         self.library = QtWidgets.QListWidget()
-        self.library.setIconSize(QtCore.QSize(36, 36))
+        self.library.setIconSize(QtCore.QSize(40, 40))
         self.library.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.library.currentItemChanged.connect(self.selected)
         ll.addWidget(self.library, 1)
-        ll.addWidget(self.button("Refresh library", self.refresh))
-        split.addWidget(left)
+        content.addWidget(left)
         right = QtWidgets.QWidget()
         rl = QtWidgets.QVBoxLayout(right)
         rl.setContentsMargins(0, 0, 0, 0)
         self.stack = QtWidgets.QStackedWidget()
         rl.addWidget(self.stack)
-        split.addWidget(right)
-        split.setSizes([280, 680])
+        content.addWidget(right, 1)
         empty = QtWidgets.QWidget()
         el = QtWidgets.QVBoxLayout(empty)
         el.addStretch()
@@ -137,44 +197,52 @@ class Window(QtWidgets.QMainWindow):
         )
         hint.setAlignment(QtCore.Qt.AlignCenter)
         el.addWidget(hint)
-        first = self.button("Add game", self.add_dialog, True)
+        first = self.button("Add Game", self.add_dialog, True)
         el.addWidget(first, alignment=QtCore.Qt.AlignCenter)
         el.addStretch()
         self.stack.addWidget(empty)
-        detail = QtWidgets.QWidget()
-        dl = QtWidgets.QHBoxLayout(detail)
-        dl.setContentsMargins(0, 0, 0, 0)
-        dl.setSpacing(22)
-        self.cover = self.label("", "cover")
-        self.cover.setFixedSize(220, 330)
-        self.cover.setAlignment(QtCore.Qt.AlignCenter)
-        dl.addWidget(self.cover, alignment=QtCore.Qt.AlignTop)
+        detail = HeroPanel()
+        detail.setObjectName("detail")
+        dl = QtWidgets.QVBoxLayout(detail)
+        dl.setContentsMargins(24, 24, 24, 24)
         info = QtWidgets.QVBoxLayout()
-        info.setSpacing(8)
+        info.setSpacing(0)
+        info.addSpacing(128)
         self.game_name = self.label("", "game")
         self.game_name.setWordWrap(True)
+        self.game_name.setMaximumWidth(340)
         info.addWidget(self.game_name)
+        info.addSpacing(8)
         self.meta = self.label("", "muted")
         self.meta.setWordWrap(True)
         info.addWidget(self.meta)
+        info.addSpacing(14)
         actions = QtWidgets.QHBoxLayout()
         self.launch = self.button("Launch in VR", self.launch_game, True)
         actions.addWidget(self.launch)
         actions.addWidget(self.button("Files", self.open_folder))
         actions.addWidget(self.button("Store", self.open_store))
-        self.metadata = self.button("Refresh info", self.refresh_metadata)
+        self.metadata = self.button("Refresh Info", self.refresh_metadata)
         actions.addWidget(self.metadata)
         actions.addStretch()
         info.addLayout(actions)
         info.addStretch()
-        dl.addLayout(info, 1)
+        dl.addLayout(info)
+        self.detail = detail
         self.stack.addWidget(detail)
+        line = QtWidgets.QFrame()
+        line.setFrameShape(QtWidgets.QFrame.HLine)
+        line.setStyleSheet("color:#263552")
+        outer.addWidget(line)
+        outer.addSpacing(20)
         bar = QtWidgets.QWidget()
         bl = QtWidgets.QHBoxLayout(bar)
         bl.setContentsMargins(0, 0, 0, 0)
         self.status = self.label("Ready", "muted")
         bl.addWidget(self.status, 1)
-        bl.addWidget(self.button("View activity", self.show_activity))
+        activity = self.button("View Activity", self.show_activity)
+        activity.setObjectName("nav")
+        bl.addWidget(activity)
         outer.addWidget(bar)
 
     def refresh(self, preferred=None):
@@ -189,6 +257,7 @@ class Window(QtWidgets.QMainWindow):
                 game.name + (f"\nVersion {game.version}" if game.version else "")
             )
             item.setData(QtCore.Qt.UserRole, game.slug)
+            item.setSizeHint(QtCore.QSize(0, 70))
             icon = QtGui.QIcon(game.artwork.get("icon", ""))
             if not icon.isNull():
                 item.setIcon(icon)
@@ -226,19 +295,7 @@ class Window(QtWidgets.QMainWindow):
             )
             or f"Meta app {game.app_id}"
         )
-        portrait = QtGui.QPixmap(game.artwork.get("portrait", ""))
-        if portrait.isNull():
-            self.cover.setPixmap(QtGui.QPixmap())
-            self.cover.setText("No artwork")
-        else:
-            self.cover.setText("")
-            self.cover.setPixmap(
-                portrait.scaled(
-                    self.cover.size(),
-                    QtCore.Qt.KeepAspectRatioByExpanding,
-                    QtCore.Qt.SmoothTransformation,
-                )
-            )
+        self.detail.set_artwork(game.artwork.get("portrait", ""))
 
     def game(self):
         return next((g for g in self.installed if g.slug == self.slug), None)

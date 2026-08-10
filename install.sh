@@ -32,9 +32,9 @@ cat <<'EOF'
 RiftLift is ready.
 
 Open RiftLift from your application menu, then:
-  1. Click Check system.
-  2. Click Sign in and finish Meta's sign-in.
-  3. Click Add game and paste an owned Rift / PC VR store URL.
+  1. Click System.
+  2. Click Sign In and finish Meta's sign-in.
+  3. Click Add Game and paste an owned Rift / PC VR store URL.
 
 To open the desktop app from a terminal:
   riftlift gui

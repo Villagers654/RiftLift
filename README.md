@@ -8,7 +8,7 @@ required when your headset already works with Monado.
 ![RiftLift showing an installed Meta Rift library](docs/images/riftlift-library.png)
 
 > RiftLift is an early release. Many games work, but an individual title can
-> still have a Windows-specific problem. If one does, click **Check system** and
+> still have a Windows-specific problem. If one does, click **System** and
 > include the results when reporting it.
 
 ## Get your first Meta game running
@@ -43,30 +43,30 @@ change your headset setup.
 Open your desktop's application menu and choose **RiftLift**. You can also open
 it from the terminal with `riftlift gui`.
 
-Click **Check system**. When it finishes, **View activity** shows each checked
+Click **System**. When it finishes, **View Activity** shows each checked
 component and whether it is ready.
 
 ### 3. Sign in to Meta
 
-Click **Sign in** at the top of RiftLift. Meta Horizon Link will open in its own
+Click **Sign In** at the top of RiftLift. Meta Horizon Link will open in its own
 window. Sign in normally and finish any browser or email confirmation Meta
 requests, then return to RiftLift.
 
 Your sign-in is saved in RiftLift's private game environment. You should not
 need to sign in again for every game. If Meta expires the session later, click
-**Sign in** again.
+**Sign In** again.
 
 ### 4. Add a game you own
 
 Find the game's **Rift / PC VR** page on the Meta store and copy its web
-address. In RiftLift, click **Add game** and paste that address.
+address. In RiftLift, click **Add Game** and paste that address.
 
 ![RiftLift Add Game window](docs/images/riftlift-add-game.png)
 
 Leave **Add to Steam when finished** checked, then click **Download game**.
 RiftLift confirms that your account owns the game, downloads and verifies it,
 and adds its name and artwork to Steam. Large games may take some time; click
-**View activity** to see progress.
+**View Activity** to see progress.
 
 > A Quest-only purchase is not a Windows PC game. The store page must offer a
 > Rift or PC VR build. Cross-buy titles work when the PC version is present on
@@ -86,14 +86,14 @@ Meta sign-in.
 
 The desktop app is the recommended way to use RiftLift:
 
-- **Check system** checks OpenXR, Steam, Proton, Revive, Meta sign-in support,
+- **System** checks OpenXR, Steam, Proton, Revive, Meta sign-in support,
   and every installed game without exposing account secrets.
-- **Sign in** opens Meta's sign-in flow in RiftLift's persistent environment.
-- **Add game** downloads an owned Rift game and optionally adds it to Steam.
+- **Sign In** opens Meta's sign-in flow in RiftLift's persistent environment.
+- **Add Game** downloads an owned Rift game and optionally adds it to Steam.
 - **Launch in VR** starts the selected game through your active OpenXR runtime.
-- **Refresh info** downloads updated store details and artwork.
-- **Refresh library** reloads games that were added or changed elsewhere.
-- **View activity** shows download, setup, launch, and diagnostic messages.
+- **Refresh Info** downloads updated store details and artwork.
+- **Refresh** reloads games that were added or changed elsewhere.
+- **View Activity** shows download, setup, launch, and diagnostic messages.
 
 Steam may restart once when RiftLift adds or updates shortcuts. This prevents
 Steam from overwriting the new library entry.
@@ -142,6 +142,8 @@ riftlift setup
 Run `riftlift --help` or `riftlift COMMAND --help` for every option. Unusual
 Rift Store manifests can use `riftlift add --executable PATH` and
 `--arguments '...'`, but normal games should not need either override.
+Download concurrency adapts to the CPUs available to RiftLift; use `--jobs` only
+when you want to override it.
 
 ## Games bought through Steam
 
@@ -163,13 +165,18 @@ This keeps Steam ownership, updates, achievements, artwork, and its normal Play
 button. If a game offers both Oculus and SteamVR/OpenVR modes, RiftLift respects
 the mode selected in Steam instead of forcing Oculus mode.
 
+For these games, RiftLift reads the title, description, developer, genres, and
+official library artwork from the Steam catalog instead of treating the Steam
+app ID as a Meta store ID. **Refresh Info** updates that cached Steam data and
+portrait artwork at any time.
+
 RiftLift does not keep a list of specially supported titles. It uses the
 game's own manifest, engine layout, executable format, and Steam launch command
 to find the correct 64-bit game executable and arguments.
 
 ## Troubleshooting
 
-Start with **Check system** in the desktop app, or run:
+Start with **System** in the desktop app, or run:
 
 ```bash
 riftlift doctor
@@ -183,7 +190,7 @@ Common fixes:
   retry the download.
 - **A game is missing from Steam:** close Steam, run `riftlift steam-sync`, and
   reopen it. RiftLift normally handles this restart automatically.
-- **A game fails to launch:** run **Check system**, then enable a Proton log with
+- **A game fails to launch:** run **System**, then enable a Proton log with
   `RIFTLIFT_PROTON_LOG=1 riftlift launch GAME-SLUG`.
 - **Your headset setup needs a special start command:** set
   `RIFTLIFT_LAUNCH_WRAPPER='your-runtime-start-wrapper'`. A normally running

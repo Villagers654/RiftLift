@@ -4,7 +4,7 @@ from pathlib import Path
 from PIL import Image
 
 from riftlift.config import Game, Paths
-from riftlift.metadata import generate_artwork, parse_catalog_html
+from riftlift.metadata import generate_artwork, parse_catalog_html, parse_steam_catalog
 
 
 def test_parse_meta_json_ld_catalog() -> None:
@@ -33,6 +33,32 @@ def test_parse_meta_json_ld_catalog() -> None:
     assert result.publisher == "Example Publisher"
     assert result.genres == ["Action", "Narrative"]
     assert result.image_url == "https://cdn.example/art.webp"
+
+
+def test_parse_steam_catalog() -> None:
+    result = parse_steam_catalog(
+        {
+            "1920760": {
+                "success": True,
+                "data": {
+                    "name": "StereoPaint",
+                    "short_description": "Paint <b>in VR</b>.",
+                    "developers": ["Millipede Software LLC"],
+                    "publishers": ["Example Publisher"],
+                    "genres": [{"description": "Design & Illustration"}],
+                    "header_image": "https://steam.example/header.jpg",
+                },
+            }
+        },
+        "1920760",
+    )
+    assert result.name == "StereoPaint"
+    assert result.description == "Paint in VR."
+    assert result.developer == "Millipede Software LLC"
+    assert result.publisher == "Example Publisher"
+    assert result.genres == ["Design & Illustration"]
+    assert result.store_url == "https://store.steampowered.com/app/1920760/"
+    assert "library_600x900_2x.jpg" in result.artwork_urls["portrait"]
 
 
 def test_generate_all_steam_artwork_sizes(tmp_path: Path) -> None:
