@@ -4,8 +4,8 @@ RiftLift is the complete application-level compatibility layer for owned Meta
 Rift PC games on Linux. Given a working standards-based OpenXR runtime, RiftLift
 owns:
 
-- the isolated GE-Proton prefix and Meta Horizon Link runtime/client;
-- persistent Meta login and entitlement-backed downloads;
+- the isolated GE-Proton prefix and Meta Horizon Link runtime packages;
+- native browser-backed Meta login and entitlement-backed downloads;
 - the maintained ReviveXR compatibility payload and WineOpenXR launch path;
 - legacy Platform SDK forwarding and compatibility shims;
 - game manifests, metadata, Steam shortcuts, and launch lifecycle; and

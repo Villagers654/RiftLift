@@ -47,6 +47,10 @@ detects completion, and returns to the app automatically. Passwords and
 security codes go only to Meta. Use **Account** to sign out or start over with
 a clean browser session.
 
+![RiftLift Meta account screen after browser sign-in](docs/images/riftlift-account.png)
+
+RiftLift follows the browser configured by your Linux desktop.
+
 ### 3. Add a game
 
 Copy the URL of a game you own from the Meta **Rift / PC VR** store. Click
@@ -184,7 +188,7 @@ Proton environment. It combines:
 
 - the maintained [RiftLift Revive](https://github.com/Villagers654/Revive) fork;
 - GE-Proton and WineOpenXR;
-- the parts of Meta's PC client needed for account sign-in;
+- Meta's native browser sign-in service and the PC runtime files games need;
 - the entitlement-respecting
   [meta-pcvr-downloader](https://github.com/Villagers654/meta-pcvr-downloader);
   and
