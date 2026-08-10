@@ -8,6 +8,7 @@ from PySide6 import QtWidgets
 
 from riftlift.cli import parser
 from riftlift.config import Paths
+from riftlift.auth_ui import AuthDialog
 from riftlift.gui_qt import Window, is_valid_rift_store_url
 from riftlift.metadata import CatalogMetadata
 from riftlift.util import RiftLiftError
@@ -76,6 +77,98 @@ def test_gui_exposes_only_the_primary_library_actions(tmp_path: Path) -> None:
         label.text() for label in window.findChildren(QtWidgets.QLabel)
     }
 
+    window.close()
+    app.processEvents()
+
+
+def test_auth_dialog_offers_edge_and_firefox_without_vendor_client(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    monkeypatch.setattr(
+        "riftlift.auth_ui.available_browsers", lambda: ["edge", "firefox"]
+    )
+
+    dialog = AuthDialog(paths)
+    buttons = {button.text() for button in dialog.findChildren(QtWidgets.QPushButton)}
+
+    assert "Continue with Microsoft Edge" in buttons
+    assert "Continue with Firefox" in buttons
+    assert "Meta Horizon Link" not in " ".join(buttons)
+    assert "RiftLift is signed out" in dialog.status.text()
+    dialog.close()
+    app.processEvents()
+
+
+def test_auth_dialog_detects_browser_completion_and_returns(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    stopped = []
+
+    class Process:
+        def poll(self):
+            return None
+
+        def terminate(self):
+            stopped.append(True)
+
+    monkeypatch.setattr("riftlift.auth_ui.available_browsers", lambda: ["edge"])
+    monkeypatch.setattr(
+        "riftlift.auth_ui.launch_browser_login", lambda *_args: Process()
+    )
+
+    def complete(login_paths, _browser):
+        target = login_paths.config / "meta-access-token"
+        target.write_text("FRL" + "a" * 176)
+
+    monkeypatch.setattr("riftlift.auth_ui.complete_browser_login", complete)
+    dialog = AuthDialog(paths)
+
+    dialog.start("edge")
+    dialog.check_login()
+
+    assert dialog.completed
+    assert stopped
+    assert dialog.status.text() == "Signed in. Returning to RiftLift…"
+    dialog.close()
+    app.processEvents()
+
+
+def test_signed_in_window_uses_account_label(tmp_path: Path) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    (paths.config / "meta-access-token").write_text("FRL" + "a" * 176)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    window = Window(paths)
+
+    assert window.signin.text() == "Account"
     window.close()
     app.processEvents()
 

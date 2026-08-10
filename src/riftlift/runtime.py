@@ -6,10 +6,17 @@ import os
 import shutil
 import subprocess
 import tarfile
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from .auth import (
+    available_browsers,
+    complete_browser_login,
+    launch_browser_login,
+    sign_out,
+)
 from .config import Paths
 from .util import RiftLiftError, download, linux_to_windows, run
 
@@ -591,7 +598,6 @@ def setup(paths: Paths) -> None:
     install_meta_runtime(paths)
     install_revive(paths)
     install_platform_compat(paths)
-    install_login_protocol_handler()
 
 
 def install_login_protocol_handler() -> Path:
@@ -633,15 +639,26 @@ def complete_login(paths: Paths, callback_url: str) -> int:
 
 
 def login(paths: Paths) -> int:
-    support = install_meta_runtime(paths)
-    client = support / "oculus-client/Client.exe"
+    """Run the browser-backed sign-in flow for command-line users."""
+    browsers = available_browsers()
+    if not browsers:
+        raise RiftLiftError("install Microsoft Edge or Firefox to sign in to Meta")
+    browser = browsers[0]
+    sign_out(paths)
+    process = launch_browser_login(paths, browser)
     print(
-        "Sign in in the Meta Horizon Link window. RiftLift keeps this shared prefix for future games."
+        f"Finish signing in to Meta in {'Microsoft Edge' if browser == 'edge' else 'Firefox'}."
     )
-    arguments = ["run", str(client)]
-    if debug_port := os.environ.get("RIFTLIFT_CLIENT_DEBUG_PORT"):
-        arguments.append(f"--remote-debugging-port={int(debug_port)}")
-    return proton(paths, *arguments).returncode
+    while process.poll() is None:
+        try:
+            complete_browser_login(paths, browser)
+        except RiftLiftError:
+            time.sleep(1)
+            continue
+        process.terminate()
+        print("RiftLift is signed in to Meta.")
+        return 0
+    raise RiftLiftError("the browser closed before Meta sign-in finished")
 
 
 def active_runtime_json() -> Path:

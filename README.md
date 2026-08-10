@@ -41,8 +41,10 @@ compatibility files. It will add **RiftLift** to your application menu.
 Open **RiftLift** from your application menu and click **System**. If something
 is not ready, open **View Activity** for the details.
 
-Click **Sign In** and complete Meta's normal sign-in flow. RiftLift keeps that
-session for future downloads; if it expires, use **Sign In** again.
+Click **Sign In**, choose Microsoft Edge or Firefox, and complete Meta's hosted
+sign-in page. RiftLift opens a dedicated browser window, detects completion,
+and returns to the app automatically. Passwords and security codes go only to
+Meta. Use **Account** to sign out or start over with a clean browser session.
 
 ### 3. Add a game
 
