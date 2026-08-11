@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       app: ${{ steps.filter.outputs.app }}
-      revive: ${{ steps.filter.outputs.revive }}
+      runtime: ${{ steps.filter.outputs.runtime }}
       xrizer: ${{ steps.filter.outputs.xrizer }}
     steps:
       - uses: actions/checkout@v5
@@ -32,12 +32,12 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           app=false
-          revive=false
+          runtime=false
           xrizer=false
 
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
             app=true
-            revive=true
+            runtime=true
             xrizer=true
           else
             base="$BEFORE_SHA"
@@ -47,21 +47,21 @@ jobs:
 
             if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "$base^{commit}"; then
               app=true
-              revive=true
+              runtime=true
               xrizer=true
             else
               while IFS= read -r path; do
                 case "$path" in
                   .github/workflows/ci.yml)
                     app=true
-                    revive=true
+                    runtime=true
                     xrizer=true
                     ;;
                   src/*|tests/*|scripts/*|install.sh|pyproject.toml)
                     app=true
                     ;;
                   runtime/*|.gitmodules)
-                    revive=true
+                    runtime=true
                     ;;
                   components/xrizer/*)
                     xrizer=true
@@ -72,7 +72,7 @@ jobs:
           fi
 
           echo "app=$app" >> "$GITHUB_OUTPUT"
-          echo "revive=$revive" >> "$GITHUB_OUTPUT"
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
           echo "xrizer=$xrizer" >> "$GITHUB_OUTPUT"
 
   test:
@@ -119,16 +119,30 @@ jobs:
       - run: cargo test
       - run: cargo clippy --workspace --all-targets
 
-  revive:
+  runtime-native:
     needs: changes
-    if: needs.changes.outputs.revive == 'true'
+    if: needs.changes.outputs.runtime == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: runtime
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install native runtime dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake libopenxr-dev ninja-build
+      - run: cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build-native
+
+  runtime-windows-bridge:
+    needs: changes
+    if: needs.changes.outputs.runtime == 'true'
     runs-on: windows-2022
     defaults:
       run:
         working-directory: runtime
     steps:
       - uses: actions/checkout@v5
-      - name: Fetch required Revive dependency files
+      - name: Fetch runtime dependency files
         shell: bash
         run: ../scripts/prepare-revive-ci-deps.sh
       - name: Download Oculus PC SDK

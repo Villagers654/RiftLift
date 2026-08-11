@@ -7,14 +7,14 @@ permissions:
   contents: read
 
 jobs:
-  revive:
+  windows-bridge:
     runs-on: windows-2022
     defaults:
       run:
         working-directory: runtime
     steps:
       - uses: actions/checkout@v5
-      - name: Fetch required Revive dependency files
+      - name: Fetch runtime dependency files
         shell: bash
         run: ../scripts/prepare-revive-ci-deps.sh
       - name: Download Oculus PC SDK
@@ -42,17 +42,17 @@ jobs:
           & C:\vcpkg\vcpkg.exe install --triplet x64-windows-static detours openxr-loader glfw3
           & C:\vcpkg\vcpkg.exe integrate install
       - uses: microsoft/setup-msbuild@v2
-      - name: Build Revive and ReviveXR
+      - name: Build Windows ABI bridges
         shell: pwsh
         run: |
           msbuild Revive.sln /m /t:ReviveXR /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
           msbuild Revive.sln /m /t:ReviveXR /p:Configuration=Release /p:Platform=x86 /p:PlatformToolset=v143
           msbuild Revive.sln /m /t:Revive /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
           msbuild Revive.sln /m /t:ReviveInjector /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
-      - name: Collect Revive payload
+      - name: Collect Windows bridge payload
         shell: pwsh
         run: |
-          $out = New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\riftlift-revive"
+          $out = New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\riftlift-windows-bridge"
           Copy-Item Release\ReviveInjector.exe $out
           Copy-Item Release\openvr_api64.dll $out
           Copy-Item Release\LibRevive64.dll $out
@@ -60,11 +60,27 @@ jobs:
           Copy-Item Release\LibReviveXR64.dll $out
           Copy-Item Revive\Input "$out\Input" -Recurse
           Copy-Item LICENSE $out
-          Compress-Archive "$out\*" "$env:RUNNER_TEMP\riftlift-revive.zip"
+          Compress-Archive "$out\*" "$env:RUNNER_TEMP\riftlift-windows-bridge.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: riftlift-revive-source-build
-          path: ${{ runner.temp }}\riftlift-revive.zip
+          name: riftlift-windows-bridge
+          path: ${{ runner.temp }}\riftlift-windows-bridge.zip
+
+  native-runtime:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: runtime
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install native runtime dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake libopenxr-dev ninja-build
+      - run: cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build-native
+      - uses: actions/upload-artifact@v4
+        with:
+          name: riftlift-native-runtime
+          path: runtime/build-native/riftlift-runtime-host
 
   xrizer:
     runs-on: ubuntu-latest
@@ -94,14 +110,18 @@ jobs:
           path: riftlift-xrizer.tar.gz
 
   compatibility:
-    needs: revive
+    needs: [windows-bridge, native-runtime]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v5
         with:
-          name: riftlift-revive-source-build
-          path: downloaded
+          name: riftlift-windows-bridge
+          path: downloaded/windows
+      - uses: actions/download-artifact@v5
+        with:
+          name: riftlift-native-runtime
+          path: downloaded/native
       - name: Install PE tooling
         run: sudo apt-get update && sudo apt-get install -y llvm mingw-w64 unzip
       - name: Download pinned Meta Platform implementation
@@ -113,7 +133,8 @@ jobs:
         run: |
           unzip -q platform.pkg LibOVRPlatformImpl64_1.dll
           mkdir -p out
-          unzip -q downloaded/riftlift-revive.zip -d out
+          unzip -q downloaded/windows/riftlift-windows-bridge.zip -d out
+          install -Dm755 downloaded/native/riftlift-runtime-host out/bin/riftlift-runtime-host
           scripts/build-platform-shim.sh LibOVRPlatformImpl64_1.dll out/LibOVRPlatformImpl64_1.dll
           cp LICENSE out/RIFTLIFT-LICENSE
           find out -type f -exec touch -d '1980-01-01 00:00:00 UTC' {} +

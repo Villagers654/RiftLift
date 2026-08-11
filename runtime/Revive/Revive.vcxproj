@@ -367,6 +367,7 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="microprofile.cpp" />
     <ClCompile Include="REV_CAPI.cpp" />
+    <ClCompile Include="..\HostClient.cpp" />
     <ClCompile Include="REV_CAPI_Audio.cpp" />
     <ClCompile Include="REV_CAPI_D3D.cpp" />
     <ClCompile Include="REV_CAPI_GL.cpp" />

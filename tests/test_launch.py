@@ -1,10 +1,38 @@
 from pathlib import Path
 
+import pytest
+
 from riftlift.config import Game, Paths
 from riftlift.launch import launch, oculus_launch_arguments, revive_backend
 from riftlift.playtime import playtime
 from riftlift.runtime import launch_environment, setup
 from riftlift.util import RiftLiftError, linux_to_windows
+
+
+class FakeNativeHost:
+    class Endpoint:
+        runtime_name = "Test OpenXR"
+
+        @staticmethod
+        def environment() -> dict[str, str]:
+            return {
+                "RIFTLIFT_RUNTIME_PROTOCOL": "1",
+                "RIFTLIFT_RUNTIME_ENDPOINT": "127.0.0.1:12345",
+                "RIFTLIFT_RUNTIME_TOKEN": "test-token",
+            }
+
+    endpoint = Endpoint()
+
+    def close(self) -> None:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def fake_native_runtime(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "riftlift.launch.NativeRuntimeHost.start",
+        lambda *_args, **_kwargs: FakeNativeHost(),
+    )
 
 
 def test_injector_uses_existing_prefix_and_windows_game_path(

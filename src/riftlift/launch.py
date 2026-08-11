@@ -16,6 +16,7 @@ from .detection import (
     uses_openvr_runtime,
 )
 from .playtime import PlaytimeSession
+from .native_runtime import NativeRuntimeHost
 from .runtime import install_proton, install_revive, launch_environment
 from .util import RiftLiftError, linux_to_windows
 
@@ -171,6 +172,19 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         wrapper=bool(wrapper),
         capabilities=capabilities,
     )
+    native_host_path = Path(
+        os.environ.get(
+            "RIFTLIFT_NATIVE_RUNTIME_HOST",
+            revive / "bin" / "riftlift-runtime-host",
+        )
+    ).expanduser()
+    native_host = NativeRuntimeHost.start(
+        native_host_path,
+        os.environ.copy(),
+        backend,
+    )
+    environment.update(native_host.endpoint.environment())
+    print(f"Native XR host: {native_host.endpoint.runtime_name}")
     playtime_session: PlaytimeSession | None = None
     try:
         try:
@@ -184,6 +198,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         launch_finished(paths, launch_id, started, error=str(error))
         raise
     finally:
+        native_host.close()
         if playtime_session is not None:
             try:
                 playtime_session.close()
