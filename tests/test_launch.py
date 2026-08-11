@@ -5,34 +5,55 @@ import pytest
 from riftlift.config import Game, Paths
 from riftlift.launch import launch, oculus_launch_arguments, runtime_backend
 from riftlift.playtime import playtime
-from riftlift.runtime import launch_environment, setup
+from riftlift.runtime import launch_environment, native_xr_bridge, setup
 from riftlift.util import RiftLiftError, linux_to_windows
 
 
-class FakeNativeHost:
-    class Endpoint:
-        runtime_name = "Test OpenXR"
-
-        @staticmethod
-        def environment() -> dict[str, str]:
-            return {
-                "RIFTLIFT_RUNTIME_PROTOCOL": "2",
-                "RIFTLIFT_RUNTIME_ENDPOINT": "127.0.0.1:12345",
-                "RIFTLIFT_RUNTIME_TOKEN": "test-token",
-            }
-
-    endpoint = Endpoint()
-
-    def close(self) -> None:
-        pass
-
-
 @pytest.fixture(autouse=True)
-def fake_native_runtime(monkeypatch) -> None:
+def fake_native_bridge(monkeypatch, tmp_path: Path) -> None:
+    pe = tmp_path / "wineopenxr.dll"
+    unix = tmp_path / "wineopenxr.so"
     monkeypatch.setattr(
-        "riftlift.launch.NativeRuntimeHost.start",
-        lambda *_args, **_kwargs: FakeNativeHost(),
+        "riftlift.launch.native_xr_bridge",
+        lambda *_args, **_kwargs: type("Bridge", (), {"pe": pe, "unix": unix})(),
     )
+
+
+def test_native_xr_bridge_requires_wine_unixlib_pair(tmp_path: Path) -> None:
+    proton = tmp_path / "GE-Proton"
+    wine = proton / "files/lib/wine"
+    pe = wine / "x86_64-windows/wineopenxr.dll"
+    unix = wine / "x86_64-unix/wineopenxr.so"
+    pe.parent.mkdir(parents=True)
+    unix.parent.mkdir(parents=True)
+    pe.write_bytes(b"MZ\0__wine_init_unix_call\0")
+    unix.write_bytes(b"\x7fELF\0__wine_unix_call_funcs\0")
+
+    bridge = native_xr_bridge(proton, "openxr")
+
+    assert bridge.pe == pe
+    assert bridge.unix == unix
+
+
+def test_native_xr_bridge_rejects_missing_or_non_native_halves(tmp_path: Path) -> None:
+    proton = tmp_path / "GE-Proton"
+    wine = proton / "files/lib/wine"
+    pe = wine / "x86_64-windows/vrclient_x64.dll"
+    unix = wine / "x86_64-unix/vrclient_x64.so"
+    pe.parent.mkdir(parents=True)
+    unix.parent.mkdir(parents=True)
+    pe.write_bytes(b"MZ\0__wine_init_unix_call\0")
+
+    with pytest.raises(RiftLiftError, match="missing its native OPENVR bridge"):
+        native_xr_bridge(proton, "openvr")
+
+    unix.write_bytes(b"not-elf")
+    with pytest.raises(RiftLiftError, match="invalid binary format"):
+        native_xr_bridge(proton, "openvr")
+
+    unix.write_bytes(b"\x7fELF without a Wine export")
+    with pytest.raises(RiftLiftError, match="not a Wine unixlib pair"):
+        native_xr_bridge(proton, "openvr")
 
 
 def test_launcher_uses_existing_prefix_and_windows_game_path(

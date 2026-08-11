@@ -5,9 +5,10 @@ built, versioned, tested, and shipped as part of RiftLift rather than installed
 as a separate application.
 
 The Windows-facing portion implements the Oculus ABI expected by Rift games.
-The Linux port is moving runtime ownership across Wine's supported PE-to-Unix
-boundary so OpenXR lifecycle, tracking, and input can run in a native host
-component. See [BUILDING.md](BUILDING.md) for contributor instructions.
+XR calls cross Wine's supported in-process PE-to-Unix boundary into GE-Proton's
+native `wineopenxr.so` or `vrclient_x64.so`, which then talks directly to the
+selected Linux OpenXR/OpenVR runtime. See [BUILDING.md](BUILDING.md) for
+contributor instructions.
 
 RiftLift selects compatibility behavior from executable capabilities. Runtime
 code must not contain title allowlists or per-game exceptions.

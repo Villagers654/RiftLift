@@ -119,20 +119,6 @@ jobs:
       - run: cargo test
       - run: cargo clippy --workspace --all-targets
 
-  runtime-native:
-    needs: changes
-    if: needs.changes.outputs.runtime == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: runtime
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install native runtime dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake libopenxr-dev ninja-build
-      - run: cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release
-      - run: cmake --build build-native
-
   runtime-windows-bridge:
     needs: changes
     if: needs.changes.outputs.runtime == 'true'

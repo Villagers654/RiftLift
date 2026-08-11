@@ -66,22 +66,6 @@ jobs:
           name: riftlift-windows-bridge
           path: ${{ runner.temp }}\riftlift-windows-bridge.zip
 
-  native-runtime:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: runtime
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install native runtime dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake libopenxr-dev ninja-build
-      - run: cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release
-      - run: cmake --build build-native
-      - uses: actions/upload-artifact@v4
-        with:
-          name: riftlift-native-runtime
-          path: runtime/build-native/riftlift-runtime-host
-
   xrizer:
     runs-on: ubuntu-latest
     defaults:
@@ -110,7 +94,7 @@ jobs:
           path: riftlift-xrizer.tar.gz
 
   compatibility:
-    needs: [windows-bridge, native-runtime]
+    needs: windows-bridge
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -118,10 +102,6 @@ jobs:
         with:
           name: riftlift-windows-bridge
           path: downloaded/windows
-      - uses: actions/download-artifact@v5
-        with:
-          name: riftlift-native-runtime
-          path: downloaded/native
       - name: Install PE tooling
         run: sudo apt-get update && sudo apt-get install -y llvm mingw-w64 unzip
       - name: Download pinned Meta Platform implementation
@@ -134,7 +114,6 @@ jobs:
           unzip -q platform.pkg LibOVRPlatformImpl64_1.dll
           mkdir -p out
           unzip -q downloaded/windows/riftlift-windows-bridge.zip -d out
-          install -Dm755 downloaded/native/riftlift-runtime-host out/bin/riftlift-runtime-host
           scripts/build-platform-shim.sh LibOVRPlatformImpl64_1.dll out/LibOVRPlatformImpl64_1.dll
           cp LICENSE out/RIFTLIFT-LICENSE
           find out -type f -exec touch -d '1980-01-01 00:00:00 UTC' {} +

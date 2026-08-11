@@ -23,7 +23,7 @@ from .detection import (
 )
 from .diagnostics import recent_launches, redact, utc_now
 from .launch import runtime_backend
-from .runtime import META_PACKAGES, active_runtime_json, proton_dir
+from .runtime import META_PACKAGES, active_runtime_json, native_xr_bridge, proton_dir
 from .steam import steam_root
 
 PASTE_URL = "https://paste.rs/"
@@ -274,10 +274,21 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         ("Windows ABI launcher", "RiftLiftLauncher.exe"),
         ("OpenXR ABI bridge", "RiftLiftOpenXR64.dll"),
         ("OpenVR ABI bridge", "RiftLiftOpenVR64.dll"),
-        ("Native XR host", "bin/riftlift-runtime-host"),
     ):
         identity = _file_identity(rift_runtime / relative)
         checks.append((label, not identity.startswith("missing"), identity))
+    for backend in ("openxr", "openvr"):
+        try:
+            bridge = native_xr_bridge(proton_dir(), backend)
+            checks.append(
+                (
+                    f"Native {backend.upper()} unixlib",
+                    True,
+                    f"{_file_identity(bridge.pe)} + {_file_identity(bridge.unix)}",
+                )
+            )
+        except Exception as error:
+            checks.append((f"Native {backend.upper()} unixlib", False, str(error)))
     meta_client = (
         paths.prefix
         / "pfx/drive_c/Program Files/Oculus/Support/oculus-client/Client.exe"

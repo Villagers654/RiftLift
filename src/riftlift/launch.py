@@ -4,7 +4,6 @@ import os
 import shlex
 import shutil
 import subprocess
-from pathlib import Path
 
 from .config import Game, Paths
 from .diagnostics import launch_finished, launch_started
@@ -16,8 +15,12 @@ from .detection import (
     uses_openvr_runtime,
 )
 from .playtime import PlaytimeSession
-from .native_runtime import NativeRuntimeHost
-from .runtime import install_proton, install_rift_runtime, launch_environment
+from .runtime import (
+    install_proton,
+    install_rift_runtime,
+    launch_environment,
+    native_xr_bridge,
+)
 from .util import RiftLiftError, linux_to_windows
 
 
@@ -79,8 +82,10 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
     if not game.executable_path.is_file():
         raise RiftLiftError(f"game executable is missing: {game.executable_path}")
     rift_runtime = install_rift_runtime(paths)
-    proton = install_proton(paths) / "proton"
+    proton_root = install_proton(paths)
+    proton = proton_root / "proton"
     backend = runtime_backend(game)
+    native_bridge = native_xr_bridge(proton_root, backend)
     game_arguments = oculus_launch_arguments(game, extra_arguments)
     arguments = [
         str(proton),
@@ -171,23 +176,10 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         wrapper=bool(wrapper),
         capabilities=capabilities,
     )
-    native_host_path = Path(
-        os.environ.get(
-            "RIFTLIFT_NATIVE_RUNTIME_HOST",
-            rift_runtime / "bin" / "riftlift-runtime-host",
-        )
-    ).expanduser()
-    try:
-        native_host = NativeRuntimeHost.start(
-            native_host_path,
-            os.environ.copy(),
-            backend,
-        )
-    except BaseException as error:
-        launch_finished(paths, launch_id, started, error=str(error))
-        raise
-    environment.update(native_host.endpoint.environment())
-    print(f"Native XR host: {native_host.endpoint.runtime_name}")
+    print(
+        "Native XR bridge: "
+        f"{native_bridge.pe.name} -> {native_bridge.unix.name} (Wine unixlib)"
+    )
     playtime_session: PlaytimeSession | None = None
     try:
         try:
@@ -201,7 +193,6 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         launch_finished(paths, launch_id, started, error=str(error))
         raise
     finally:
-        native_host.close()
         if playtime_session is not None:
             try:
                 playtime_session.close()

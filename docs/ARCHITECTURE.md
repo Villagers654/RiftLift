@@ -6,7 +6,7 @@ owns:
 
 - the isolated GE-Proton prefix and Meta Horizon Link runtime packages;
 - native browser-backed Meta login and entitlement-backed downloads;
-- the maintained ReviveXR compatibility payload and WineOpenXR launch path;
+- the maintained RiftLift Oculus ABI runtime and native Wine unixlib paths;
 - legacy Platform SDK forwarding and compatibility shims;
 - game manifests, metadata, Steam shortcuts, and launch lifecycle; and
 - runtime discovery, diagnostics, updates, and optional generic launch hooks.
@@ -26,15 +26,20 @@ remain in place and are never treated as ownership-verified Meta downloads.
 Oculus-only titles use the shortest path:
 
 ```text
-Rift game -> ReviveXR -> WineOpenXR -> active Linux OpenXR runtime
+Rift game -> RiftLift Oculus ABI -> wineopenxr.dll/so -> Linux OpenXR runtime
 ```
 
-Titles that bundle both Oculus and OpenVR integrations use the mature classic
-Revive compositor path:
+Titles that bundle both Oculus and OpenVR integrations use RiftLift's OpenVR
+compositor path:
 
 ```text
-Game -> Revive -> RiftLift xrizer -> active Linux OpenXR runtime
+Game -> RiftLift Oculus ABI -> vrclient_x64.dll/so -> xrizer -> Linux OpenXR runtime
 ```
+
+The paired DLL/ELF modules are Wine's supported in-process `unixlib` boundary.
+The DLL side receives Windows ABI and graphics objects; the ELF side calls the
+Linux runtime directly. RiftLift does not create a second XR process or proxy
+runtime calls over a socket.
 
 The choice is made from installed runtime capabilities, not a game-name list or
 a failed-launch retry. RiftLift does not replace an xrizer already supplied by

@@ -1,6 +1,5 @@
 #include "OVR_CAPI.h"
 #include "OVR_Version.h"
-#include "../HostClient.h"
 #include "REV_Math.h"
 
 #include "Common.h"
@@ -94,8 +93,6 @@ void DetachDetours();
 
 OVR_PUBLIC_FUNCTION(ovrResult) ovr_Initialize(const ovrInitParams* params)
 {
-	if (!RiftLiftConnectNativeHost())
-		return ovrError_Initialize;
 	if (g_InitError == vr::VRInitError_None)
 		return ovrSuccess;
 

@@ -1,6 +1,5 @@
 #include "OVR_CAPI.h"
 #include "OVR_Version.h"
-#include "../HostClient.h"
 #include "XR_Math.h"
 
 #include "../Version.h"
@@ -61,8 +60,6 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_Initialize(const ovrInitParams* params)
 	REV_TRACE(ovr_Initialize);
 	TraceOculusValue("ovr_Initialize.RequestedMinorVersion",
 		params ? params->RequestedMinorVersion : -1);
-	if (!RiftLiftConnectNativeHost())
-		return ovrError_Initialize;
 	if (g_Instance)
 		return ovrSuccess;
 

@@ -232,9 +232,14 @@ Proton environment. It combines:
 RiftLift selects a rendering path from the runtimes bundled with each game:
 
 ```text
-Oculus-only game -> RiftLift native OpenXR runtime -> headset
-Oculus + OpenVR game -> RiftLift native OpenVR runtime -> headset
+Oculus-only game -> RiftLift PE ABI -> Wine unixlib -> Linux OpenXR -> headset
+Oculus + OpenVR game -> RiftLift PE ABI -> Wine unixlib -> Linux OpenVR -> headset
 ```
+
+The PE portion exists because the games and their D3D graphics objects are
+Windows binaries. XR runtime calls cross GE-Proton's supported in-process
+`unixlib` boundary into native ELF code; RiftLift does not proxy them through a
+helper daemon or Meta's Windows VR service.
 
 RiftLift uses Meta's entitlement service before downloading a game. The legacy
 Platform SDK bridge supplies local login and entitlement responses only for a

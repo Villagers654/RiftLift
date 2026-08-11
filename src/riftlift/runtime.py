@@ -270,6 +270,70 @@ def install_proton(paths: Paths) -> Path:
     return target
 
 
+@dataclass(frozen=True, slots=True)
+class NativeXrBridge:
+    """The Wine PE/Unix pair that carries XR calls into the Linux process."""
+
+    pe: Path
+    unix: Path
+
+
+def _contains_binary_marker(path: Path, marker: bytes) -> bool:
+    overlap = len(marker) - 1
+    tail = b""
+    with path.open("rb") as stream:
+        while chunk := stream.read(64 * 1024):
+            payload = tail + chunk
+            if marker in payload:
+                return True
+            tail = payload[-overlap:] if overlap else b""
+    return False
+
+
+def native_xr_bridge(proton: Path, backend: str) -> NativeXrBridge:
+    """Resolve and validate GE-Proton's in-process native XR bridge.
+
+    Oculus games must enter through a Windows DLL, but Linux OpenXR/OpenVR is
+    reached through Wine's supported unixlib boundary in the same process.
+    Refuse to launch if either half is absent or has the wrong binary format;
+    silently falling back to a Windows-only runtime would violate RiftLift's
+    native-runtime contract.
+    """
+    names = {
+        "openxr": ("wineopenxr.dll", "wineopenxr.so"),
+        "openvr": ("vrclient_x64.dll", "vrclient_x64.so"),
+    }
+    try:
+        pe_name, unix_name = names[backend]
+    except KeyError as error:
+        raise RiftLiftError(f"unsupported XR backend: {backend}") from error
+    wine = proton / "files/lib/wine"
+    bridge = NativeXrBridge(
+        wine / "x86_64-windows" / pe_name,
+        wine / "x86_64-unix" / unix_name,
+    )
+    try:
+        with bridge.pe.open("rb") as stream:
+            pe_magic = stream.read(2)
+        with bridge.unix.open("rb") as stream:
+            unix_magic = stream.read(4)
+    except OSError as error:
+        raise RiftLiftError(
+            f"GE-Proton is missing its native {backend.upper()} bridge: {error.filename}"
+        ) from error
+    if pe_magic != b"MZ" or unix_magic != b"\x7fELF":
+        raise RiftLiftError(
+            f"GE-Proton's native {backend.upper()} bridge has an invalid binary format"
+        )
+    if not _contains_binary_marker(
+        bridge.pe, b"__wine_init_unix_call"
+    ) or not _contains_binary_marker(bridge.unix, b"__wine_unix_call_funcs"):
+        raise RiftLiftError(
+            f"GE-Proton's {backend.upper()} files are not a Wine unixlib pair"
+        )
+    return bridge
+
+
 def proton_environment(paths: Paths, game_dir: Path | None = None) -> dict[str, str]:
     root = steam_root()
     environment = os.environ.copy()
@@ -514,7 +578,6 @@ def install_rift_runtime(paths: Paths) -> Path:
         "RiftLiftLauncher.exe",
         "RiftLiftOpenXR64.dll",
         "RiftLiftOpenVR64.dll",
-        "bin/riftlift-runtime-host",
         "openvr_api64.dll",
         "LibOVRPlatformImpl64_1.dll",
         "Input/action_manifest.json",
@@ -525,9 +588,7 @@ def install_rift_runtime(paths: Paths) -> Path:
         "Input/vive_controller_default.json",
         "Input/vive_cosmos_default.json",
     )
-    native_host = destination / "bin/riftlift-runtime-host"
     if all((destination / name).is_file() for name in required):
-        native_host.chmod(native_host.stat().st_mode | 0o700)
         return destination
     override = os.environ.get("RIFTLIFT_RUNTIME_ARCHIVE")
     archive = (
@@ -549,7 +610,6 @@ def install_rift_runtime(paths: Paths) -> Path:
         nested.rmdir()
     if not all((destination / name).is_file() for name in required):
         raise RiftLiftError("RiftLift runtime payload is incomplete")
-    native_host.chmod(native_host.stat().st_mode | 0o700)
     return destination
 
 
