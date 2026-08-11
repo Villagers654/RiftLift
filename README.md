@@ -220,7 +220,7 @@ runtime to detect compatible 64-bit Unity, Unreal, and native Oculus SDK games.
 RiftLift keeps its files under `~/.local/share/riftlift` and uses one reusable
 Proton environment. It combines:
 
-- the in-repository [Revive and ReviveXR](components/revive) translation backends;
+- the built-in [Rift compatibility runtime](runtime);
 - the in-repository [xrizer](components/xrizer) OpenVR-to-OpenXR runtime;
 - GE-Proton and WineOpenXR;
 - Meta's native browser sign-in service and the PC runtime files games need;
@@ -246,10 +246,19 @@ Headset drivers, Monado, compositor lifecycle, and device-specific setup remain
 the responsibility of the host VR setup. See
 [Architecture and ownership](docs/ARCHITECTURE.md) for the technical boundary.
 
-Revive, ReviveXR, and xrizer compatibility changes live in this repository
-under [`components/`](components). Their builds and release artifacts are
-produced by RiftLift's top-level workflows, so contributors do not need to
-coordinate separate forks or releases.
+The Rift compatibility runtime lives at the repository root under
+[`runtime/`](runtime), while xrizer lives under [`components/`](components).
+Their builds and release artifacts are produced by RiftLift's top-level
+workflows, so contributors do not need to coordinate separate forks or
+releases.
+
+### Credits
+
+RiftLift's Oculus API translation work is derived from the GPL-licensed
+[Revive project](https://github.com/LibreVR/Revive). RiftLift maintains that
+code as part of its own runtime while preserving Revive's copyright and license
+notices. Thanks to LibreVR and every Revive contributor whose work made this
+compatibility layer possible.
 
 ## Legal and security
 

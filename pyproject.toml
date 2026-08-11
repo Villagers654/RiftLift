@@ -27,7 +27,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/Villagers654/RiftLift"
 Issues = "https://github.com/Villagers654/RiftLift/issues"
-Revive = "https://github.com/Villagers654/RiftLift/tree/main/components/revive"
+Runtime = "https://github.com/Villagers654/RiftLift/tree/main/runtime"
 xrizer = "https://github.com/Villagers654/RiftLift/tree/main/components/xrizer"
 
 [project.scripts]

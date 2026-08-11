@@ -60,7 +60,7 @@ jobs:
                   src/*|tests/*|scripts/*|install.sh|pyproject.toml)
                     app=true
                     ;;
-                  components/revive/*|.gitmodules)
+                  runtime/*|.gitmodules)
                     revive=true
                     ;;
                   components/xrizer/*)
@@ -125,12 +125,12 @@ jobs:
     runs-on: windows-2022
     defaults:
       run:
-        working-directory: components/revive
+        working-directory: runtime
     steps:
       - uses: actions/checkout@v5
       - name: Fetch required Revive dependency files
         shell: bash
-        run: ../../scripts/prepare-revive-ci-deps.sh
+        run: ../scripts/prepare-revive-ci-deps.sh
       - name: Download Oculus PC SDK
         shell: pwsh
         run: |

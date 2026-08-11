@@ -30,8 +30,8 @@ checkout_sparse_submodule() {
   git -C "$repo_root/$path" checkout --quiet --detach FETCH_HEAD
 }
 
-# Revive only consumes the public headers/sources below. In particular, OpenVR's
+# The Rift runtime only consumes the public headers/sources below. In particular, OpenVR's
 # 400+ MB sample tree is not part of any RiftLift target.
-checkout_sparse_submodule components/revive/Externals/Vulkan include
-checkout_sparse_submodule components/revive/Externals/microprofile .
-checkout_sparse_submodule components/revive/Externals/openvr headers src
+checkout_sparse_submodule runtime/Externals/Vulkan include
+checkout_sparse_submodule runtime/Externals/microprofile .
+checkout_sparse_submodule runtime/Externals/openvr headers src
