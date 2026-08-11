@@ -130,7 +130,7 @@ jobs:
       - uses: actions/checkout@v5
       - name: Fetch required Revive dependency files
         shell: bash
-        run: scripts/prepare-revive-ci-deps.sh
+        run: ../../scripts/prepare-revive-ci-deps.sh
       - name: Download Oculus PC SDK
         shell: pwsh
         run: |
