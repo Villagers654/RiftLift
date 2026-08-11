@@ -314,12 +314,17 @@ impl<T: InterfaceImpl> Injected<T> {
             .get()
             .or_else(|| {
                 let item: Arc<ErasedInterface> = self.store.lock().unwrap().get::<T>()?;
-                self.item
-                    .set(Arc::downgrade(&item))
-                    .unwrap_or_else(|_| unreachable!());
-                Some(self.item.get().unwrap())
+                Some(self.cache(Arc::downgrade(&item)))
             })
             .and_then(|i| Some(i.upgrade()?.downcast().unwrap()))
+    }
+
+    fn cache(&self, item: Weak<ErasedInterface>) -> &Weak<ErasedInterface> {
+        // Multiple game threads may resolve the same lazily injected interface
+        // at once. Whichever thread initializes the OnceLock first wins; every
+        // other thread must use that same cached interface rather than panic.
+        let _ = self.item.set(item);
+        self.item.get().expect("injected interface cache is empty")
     }
 
     pub fn force(&self, init: impl FnOnce(&Injector) -> T) -> Arc<T> {
@@ -516,5 +521,30 @@ mod tests {
 
         assert_eq!(Arc::as_ptr(&injected2), Arc::as_ptr(&interface1));
         assert_eq!(Arc::as_ptr(&injected3), Arc::as_ptr(&interface1));
+    }
+
+    #[test]
+    fn injected_cache_keeps_first_interface_when_initializers_race() {
+        let core = ClientCore::new(c"IVRClientCore_003").unwrap();
+        core.try_interface(c"two", |injector| Interface2(injector.inject()));
+        let interface2 = core
+            .get_interface::<Interface2>()
+            .expect("Interface2 missing from store");
+
+        let first: Arc<ErasedInterface> = Arc::new(Interface1);
+        let second: Arc<ErasedInterface> = Arc::new(Interface1);
+        let first_cached = interface2
+            .0
+            .cache(Arc::downgrade(&first))
+            .upgrade()
+            .unwrap();
+        let second_cached = interface2
+            .0
+            .cache(Arc::downgrade(&second))
+            .upgrade()
+            .unwrap();
+
+        assert_eq!(Arc::as_ptr(&first_cached), Arc::as_ptr(&first));
+        assert_eq!(Arc::as_ptr(&second_cached), Arc::as_ptr(&first));
     }
 }
