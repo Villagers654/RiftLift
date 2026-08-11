@@ -1,0 +1,74 @@
+name: RiftLift Revive build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download Oculus PC SDK
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'oculus-sdk.zip'
+          Invoke-WebRequest 'https://securecdn.oculus.com/binaries/download/?id=4377593722298679' -OutFile $archive
+          Expand-Archive $archive -DestinationPath Externals -Force
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\vcpkg-binary-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('.github/workflows/riftlift-build.yml') }}
+
+      - name: Install native dependencies
+        shell: pwsh
+        run: |
+          $env:VCPKG_DEFAULT_BINARY_CACHE = Join-Path $env:RUNNER_TEMP 'vcpkg-binary-cache'
+          New-Item -ItemType Directory -Force $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+          & C:\vcpkg\vcpkg.exe install --triplet x86-windows-static detours openxr-loader glfw3
+          & C:\vcpkg\vcpkg.exe install --triplet x64-windows-static detours openxr-loader glfw3
+          & C:\vcpkg\vcpkg.exe integrate install
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Build Revive compatibility libraries
+        shell: pwsh
+        run: |
+          # Ship both translation backends. ReviveXR is the shortest path for
+          # modern Oculus SDK clients, while classic Revive covers older SDK
+          # behavior through an OpenVR-to-OpenXR runtime such as xrizer. The
+          # desktop overlay is still intentionally excluded.
+          msbuild Revive.sln /m /t:ReviveXR /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
+          msbuild Revive.sln /m /t:ReviveXR /p:Configuration=Release /p:Platform=x86 /p:PlatformToolset=v143
+          msbuild Revive.sln /m /t:Revive /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
+          msbuild Revive.sln /m /t:ReviveInjector /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
+
+      - name: Collect RiftLift payload
+        shell: pwsh
+        run: |
+          $out = New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\riftlift-revive"
+          Copy-Item Release\ReviveInjector.exe $out
+          # ReviveInjector links to OpenVR for application identity even when
+          # /openxr is selected, so this is a runtime dependency, not an
+          # optional OpenVR compositor payload.
+          Copy-Item Release\openvr_api64.dll $out
+          Copy-Item Release\LibRevive64.dll $out
+          Copy-Item Release\LibReviveXR32.dll $out
+          Copy-Item Release\LibReviveXR64.dll $out
+          # Classic Revive translates Oculus Touch state through these OpenVR
+          # actions. Shipping the DLL without its manifest leaves controller
+          # poses alive but drops buttons, triggers, and sticks for every app.
+          Copy-Item Revive\Input "$out\Input" -Recurse
+          Copy-Item LICENSE $out
+          Compress-Archive "$out\*" "$env:RUNNER_TEMP\riftlift-revive.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: riftlift-revive
+          path: ${{ runner.temp }}/riftlift-revive.zip

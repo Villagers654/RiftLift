@@ -1,0 +1,19 @@
+<RCC>
+    <qresource prefix="/">
+        <file>Overlay.qml</file>
+        <file>Oculus.js</file>
+        <file>revive_overlay.png</file>
+        <file>revive.ico</file>
+        <file>SupportAssets/oculus-dreamdeck-nux/cover_landscape_image.jpg</file>
+        <file>SupportAssets/oculus-dreamdeck-nux/cover_square_image.jpg</file>
+        <file>SupportAssets/oculus-first-contact/cover_landscape_image.jpg</file>
+        <file>SupportAssets/oculus-first-contact/cover_square_image.jpg</file>
+        <file>SupportAssets/oculus-touch-tutorial/cover_landscape_image.jpg</file>
+        <file>SupportAssets/oculus-touch-tutorial/cover_square_image.jpg</file>
+        <file>SupportAssets/oculus-worlds/cover_landscape_image.jpg</file>
+        <file>SupportAssets/oculus-worlds/cover_square_image.jpg</file>
+        <file>revive_white.ico</file>
+        <file>Library.qml</file>
+        <file>no-link.svg</file>
+    </qresource>
+</RCC>

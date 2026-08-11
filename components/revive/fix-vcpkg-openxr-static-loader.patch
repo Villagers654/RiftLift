@@ -1,0 +1,74 @@
+diff --git a/ports/openxr-loader/fix-static-loader.patch b/ports/openxr-loader/fix-static-loader.patch
+new file mode 100644
+index 000000000..d06ee8cc7
+--- /dev/null
++++ b/ports/openxr-loader/fix-static-loader.patch
+@@ -0,0 +1,32 @@
++diff --git a/src/loader/CMakeLists.txt b/src/loader/CMakeLists.txt
++index 9add93809..d125180e7 100644
++--- a/src/loader/CMakeLists.txt
+++++ b/src/loader/CMakeLists.txt
++@@ -174,27 +174,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
++     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/openxr.pc" DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
++ elseif(WIN32)
++     if(MSVC)
++-        # WindowsStore (UWP) apps must be compiled with dynamic CRT linkage (default)
++-        if(NOT CMAKE_SYSTEM_NAME STREQUAL "WindowsStore")
++-            foreach(configuration in CMAKE_C_FLAGS_DEBUG
++-                                    CMAKE_C_FLAGS_RELEASE
++-                                    CMAKE_C_FLAGS_RELWITHDEBINFO
++-                                    CMAKE_CXX_FLAGS_DEBUG
++-                                    CMAKE_CXX_FLAGS_RELEASE
++-                                    CMAKE_CXX_FLAGS_RELWITHDEBINFO)
++-                # If building DLLs, force static CRT linkage
++-                if(DYNAMIC_LOADER)
++-                    if(${configuration} MATCHES "/MD")
++-                        string(REGEX REPLACE "/MD" "/MT" ${configuration} "${${configuration}}")
++-                    endif()
++-                else() # Otherwise for static libs, link the CRT dynamically
++-                    if(${configuration} MATCHES "/MT")
++-                        string(REGEX REPLACE "/MT" "/MD" ${configuration} "${${configuration}}")
++-                    endif()
++-                endif()
++-            endforeach()
++-        endif()
++-
++         target_compile_options(openxr_loader PRIVATE /wd6386)
++     endif()
++ 
+diff --git a/ports/openxr-loader/portfile.cmake b/ports/openxr-loader/portfile.cmake
+index 04a518602..0bac03b83 100644
+--- a/ports/openxr-loader/portfile.cmake
++++ b/ports/openxr-loader/portfile.cmake
+@@ -7,6 +7,7 @@ vcpkg_from_github(
+     HEAD_REF master
+     PATCHES
+         fix-openxr-sdk-jsoncpp.patch
++        fix-static-loader.patch
+ )
+ 
+ vcpkg_from_github(
+@@ -18,6 +19,7 @@ vcpkg_from_github(
+     PATCHES
+         fix-openxr-sdk-jsoncpp.patch
+         fix-jinja2.patch
++        fix-static-loader.patch
+ )
+ 
+ vcpkg_from_github(
+@@ -30,15 +32,11 @@ vcpkg_from_github(
+         002-fix-hpp-gen.patch
+ )
+ 
+-# Weird behavior inside the OpenXR loader.  On Windows they force shared libraries to use static crt, and
+-# vice-versa. Might be better in future iterations to patch the CMakeLists.txt for OpenXR
+ if (VCPKG_TARGET_IS_UWP OR VCPKG_TARGET_IS_WINDOWS)
+     if(VCPKG_LIBRARY_LINKAGE STREQUAL static)
+         set(DYNAMIC_LOADER OFF)
+-        set(VCPKG_CRT_LINKAGE dynamic)
+     else()
+         set(DYNAMIC_LOADER ON)
+-        set(VCPKG_CRT_LINKAGE static)
+     endif()
+ endif()
+ 

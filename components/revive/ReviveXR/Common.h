@@ -1,0 +1,70 @@
+#pragma once
+
+#include "OVR_CAPI.h"
+#include "microprofile.h"
+
+#include <openxr/openxr.h>
+#include <openxr/openxr_reflection.h>
+#include <assert.h>
+#include <string>
+
+// When RIFTLIFT_REVIVE_TRACE is set, record the first call to each Oculus API
+// entry point. This gives compatibility layers a bounded startup trace without
+// adding per-frame I/O or changing normal runtime behavior.
+void TraceOculusCall(const char* name);
+void TraceOculusValue(const char* name, long long value);
+#define REV_TRACE(x) MICROPROFILE_SCOPEI("Revive", #x, 0xff0000); TraceOculusCall(#x);
+
+#define XR_ENUM_CASE_STR(name, val) case name: return L#name;
+constexpr const wchar_t* ResultToString(XrResult e)
+{
+	switch (e)
+	{
+		XR_LIST_ENUM_XrResult(XR_ENUM_CASE_STR)
+		default: return L"Unknown";
+	}
+}
+
+extern XrResult g_LastResult;
+
+#ifdef NDEBUG
+#define assertmsg(expression, message) ((void)0)
+#else
+#define assertmsg(expression, message) (void)(                                                       \
+            (!!(expression)) ||                                                              \
+            (_wassert(message, _CRT_WIDE(__FILE__), (unsigned)(__LINE__)), 0) \
+        )
+#endif
+
+#define CHK_XR(x) \
+	{ \
+		g_LastResult = (x); \
+		assertmsg(XR_SUCCEEDED(g_LastResult), ResultToString(g_LastResult)); \
+		if (XR_FAILED(g_LastResult)) return ResultToOvrResult(g_LastResult); \
+	}
+
+#define CHK_OVR(x) \
+	{ \
+		ovrResult __LastResult = (x); \
+		assert(OVR_SUCCESS(__LastResult)); \
+		if (!OVR_UNQUALIFIED_SUCCESS(__LastResult)) return __LastResult; \
+	}
+
+#define CHK_HR(x) \
+	{ \
+		HRESULT __LastHResult = (x); \
+		assert(SUCCEEDED(__LastHResult)); \
+		if (OVR_FAILURE(__LastHResult)) return ovrError_RuntimeException; \
+	}
+
+#define XR_TYPE(x) { XR_TYPE_##x, nullptr }
+
+#define XR_FUNCTION(instance, func) \
+	static PFN_xr##func func = nullptr; \
+	if (!func) \
+		CHK_XR(xrGetInstanceProcAddr(instance, "xr" #func, (PFN_xrVoidFunction*)&##func));
+
+ovrResult ResultToOvrResult(XrResult error);
+XrTime AbsTimeToXrTime(XrInstance instance, double absTime);
+XrPath GetXrPath(const char* path);
+XrPath GetXrPath(std::string path);
