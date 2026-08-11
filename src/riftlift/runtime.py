@@ -21,9 +21,9 @@ from .util import RiftLiftError, download, linux_to_windows, run
 PROTON_VERSION = "GE-Proton11-3"
 PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{PROTON_VERSION}/{PROTON_VERSION}.tar.gz"
 PROTON_SHA256 = "861c2edc8d40d051fb1e7a692deb953be52bd339c46d90f2b7dde50ddad91266"
-RUNTIME_VERSION = "riftlift-0.9.0-alpha.1"
-RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.1/riftlift-compat.zip"
-RUNTIME_SHA256 = "2e2f2b2bca55b8b00054379bd010e5e9d405d949313da75608a15388301b897d"
+RUNTIME_VERSION = "riftlift-0.9.0-alpha.2"
+RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.2/riftlift-compat.zip"
+RUNTIME_SHA256 = "410b3179c664a8ebe332c6bedb904c713ce5b63affb2fcc9e59c96291dce30ba"
 
 
 @dataclass(frozen=True, slots=True)
@@ -574,6 +574,7 @@ def install_meta_runtime(paths: Paths) -> Path:
 
 def install_rift_runtime(paths: Paths) -> Path:
     destination = paths.tools / "rift-runtime"
+    version_marker = destination / ".riftlift-version"
     required = (
         "RiftLiftLauncher.exe",
         "RiftLiftOpenXR64.dll",
@@ -588,7 +589,11 @@ def install_rift_runtime(paths: Paths) -> Path:
         "Input/vive_controller_default.json",
         "Input/vive_cosmos_default.json",
     )
-    if all((destination / name).is_file() for name in required):
+    if (
+        all((destination / name).is_file() for name in required)
+        and version_marker.is_file()
+        and version_marker.read_text().strip() == RUNTIME_VERSION
+    ):
         return destination
     override = os.environ.get("RIFTLIFT_RUNTIME_ARCHIVE")
     archive = (
@@ -610,6 +615,7 @@ def install_rift_runtime(paths: Paths) -> Path:
         nested.rmdir()
     if not all((destination / name).is_file() for name in required):
         raise RiftLiftError("RiftLift runtime payload is incomplete")
+    version_marker.write_text(f"{RUNTIME_VERSION}\n")
     return destination
 
 
