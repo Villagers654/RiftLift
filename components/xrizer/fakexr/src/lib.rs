@@ -161,6 +161,22 @@ pub fn session_frame_state(session: xr::Session) -> FrameState {
     session.frame_state.load()
 }
 
+pub fn set_session_state(session: xr::Session, state: xr::SessionState) {
+    let value = session.to_handle().unwrap();
+    value.state.store(state);
+    send_event(
+        &value.event_sender,
+        xr::EventDataSessionStateChanged {
+            ty: xr::EventDataSessionStateChanged::TYPE,
+            next: std::ptr::null(),
+            session,
+            state,
+            time: xr::Time::from_nanos(0),
+        },
+        None,
+    );
+}
+
 macro_rules! fn_unimplemented_impl {
     ($($param:ident),+) => {
         fn_unimplemented_impl!($($param),+  -> []);

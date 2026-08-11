@@ -1,9 +1,9 @@
 from pathlib import Path
 
 from riftlift.config import Game, Paths
-from riftlift.launch import launch, revive_backend
+from riftlift.launch import launch, oculus_launch_arguments, revive_backend
 from riftlift.runtime import launch_environment, setup
-from riftlift.util import RiftLiftError
+from riftlift.util import RiftLiftError, linux_to_windows
 
 
 def test_injector_uses_existing_prefix_and_windows_game_path(
@@ -118,8 +118,8 @@ def test_platform_shim_does_not_redirect_oculus_vr_runtime(
 
     environment = launch_environment(paths, paths.games / "sample", True)
 
-    assert environment["WINEPATH"].endswith(
-        "\\Program Files\\Oculus\\Support\\oculus-runtime"
+    assert environment["WINEPATH"] == (
+        r"C:\Program Files\Oculus\Support\oculus-runtime"
     )
     assert "platform-compat" not in environment["WINEPATH"]
     assert int(environment["RIFTLIFT_USER_ID"]) > 0
@@ -271,7 +271,7 @@ def test_launch_accepts_explicit_openvr_backend(tmp_path: Path, monkeypatch) -> 
     command = captured["command"]
     assert command[command.index("/wait") + 1] == "/openvr"
     assert command[1] == "run"
-    assert "DXVK_NO_VR" not in captured["env"]
+    assert captured["env"]["DXVK_NO_VR"] == "1"
     assert captured["env"]["VR_OVERRIDE"] == "/opt/xrizer"
     assert captured["env"]["UMU_ID"] == "umu-default"
     assert captured["env"]["UMU_USE_STEAM"] == "0"
@@ -339,6 +339,95 @@ def test_d3d12_oculus_game_uses_classic_revive_without_title_rules(
     monkeypatch.delenv("RIFTLIFT_REVIVE_BACKEND", raising=False)
 
     assert revive_backend(game) == "openvr"
+
+
+def test_unity_oculus_xr_provider_uses_classic_revive_without_title_rules(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("RIFTLIFT_REVIVE_BACKEND", raising=False)
+    game_dir = tmp_path / "generic-unity-game"
+    executable = game_dir / "Game.exe"
+    plugin = game_dir / "Game_Data/Plugins/x86_64/OculusXRPlugin.dll"
+    plugin.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    plugin.write_bytes(b"MZ")
+    game = Game(
+        "generic-unity-game",
+        "Generic Unity Game",
+        "1",
+        "generic-unity-key",
+        str(game_dir),
+        executable.name,
+        [],
+    )
+
+    assert revive_backend(game) == "openvr"
+
+
+def test_d3d11_import_wins_over_incidental_d3d12_string(
+    tmp_path: Path, monkeypatch
+) -> None:
+    game_dir = tmp_path / "generic-game"
+    executable = game_dir / "Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ\0engine supports D3D12.dll\0")
+    game = Game(
+        "generic",
+        "Generic",
+        "1",
+        "generic-key",
+        str(game_dir),
+        executable.name,
+        [],
+    )
+    monkeypatch.delenv("RIFTLIFT_REVIVE_BACKEND", raising=False)
+    monkeypatch.setattr(
+        "riftlift.detection._pe_imported_dlls",
+        lambda _path: {"d3d11.dll", "d3d12.dll"},
+    )
+
+    assert revive_backend(game) == "openxr"
+
+
+def test_unreal_launch_forces_vr_oculus_mode_without_title_rules(
+    tmp_path: Path,
+) -> None:
+    game_dir = tmp_path / "generic-game"
+    executable = game_dir / "Game/Binaries/Win64/Game-Win64-Shipping.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    game = Game(
+        "generic",
+        "Generic",
+        "1",
+        "steam.app.1",
+        str(game_dir),
+        executable.relative_to(game_dir).as_posix(),
+        ["-steamvr", "-log"],
+    )
+
+    assert oculus_launch_arguments(game, []) == ["-log", "-vr", "-oculus"]
+
+
+def test_unity_launch_replaces_runtime_selector_without_title_rules(
+    tmp_path: Path,
+) -> None:
+    game_dir = tmp_path / "generic-game"
+    executable = game_dir / "Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    (game_dir / "Game_Data").mkdir()
+    game = Game(
+        "generic",
+        "Generic",
+        "1",
+        "steam.app.1",
+        str(game_dir),
+        executable.name,
+        ["-vrmode", "OpenVR", "-log"],
+    )
+
+    assert oculus_launch_arguments(game, []) == ["-log", "-vrmode", "Oculus"]
 
 
 def test_steam_game_keeps_steam_identity(tmp_path: Path, monkeypatch) -> None:

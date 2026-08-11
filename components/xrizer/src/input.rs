@@ -55,7 +55,7 @@ pub struct Input<C: openxr_data::Compositor> {
     right_hand_key: InputSourceKey,
     action_map: RwLock<SlotMap<ActionKey, Action>>,
     set_map: RwLock<SlotMap<ActionSetKey, String>>,
-    loaded_actions_path: OnceLock<PathBuf>,
+    loaded_actions_path: RwLock<Option<PathBuf>>,
     legacy_state: legacy::LegacyState,
     skeletal_tracking_level: RwLock<vr::EVRSkeletalTrackingLevel>,
     estimated_finger_state: [Mutex<FingerState>; 2],
@@ -123,7 +123,7 @@ impl<C: openxr_data::Compositor> Input<C> {
             input_source_map: RwLock::new(map),
             action_map: Default::default(),
             set_map: Default::default(),
-            loaded_actions_path: OnceLock::new(),
+            loaded_actions_path: RwLock::new(None),
             left_hand_key,
             right_hand_key,
             legacy_state: Default::default(),
@@ -1226,7 +1226,27 @@ impl<C: openxr_data::Compositor> vr::IVRInput011_Interface for Input<C> {
         // We need to restart the session if the legacy actions have already been attached.
         self.loading_actions.store(true, Ordering::Relaxed);
         let mut data = self.openxr.session_data.get();
-        if data.input_data.get_legacy_actions().is_some() {
+        let manifest_changed = self
+            .loaded_actions_path
+            .read()
+            .unwrap()
+            .as_deref()
+            .is_some_and(|loaded| loaded != path);
+        let replacing_attached_manifest =
+            manifest_changed && data.input_data.actions.get().is_some();
+        if replacing_attached_manifest {
+            *self.loaded_actions_path.write().unwrap() = Some(path.to_path_buf());
+            if !data.is_real_session() {
+                // The temporary graphics session has no reusable compositor
+                // backend. Remember the application's manifest now and load
+                // it when the first submitted texture creates the real
+                // session; action/set handles requested in between retain
+                // their slots and are populated by post_session_restart.
+                self.loading_actions.store(false, Ordering::Relaxed);
+                return vr::EVRInputError::None;
+            }
+        }
+        if data.input_data.get_legacy_actions().is_some() || replacing_attached_manifest {
             drop(data);
             self.openxr.restart_session();
             data = self.openxr.session_data.get();
@@ -1564,8 +1584,9 @@ impl<C: openxr_data::Compositor> Input<C> {
                 self.subaction_paths.right,
             ))
             .unwrap_or_else(|_| panic!("PoseData already setup"));
-        if let Some(path) = self.loaded_actions_path.get() {
-            let _ = self.load_action_manifest(data, path);
+        let path = self.loaded_actions_path.read().unwrap().clone();
+        if let Some(path) = path {
+            let _ = self.load_action_manifest(data, &path);
         }
     }
 

@@ -417,7 +417,6 @@ impl<C: Compositor> OpenXrData<C> {
                 .locate(ref_space, self.display_time.get())
                 .unwrap()
                 .pose;
-
             // Only set the rotation around the y axis
             let (twist, _) = swing_twist_decomposition(
                 Quat::from_xyzw(orientation.x, orientation.y, orientation.z, orientation.w),
@@ -594,6 +593,9 @@ pub enum SessionCreationError {
     SessionCreationFailed(xr::sys::Result),
     PollEventFailed(xr::sys::Result),
     BeginSessionFailed(xr::sys::Result),
+    BootstrapWaitFailed(xr::sys::Result),
+    BootstrapBeginFailed(xr::sys::Result),
+    BootstrapEndFailed(xr::sys::Result),
 }
 
 impl SessionData {
@@ -657,7 +659,7 @@ impl SessionData {
             })
         }
 
-        let (session, session_graphics, waiter, stream) = info
+        let (session, session_graphics, mut waiter, mut stream) = info
             .with_any_graphics::<create_session>((instance, system_id))
             .map_err(SessionCreationError::SessionCreationFailed)?;
 
@@ -698,6 +700,31 @@ impl SessionData {
             .begin(xr::ViewConfigurationType::PRIMARY_STEREO)
             .map_err(SessionCreationError::BeginSessionFailed)?;
         info!("Began OpenXR session.");
+
+        // Monado promotes a primary application when it first predicts a
+        // frame. Some OpenVR clients install a loading skybox and wait for
+        // compositor visibility before making their first WaitGetPoses call,
+        // which otherwise leaves both sides waiting forever. Complete one
+        // empty OpenXR frame after begin so the runtime can publish the normal
+        // VISIBLE/FOCUSED transition before the client render loop starts.
+        let bootstrap_state = waiter
+            .wait()
+            .map_err(SessionCreationError::BootstrapWaitFailed)?;
+
+        #[macros::any_graphics(FrameStream)]
+        fn bootstrap_frame<G: xr::Graphics>(
+            stream: &mut xr::FrameStream<G>,
+            display_time: xr::Time,
+        ) -> Result<(), SessionCreationError> {
+            stream
+                .begin()
+                .map_err(SessionCreationError::BootstrapBeginFailed)?;
+            stream
+                .end(display_time, xr::EnvironmentBlendMode::OPAQUE, &[])
+                .map_err(SessionCreationError::BootstrapEndFailed)
+        }
+
+        stream.with_any_graphics_mut::<bootstrap_frame>(bootstrap_state.predicted_display_time)?;
 
         Ok((
             SessionData {

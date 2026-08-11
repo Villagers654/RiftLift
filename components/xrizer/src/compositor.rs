@@ -150,6 +150,18 @@ impl Compositor {
         ctrl.with_any_graphics_mut::<begin_frame>(());
     }
 
+    fn refresh_runtime_focus(&self) {
+        // OpenVR applications normally establish compositor focus by calling
+        // WaitGetPoses first. Some explicit-timing render loops submit their
+        // first frame before that call, though. Derive focus from OpenXR in
+        // that case so Submit does not deadlock waiting for an API call that
+        // the application is itself waiting for the compositor to accept.
+        self.openxr.poll_events();
+        if self.openxr.session_data.get().state == xr::SessionState::FOCUSED {
+            self.focused.call_once(|| {});
+        }
+    }
+
     pub fn initialize_real_session(
         &self,
         texture: &vr::Texture_t,
@@ -374,12 +386,19 @@ impl vr::IVRCompositor029_Interface for Compositor {
             return vr::EVRCompositorError::RequestFailed;
         }
 
+        self.refresh_runtime_focus();
         if !self.focused.is_completed() {
             // SteamVR doesn't seem to return an error in this case...
             return vr::EVRCompositorError::None;
         }
 
         let session_data = self.openxr.session_data.get();
+        if *self.frame_state.lock().unwrap() == FrameState::Submitted {
+            // Explicit-timing clients usually call WaitGetPoses before this,
+            // which performs xrWaitFrame. A valid render loop may submit its
+            // timing data first, so perform the missing wait here as well.
+            self.maybe_wait_frame(&session_data);
+        }
         self.maybe_begin_frame(&session_data);
         vr::EVRCompositorError::None
     }
@@ -817,6 +836,7 @@ impl vr::IVRCompositor029_Interface for Compositor {
             return vr::EVRCompositorError::InvalidTexture;
         };
 
+        self.refresh_runtime_focus();
         if !self.focused.is_completed() {
             return vr::EVRCompositorError::DoNotHaveFocus;
         }
@@ -1662,7 +1682,10 @@ mod tests {
             let DynFrameController::Fake(ctrl) = lock.as_ref().unwrap() else {
                 panic!("Frame controller was not set up or not faked!");
             };
-            assert!(!ctrl.should_render);
+            // Session startup submits an empty bootstrap frame, so the first
+            // implicit-timing application frame is compositor-visible. The
+            // explicit path has already handed its frame off at this point.
+            assert_eq!(ctrl.should_render, !explicit);
         }
 
         #[track_caller]
@@ -1920,7 +1943,7 @@ mod tests {
                 panic!("Frame controller was not set up or not faked!");
             };
             assert!(ctrl.swapchain_data.is_none());
-            assert!(!ctrl.should_render);
+            assert!(ctrl.should_render);
         }
         SWAPCHAIN_WIDTH.set(10);
         assert_eq!(f.submit(vr::EVREye::Left), None);
@@ -2104,6 +2127,23 @@ mod tests {
         f.comp.SubmitExplicitTimingData();
         assert_eq!(f.submit(vr::EVREye::Left), None);
         assert_eq!(f.submit(vr::EVREye::Right), None);
+    }
+
+    #[test]
+    fn explicit_timing_accepts_first_frame_when_runtime_is_focused() {
+        let f = Fixture::new();
+        f.comp.SetExplicitTimingMode(
+            vr::EVRCompositorTimingMode::Explicit_ApplicationPerformsPostPresentHandoff,
+        );
+
+        let session = f.comp.openxr.session_data.get().session.as_raw();
+        fakexr::set_session_state(session, xr::SessionState::FOCUSED);
+
+        assert_eq!(f.comp.SubmitExplicitTimingData(), None);
+        assert_eq!(f.submit(vr::EVREye::Left), None);
+        assert_eq!(f.submit(vr::EVREye::Right), None);
+        f.comp.PostPresentHandoff();
+        f.check_frame_state(fakexr::FrameState::Ended);
     }
 
     #[test]

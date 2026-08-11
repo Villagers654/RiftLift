@@ -706,13 +706,10 @@ def launch_environment(
     )
     if platform_shim:
         install_platform_compat(paths)
-        meta_runtime = (
-            paths.prefix / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime"
-        )
-        meta_runtime_win = linux_to_windows(meta_runtime)
-        # Keep a single canonical copy of each Platform SDK DLL visible. Wine
-        # may otherwise preload a second public DLL from a Z: path; the vendor
-        # loader detects the mismatch and refuses to initialize.
+        meta_runtime_win = r"C:\Program Files\Oculus\Support\oculus-runtime"
+        # Keep one canonical public Platform SDK DLL visible. The vendor
+        # loader rejects initialization when its already-loaded DLL path does
+        # not match the runtime path resolved from the Oculus installation.
         environment["WINEPATH"] = meta_runtime_win
         environment["RIFTLIFT_USER_ID"] = platform_user_id(paths)
         if platform_offline:

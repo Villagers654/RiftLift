@@ -40,28 +40,39 @@ impl<C: openxr_data::Compositor> Input<C> {
         session_data: &SessionData,
         manifest_path: &Path,
     ) -> Result<(), vr::EVRInputError> {
-        match self.loaded_actions_path.get() {
-            Some(p) => {
-                assert_eq!(p, manifest_path);
-                if session_data.input_data.actions.get().is_some() {
-                    return Ok(());
-                }
-            }
-            None => {
-                if let Some(loaded) = session_data.input_data.actions.get() {
-                    error!(
-                        "{} actions are already loaded!",
-                        if matches!(loaded, super::LoadedActions::Legacy(_)) {
-                            "Legacy"
-                        } else {
-                            "Manifest"
+        {
+            let mut loaded_path = self.loaded_actions_path.write().unwrap();
+            match loaded_path.as_deref() {
+                Some(p) => {
+                    if p != manifest_path {
+                        if session_data.input_data.actions.get().is_some() {
+                            error!(
+                                "Cannot replace attached action manifest {} with {} without restarting the session",
+                                p.display(),
+                                manifest_path.display()
+                            );
+                            return Err(vr::EVRInputError::MismatchedActionManifest);
                         }
-                    );
-                    return Err(vr::EVRInputError::MismatchedActionManifest);
+                        *loaded_path = Some(manifest_path.to_path_buf());
+                    }
+                    if session_data.input_data.actions.get().is_some() {
+                        return Ok(());
+                    }
                 }
-                self.loaded_actions_path
-                    .set(manifest_path.to_path_buf())
-                    .unwrap();
+                None => {
+                    if let Some(loaded) = session_data.input_data.actions.get() {
+                        error!(
+                            "{} actions are already loaded!",
+                            if matches!(loaded, super::LoadedActions::Legacy(_)) {
+                                "Legacy"
+                            } else {
+                                "Manifest"
+                            }
+                        );
+                        return Err(vr::EVRInputError::MismatchedActionManifest);
+                    }
+                    *loaded_path = Some(manifest_path.to_path_buf());
+                }
             }
         }
 

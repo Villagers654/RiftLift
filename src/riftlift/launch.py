@@ -7,7 +7,13 @@ import subprocess
 from pathlib import Path
 
 from .config import Game, Paths
-from .detection import uses_d3d12_runtime, uses_openvr_runtime
+from .detection import (
+    is_unity_player,
+    is_unreal_shipping,
+    uses_d3d12_runtime,
+    uses_oculus_xr_plugin,
+    uses_openvr_runtime,
+)
 from .runtime import install_proton, install_revive, launch_environment
 from .util import RiftLiftError, linux_to_windows
 
@@ -22,14 +28,48 @@ def revive_backend(game: Game) -> str:
 
     # Games shipping both Oculus and OpenVR integrations generally depend on
     # the mature compositor/overlay behavior in classic Revive. D3D12 Oculus
-    # clients also need that path because direct ReviveXR currently supports
-    # D3D11. Other Oculus-only installs take the shorter ReviveXR path. These
-    # static capability probes are deterministic, add no failed first launch,
-    # and contain no title rules.
-    needs_classic_revive = uses_openvr_runtime(game.game_dir) or uses_d3d12_runtime(
-        game.executable_path
+    # clients also need that path because direct ReviveXR cannot currently
+    # establish their graphics session reliably. Other Oculus-only installs
+    # take the shorter ReviveXR path. These are capability probes, not titles.
+    needs_classic_revive = (
+        uses_openvr_runtime(game.game_dir)
+        or uses_oculus_xr_plugin(game.game_dir)
+        or uses_d3d12_runtime(game.executable_path)
     )
     return "openvr" if needs_classic_revive else "openxr"
+
+
+def oculus_launch_arguments(game: Game, extra_arguments: list[str]) -> list[str]:
+    """Select the installed engine's Oculus mode without title-specific rules."""
+    arguments = [*game.arguments, *extra_arguments]
+    lowered = [argument.casefold() for argument in arguments]
+    if is_unreal_shipping(game.executable_path):
+        # Unreal's -vr starts stereo rendering while -oculus resolves installs
+        # that also ship an OpenVR plugin to the runtime RiftLift injected.
+        arguments = [
+            argument
+            for argument in arguments
+            if argument.casefold() not in {"-openvr", "-steamvr", "-openxr"}
+        ]
+        lowered = [argument.casefold() for argument in arguments]
+        if "-vr" not in lowered:
+            arguments.append("-vr")
+        if "-oculus" not in lowered:
+            arguments.append("-oculus")
+    elif is_unity_player(game.executable_path):
+        # Unity's engine-level selector is a two-argument option. Replace an
+        # inherited SteamVR/OpenVR choice rather than stacking contradictory
+        # runtime requests on the same process.
+        normalized: list[str] = []
+        index = 0
+        while index < len(arguments):
+            if arguments[index].casefold() == "-vrmode":
+                index += 2
+                continue
+            normalized.append(arguments[index])
+            index += 1
+        arguments = [*normalized, "-vrmode", "Oculus"]
+    return arguments
 
 
 def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
@@ -38,12 +78,11 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
     revive = install_revive(paths)
     proton = install_proton(paths) / "proton"
     backend = revive_backend(game)
+    game_arguments = oculus_launch_arguments(game, extra_arguments)
     arguments = [
         str(proton),
-        # Use Proton's full game verb so it materializes the selected OpenVR
-        # runtime in the prefix. Non-Steam launches select Proton's supported
-        # umu.exe path below, which preserves the caller's working directory
-        # without routing the injector through steam.exe.
+        # Use Proton's full game verb so it materializes the selected runtime
+        # and its graphics requirements consistently in the shared prefix.
         "run",
         str(revive / "ReviveInjector.exe"),
         "/wait",
@@ -53,8 +92,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         "/cwd",
         linux_to_windows(game.game_dir),
         linux_to_windows(game.executable_path),
-        *game.arguments,
-        *extra_arguments,
+        *game_arguments,
     ]
     verified_rift_download = game.source == "meta"
     openvr_runtime = os.environ.get("VR_OVERRIDE", "").strip()
@@ -78,7 +116,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         # neutral identity instead of inventing per-title database entries.
         environment["UMU_ID"] = "umu-default"
         environment["UMU_USE_STEAM"] = "0"
-    if backend == "openxr":
+    if backend == "openxr" or not uses_d3d12_runtime(game.executable_path):
         # Proton records OpenVR's Vulkan requirements in the shared Wine
         # prefix. DXVK otherwise consumes those stale requirements alongside
         # WineOpenXR's and can request host-only extensions from Wine's Vulkan
@@ -86,7 +124,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         # Keep the selected backend authoritative while leaving explicit
         # OpenVR diagnostic launches untouched.
         environment["DXVK_NO_VR"] = "1"
-    else:
+    if backend == "openvr":
         # Revive's Windows registry fallback points at a Wine path, while the
         # OpenVR implementation consuming it is a native Linux library. Give
         # XRizer the host path explicitly so classic Revive always loads the

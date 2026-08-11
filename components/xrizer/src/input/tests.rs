@@ -1030,6 +1030,32 @@ fn empty_manifest() {
 }
 
 #[test]
+fn application_can_replace_startup_action_manifest() {
+    let f = Fixture::new();
+    f.load_actions(c"actions.json");
+    f.load_actions(c"actions_toggle.json");
+
+    assert!(
+        f.input
+            .loaded_actions_path
+            .read()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|path| path.ends_with("actions_toggle.json"))
+    );
+    assert!(
+        f.input
+            .openxr
+            .session_data
+            .get()
+            .input_data
+            .actions
+            .get()
+            .is_some()
+    );
+}
+
+#[test]
 fn load_actions_race() {
     let mut f = Fixture::new();
     f.input.openxr.restart_session(); // get to real session
