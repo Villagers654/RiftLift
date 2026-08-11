@@ -162,7 +162,7 @@ impl IVRClientCore003_Interface for ClientCore {
             // point as Proton's startup manifest so it cannot be lost at the
             // ABI boundary.
             .or_else(|| {
-                std::env::var("REVIVE_ACTION_MANIFEST")
+                std::env::var("RIFTLIFT_ACTION_MANIFEST")
                     .ok()
                     .and_then(|path| CString::new(path).ok())
             });

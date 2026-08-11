@@ -232,8 +232,8 @@ Proton environment. It combines:
 RiftLift selects a rendering path from the runtimes bundled with each game:
 
 ```text
-Oculus-only game -> RiftLift ReviveXR -> GE-Proton WineOpenXR -> OpenXR -> headset
-Oculus + OpenVR game -> RiftLift Revive -> RiftLift xrizer -> OpenXR -> headset
+Oculus-only game -> RiftLift native OpenXR runtime -> headset
+Oculus + OpenVR game -> RiftLift native OpenVR runtime -> headset
 ```
 
 RiftLift uses Meta's entitlement service before downloading a game. The legacy

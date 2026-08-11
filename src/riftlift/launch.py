@@ -17,29 +17,29 @@ from .detection import (
 )
 from .playtime import PlaytimeSession
 from .native_runtime import NativeRuntimeHost
-from .runtime import install_proton, install_revive, launch_environment
+from .runtime import install_proton, install_rift_runtime, launch_environment
 from .util import RiftLiftError, linux_to_windows
 
 
-def revive_backend(game: Game) -> str:
+def runtime_backend(game: Game) -> str:
     """Select a translation path from install capabilities, never a title list."""
-    override = os.environ.get("RIFTLIFT_REVIVE_BACKEND", "").strip().lower()
+    override = os.environ.get("RIFTLIFT_RUNTIME_BACKEND", "").strip().lower()
     if override:
         if override not in {"openxr", "openvr"}:
-            raise RiftLiftError("RIFTLIFT_REVIVE_BACKEND must be 'openxr' or 'openvr'")
+            raise RiftLiftError("RIFTLIFT_RUNTIME_BACKEND must be 'openxr' or 'openvr'")
         return override
 
     # Games shipping both Oculus and OpenVR integrations generally depend on
-    # the mature compositor/overlay behavior in classic Revive. D3D12 Oculus
-    # clients also need that path because direct ReviveXR cannot currently
+    # the mature OpenVR compositor behavior. D3D12 Oculus clients also need
+    # that path because the direct OpenXR bridge cannot currently
     # establish their graphics session reliably. Other Oculus-only installs
-    # take the shorter ReviveXR path. These are capability probes, not titles.
-    needs_classic_revive = (
+    # take the shorter OpenXR path. These are capability probes, not titles.
+    needs_openvr = (
         uses_openvr_runtime(game.game_dir)
         or uses_oculus_xr_plugin(game.game_dir)
         or uses_d3d12_runtime(game.executable_path)
     )
-    return "openvr" if needs_classic_revive else "openxr"
+    return "openvr" if needs_openvr else "openxr"
 
 
 def oculus_launch_arguments(game: Game, extra_arguments: list[str]) -> list[str]:
@@ -78,16 +78,16 @@ def oculus_launch_arguments(game: Game, extra_arguments: list[str]) -> list[str]
 def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
     if not game.executable_path.is_file():
         raise RiftLiftError(f"game executable is missing: {game.executable_path}")
-    revive = install_revive(paths)
+    rift_runtime = install_rift_runtime(paths)
     proton = install_proton(paths) / "proton"
-    backend = revive_backend(game)
+    backend = runtime_backend(game)
     game_arguments = oculus_launch_arguments(game, extra_arguments)
     arguments = [
         str(proton),
         # Use Proton's full game verb so it materializes the selected runtime
         # and its graphics requirements consistently in the shared prefix.
         "run",
-        str(revive / "ReviveInjector.exe"),
+        str(rift_runtime / "RiftLiftLauncher.exe"),
         "/wait",
         f"/{backend}",
         "/app",
@@ -128,17 +128,17 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         # OpenVR diagnostic launches untouched.
         environment["DXVK_NO_VR"] = "1"
     if backend == "openvr":
-        # Revive's Windows registry fallback points at a Wine path, while the
+        # The Windows bridge's registry fallback points at a Wine path, while the
         # OpenVR implementation consuming it is a native Linux library. Give
-        # XRizer the host path explicitly so classic Revive always loads the
+        # XRizer the host path explicitly so the OpenVR bridge always loads the
         # bundled actions and controller bindings.
-        environment["REVIVE_ACTION_MANIFEST"] = str(
-            revive / "Input" / "action_manifest.json"
+        environment["RIFTLIFT_ACTION_MANIFEST"] = str(
+            rift_runtime / "Input" / "action_manifest.json"
         )
     if backend == "openvr" and openvr_runtime:
         # proton_environment intentionally removes inherited OpenVR state so
-        # direct ReviveXR launches cannot be polluted by it. Classic Revive is
-        # itself an OpenVR client, however, so preserve the caller's selected
+        # direct OpenXR launches cannot be polluted by it. The other bridge is
+        # an OpenVR client, however, so preserve the caller's selected
         # OpenVR-to-OpenXR runtime (normally XRizer) for this backend only.
         environment["VR_OVERRIDE"] = openvr_runtime
     wrapper_value = os.environ.get("RIFTLIFT_LAUNCH_WRAPPER", "").strip()
@@ -151,8 +151,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
             )
     print(
         f"Launching {game.name} through "
-        f"{'ReviveXR -> WineOpenXR' if backend == 'openxr' else 'Revive -> OpenVR bridge'} "
-        "-> active OpenXR runtime..."
+        f"RiftLift native {backend.upper()} runtime -> headset..."
     )
     capabilities = [
         name
@@ -175,14 +174,18 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
     native_host_path = Path(
         os.environ.get(
             "RIFTLIFT_NATIVE_RUNTIME_HOST",
-            revive / "bin" / "riftlift-runtime-host",
+            rift_runtime / "bin" / "riftlift-runtime-host",
         )
     ).expanduser()
-    native_host = NativeRuntimeHost.start(
-        native_host_path,
-        os.environ.copy(),
-        backend,
-    )
+    try:
+        native_host = NativeRuntimeHost.start(
+            native_host_path,
+            os.environ.copy(),
+            backend,
+        )
+    except BaseException as error:
+        launch_finished(paths, launch_id, started, error=str(error))
+        raise
     environment.update(native_host.endpoint.environment())
     print(f"Native XR host: {native_host.endpoint.runtime_name}")
     playtime_session: PlaytimeSession | None = None

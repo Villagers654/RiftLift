@@ -1,57 +1,44 @@
-# Building Revive
+# Building the RiftLift runtime
 
-For your convenience, there is a script to help retrieve and set up
-dependencies in the project root. This script will also attempt to build OpenXR
-and Revive.
+The runtime has two deliberate halves:
 
-Instructions for both scripted and manual build are below.
+- `native/` is a Linux process linked directly to the system OpenXR loader. In
+  OpenVR mode it loads the native `vrclient.so` selected by `VR_OVERRIDE`.
+- `windows-openxr/`, `windows-openvr/`, and `windows-launcher/` are the thin PE
+  ABI and graphics bridge required because Rift games are Windows binaries.
 
-## Script
+The Windows bridge authenticates to the native host at Oculus initialization.
+It is not a separately installed or branded application.
 
-- Clone this repository:
-  ```
-  git clone git@github.com:LibreVR/Revive.git
-  ```
-- Install Visual Studio 2017, CMake, and Git, and ensure all three are in your PATH from within PowerShell.
-- Run the setup script (PowerShell):
-  ```
-  cd Revive
-  .\setup.ps1
-  ```
+## Linux host
 
-## Manual
+Install a C++20 compiler, CMake, Ninja, and the OpenXR development package,
+then run from the repository root:
 
-Before the project can be built, you must retrieve some external dependencies through [vcpkg](https://docs.microsoft.com/en-us/cpp/build/vcpkg).
-
-In bash for Windows:
-
-```
-git clone git@github.com:microsoft/vcpkg.git
-cd vcpkg
-bootstrap-vcpkg.bat
+```bash
+cmake -S runtime -B runtime/build-native -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build runtime/build-native
 ```
 
-Now that vcpkg has been installed we need to install the dependencies and integrate with VS2017
+The result is `runtime/build-native/riftlift-runtime-host`. It can verify either
+native API path against a running headset stack:
 
-```
-vcpkg install openxr-loader:x64-windows glfw3:x64-windows-static glfw3:x86-windows-static
-vcpkg integrate
-```
-
-Now we're ready to clone the Revive repository and set up vendored dependencies.
-
-```
-cd ..
-git clone --recursive git@github.com:LibreVR/Revive.git
+```bash
+runtime/build-native/riftlift-runtime-host --backend=openxr
+VR_OVERRIDE=/path/to/openvr-runtime \
+  runtime/build-native/riftlift-runtime-host --backend=openvr
 ```
 
-Download the Oculus SDK for Windows
-[here](https://developer.oculus.com/downloads/package/oculus-sdk-for-windows/)
-and place it in `Revive/Externals/'. Then:
+## Windows ABI bridge
 
-```
-cd Revive/Externals
-unzip ovr_sdk_win_<version>.zip
-```
+RiftLift's CI builds `RiftLiftRuntime.sln` with the pinned Oculus SDK, OpenXR,
+OpenVR, and Detours dependencies. The release workflow combines those PE files
+with the Linux host in one compatibility payload. See the top-level workflows
+for the reproducible dependency and packaging commands.
 
-The Revive, ReviveXR and ReviveInjector projects can then build normally in VS2017.
+## Design rules
+
+- Native OpenXR/OpenVR lifecycle belongs in the Linux host.
+- PE code is limited to the Oculus ABI, Wine graphics objects, and transport.
+- Compatibility decisions are capability-based; never add title allowlists.
+- Preserve the upstream license and credit in `LICENSE` and `README.md`.

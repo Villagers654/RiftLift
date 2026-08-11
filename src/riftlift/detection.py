@@ -207,8 +207,8 @@ def uses_oculus_xr_plugin(directory: Path) -> bool:
 def uses_d3d12_runtime(executable: Path) -> bool:
     """Return whether the selected Windows game executable references D3D12.
 
-    ReviveXR's direct WineOpenXR path currently supports D3D11 clients.  A
-    static import/string probe lets D3D12 Oculus clients select classic Revive
+    The direct WineOpenXR bridge currently supports D3D11 clients. A static
+    import/string probe lets D3D12 Oculus clients select the OpenVR bridge
     before launch, without maintaining a title database or deliberately
     failing the first run.
     """

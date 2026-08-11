@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v5
       - name: Fetch runtime dependency files
         shell: bash
-        run: ../scripts/prepare-revive-ci-deps.sh
+        run: ../scripts/prepare-runtime-ci-deps.sh
       - name: Download Oculus PC SDK
         shell: pwsh
         run: |
@@ -29,10 +29,10 @@ jobs:
           path: |
             ${{ runner.temp }}\vcpkg-binary-cache
             C:\vcpkg\installed
-          key: revive-vcpkg-v2-${{ runner.os }}
+          key: runtime-vcpkg-v2-${{ runner.os }}
           restore-keys: |
-            revive-vcpkg-v1-${{ runner.os }}
-            revive-vcpkg-${{ runner.os }}-
+            runtime-vcpkg-v1-${{ runner.os }}
+            runtime-vcpkg-${{ runner.os }}-
       - name: Install native dependencies
         shell: pwsh
         run: |
@@ -45,20 +45,20 @@ jobs:
       - name: Build Windows ABI bridges
         shell: pwsh
         run: |
-          msbuild Revive.sln /m /t:ReviveXR /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
-          msbuild Revive.sln /m /t:ReviveXR /p:Configuration=Release /p:Platform=x86 /p:PlatformToolset=v143
-          msbuild Revive.sln /m /t:Revive /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
-          msbuild Revive.sln /m /t:ReviveInjector /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
+          msbuild RiftLiftRuntime.sln /m /t:RiftLiftOpenXR /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
+          msbuild RiftLiftRuntime.sln /m /t:RiftLiftOpenXR /p:Configuration=Release /p:Platform=x86 /p:PlatformToolset=v143
+          msbuild RiftLiftRuntime.sln /m /t:RiftLiftOpenVR /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
+          msbuild RiftLiftRuntime.sln /m /t:RiftLiftLauncher /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
       - name: Collect Windows bridge payload
         shell: pwsh
         run: |
           $out = New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\riftlift-windows-bridge"
-          Copy-Item Release\ReviveInjector.exe $out
+          Copy-Item Release\RiftLiftLauncher.exe $out
           Copy-Item Release\openvr_api64.dll $out
-          Copy-Item Release\LibRevive64.dll $out
-          Copy-Item Release\LibReviveXR32.dll $out
-          Copy-Item Release\LibReviveXR64.dll $out
-          Copy-Item Revive\Input "$out\Input" -Recurse
+          Copy-Item Release\RiftLiftOpenVR64.dll $out
+          Copy-Item Release\RiftLiftOpenXR32.dll $out
+          Copy-Item Release\RiftLiftOpenXR64.dll $out
+          Copy-Item windows-openvr\Input "$out\Input" -Recurse
           Copy-Item LICENSE $out
           Compress-Archive "$out\*" "$env:RUNNER_TEMP\riftlift-windows-bridge.zip"
       - uses: actions/upload-artifact@v4

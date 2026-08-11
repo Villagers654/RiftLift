@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from riftlift.config import Game, Paths
-from riftlift.launch import launch, oculus_launch_arguments, revive_backend
+from riftlift.launch import launch, oculus_launch_arguments, runtime_backend
 from riftlift.playtime import playtime
 from riftlift.runtime import launch_environment, setup
 from riftlift.util import RiftLiftError, linux_to_windows
@@ -16,7 +16,7 @@ class FakeNativeHost:
         @staticmethod
         def environment() -> dict[str, str]:
             return {
-                "RIFTLIFT_RUNTIME_PROTOCOL": "1",
+                "RIFTLIFT_RUNTIME_PROTOCOL": "2",
                 "RIFTLIFT_RUNTIME_ENDPOINT": "127.0.0.1:12345",
                 "RIFTLIFT_RUNTIME_TOKEN": "test-token",
             }
@@ -35,7 +35,7 @@ def fake_native_runtime(monkeypatch) -> None:
     )
 
 
-def test_injector_uses_existing_prefix_and_windows_game_path(
+def test_launcher_uses_existing_prefix_and_windows_game_path(
     tmp_path: Path, monkeypatch
 ) -> None:
     paths = Paths(
@@ -50,11 +50,13 @@ def test_injector_uses_existing_prefix_and_windows_game_path(
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"MZ")
     proton = tmp_path / "proton"
-    revive = tmp_path / "revive"
+    rift_runtime = tmp_path / "rift_runtime"
     proton.mkdir()
-    revive.mkdir()
+    rift_runtime.mkdir()
     monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
-    monkeypatch.setattr("riftlift.launch.install_revive", lambda _paths: revive)
+    monkeypatch.setattr(
+        "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
+    )
     captured = {}
     monkeypatch.setattr(
         "riftlift.launch.launch_environment",
@@ -89,7 +91,7 @@ def test_injector_uses_existing_prefix_and_windows_game_path(
     assert playtime(paths, game.slug).launches == 1
 
 
-def test_classic_revive_uses_bundled_action_manifest(
+def test_openvr_bridge_uses_bundled_action_manifest(
     tmp_path: Path, monkeypatch
 ) -> None:
     paths = Paths(
@@ -104,14 +106,16 @@ def test_classic_revive_uses_bundled_action_manifest(
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"MZ")
     proton = tmp_path / "proton"
-    revive = tmp_path / "revive"
+    rift_runtime = tmp_path / "rift_runtime"
     proton.mkdir()
-    (revive / "Input").mkdir(parents=True)
-    manifest = revive / "Input/action_manifest.json"
+    (rift_runtime / "Input").mkdir(parents=True)
+    manifest = rift_runtime / "Input/action_manifest.json"
     manifest.write_text("{}")
     monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
-    monkeypatch.setattr("riftlift.launch.install_revive", lambda _paths: revive)
-    monkeypatch.setattr("riftlift.launch.revive_backend", lambda _game: "openvr")
+    monkeypatch.setattr(
+        "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
+    )
+    monkeypatch.setattr("riftlift.launch.runtime_backend", lambda _game: "openvr")
     monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
     monkeypatch.setenv("VR_OVERRIDE", "/opt/xrizer")
 
@@ -124,7 +128,7 @@ def test_classic_revive_uses_bundled_action_manifest(
         lambda command, **kwargs: captured.update(command=command, **kwargs) or 0,
     )
     assert launch(paths, game, []) == 0
-    assert captured["env"]["REVIVE_ACTION_MANIFEST"] == str(manifest)
+    assert captured["env"]["RIFTLIFT_ACTION_MANIFEST"] == str(manifest)
 
 
 def test_platform_shim_does_not_redirect_oculus_vr_runtime(
@@ -235,11 +239,13 @@ def test_launch_has_no_device_specific_wrapper(tmp_path: Path, monkeypatch) -> N
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"MZ")
     proton = tmp_path / "proton"
-    revive = tmp_path / "revive"
+    rift_runtime = tmp_path / "rift_runtime"
     proton.mkdir()
-    revive.mkdir()
+    rift_runtime.mkdir()
     monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
-    monkeypatch.setattr("riftlift.launch.install_revive", lambda _paths: revive)
+    monkeypatch.setattr(
+        "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
+    )
     monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
     monkeypatch.delenv("RIFTLIFT_LAUNCH_WRAPPER", raising=False)
     captured: dict[str, object] = {}
@@ -274,13 +280,15 @@ def test_launch_accepts_explicit_openvr_backend(tmp_path: Path, monkeypatch) -> 
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"MZ")
     proton = tmp_path / "proton"
-    revive = tmp_path / "revive"
+    rift_runtime = tmp_path / "rift_runtime"
     proton.mkdir()
-    revive.mkdir()
+    rift_runtime.mkdir()
     monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
-    monkeypatch.setattr("riftlift.launch.install_revive", lambda _paths: revive)
+    monkeypatch.setattr(
+        "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
+    )
     monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
-    monkeypatch.setenv("RIFTLIFT_REVIVE_BACKEND", "openvr")
+    monkeypatch.setenv("RIFTLIFT_RUNTIME_BACKEND", "openvr")
     monkeypatch.setenv("VR_OVERRIDE", "/opt/xrizer")
     captured: dict[str, object] = {}
     monkeypatch.setattr(
@@ -308,7 +316,7 @@ def test_launch_accepts_explicit_openvr_backend(tmp_path: Path, monkeypatch) -> 
     assert "PROTON_VR_RUNTIME" not in captured["env"]
 
 
-def test_dual_runtime_game_uses_classic_revive_without_title_rules(
+def test_dual_runtime_game_uses_openvr_bridge_without_title_rules(
     tmp_path: Path, monkeypatch
 ) -> None:
     game_dir = tmp_path / "generic-game"
@@ -326,12 +334,12 @@ def test_dual_runtime_game_uses_classic_revive_without_title_rules(
         executable.name,
         [],
     )
-    monkeypatch.delenv("RIFTLIFT_REVIVE_BACKEND", raising=False)
+    monkeypatch.delenv("RIFTLIFT_RUNTIME_BACKEND", raising=False)
 
-    assert revive_backend(game) == "openvr"
+    assert runtime_backend(game) == "openvr"
 
 
-def test_oculus_only_game_uses_direct_revive_xr(tmp_path: Path, monkeypatch) -> None:
+def test_oculus_only_game_uses_openxr_bridge(tmp_path: Path, monkeypatch) -> None:
     game_dir = tmp_path / "generic-game"
     executable = game_dir / "Game.exe"
     executable.parent.mkdir(parents=True)
@@ -345,12 +353,12 @@ def test_oculus_only_game_uses_direct_revive_xr(tmp_path: Path, monkeypatch) -> 
         executable.name,
         [],
     )
-    monkeypatch.delenv("RIFTLIFT_REVIVE_BACKEND", raising=False)
+    monkeypatch.delenv("RIFTLIFT_RUNTIME_BACKEND", raising=False)
 
-    assert revive_backend(game) == "openxr"
+    assert runtime_backend(game) == "openxr"
 
 
-def test_d3d12_oculus_game_uses_classic_revive_without_title_rules(
+def test_d3d12_oculus_game_uses_openvr_bridge_without_title_rules(
     tmp_path: Path, monkeypatch
 ) -> None:
     game_dir = tmp_path / "generic-game"
@@ -366,15 +374,15 @@ def test_d3d12_oculus_game_uses_classic_revive_without_title_rules(
         executable.name,
         [],
     )
-    monkeypatch.delenv("RIFTLIFT_REVIVE_BACKEND", raising=False)
+    monkeypatch.delenv("RIFTLIFT_RUNTIME_BACKEND", raising=False)
 
-    assert revive_backend(game) == "openvr"
+    assert runtime_backend(game) == "openvr"
 
 
-def test_unity_oculus_xr_provider_uses_classic_revive_without_title_rules(
+def test_unity_oculus_xr_provider_uses_openvr_bridge_without_title_rules(
     tmp_path: Path, monkeypatch
 ) -> None:
-    monkeypatch.delenv("RIFTLIFT_REVIVE_BACKEND", raising=False)
+    monkeypatch.delenv("RIFTLIFT_RUNTIME_BACKEND", raising=False)
     game_dir = tmp_path / "generic-unity-game"
     executable = game_dir / "Game.exe"
     plugin = game_dir / "Game_Data/Plugins/x86_64/OculusXRPlugin.dll"
@@ -391,7 +399,7 @@ def test_unity_oculus_xr_provider_uses_classic_revive_without_title_rules(
         [],
     )
 
-    assert revive_backend(game) == "openvr"
+    assert runtime_backend(game) == "openvr"
 
 
 def test_d3d11_import_wins_over_incidental_d3d12_string(
@@ -410,13 +418,13 @@ def test_d3d11_import_wins_over_incidental_d3d12_string(
         executable.name,
         [],
     )
-    monkeypatch.delenv("RIFTLIFT_REVIVE_BACKEND", raising=False)
+    monkeypatch.delenv("RIFTLIFT_RUNTIME_BACKEND", raising=False)
     monkeypatch.setattr(
         "riftlift.detection._pe_imported_dlls",
         lambda _path: {"d3d11.dll", "d3d12.dll"},
     )
 
-    assert revive_backend(game) == "openxr"
+    assert runtime_backend(game) == "openxr"
 
 
 def test_unreal_launch_forces_vr_oculus_mode_without_title_rules(
@@ -473,11 +481,13 @@ def test_steam_game_keeps_steam_identity(tmp_path: Path, monkeypatch) -> None:
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"MZ")
     proton = tmp_path / "proton"
-    revive = tmp_path / "revive"
+    rift_runtime = tmp_path / "rift_runtime"
     proton.mkdir()
-    revive.mkdir()
+    rift_runtime.mkdir()
     monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
-    monkeypatch.setattr("riftlift.launch.install_revive", lambda _paths: revive)
+    monkeypatch.setattr(
+        "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
+    )
     monkeypatch.setattr(
         "riftlift.launch.launch_environment",
         lambda *_args: {"SteamAppId": "0", "SteamGameId": "0"},
@@ -518,11 +528,13 @@ def test_local_game_does_not_inherit_verified_rift_offline_mode(
     executable.parent.mkdir()
     executable.write_bytes(b"MZ")
     proton = tmp_path / "proton"
-    revive = tmp_path / "revive"
+    rift_runtime = tmp_path / "rift_runtime"
     proton.mkdir()
-    revive.mkdir()
+    rift_runtime.mkdir()
     monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
-    monkeypatch.setattr("riftlift.launch.install_revive", lambda _paths: revive)
+    monkeypatch.setattr(
+        "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
+    )
     captured = {}
     monkeypatch.setattr(
         "riftlift.launch.launch_environment",

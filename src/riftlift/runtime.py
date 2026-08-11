@@ -21,9 +21,9 @@ from .util import RiftLiftError, download, linux_to_windows, run
 PROTON_VERSION = "GE-Proton11-3"
 PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{PROTON_VERSION}/{PROTON_VERSION}.tar.gz"
 PROTON_SHA256 = "861c2edc8d40d051fb1e7a692deb953be52bd339c46d90f2b7dde50ddad91266"
-REVIVE_VERSION = "riftlift-0.5.1"
-REVIVE_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.5.1/riftlift-compat.zip"
-REVIVE_SHA256 = "6a397eefa0fa17688a23831e6d4a4c44ad40e888259498bcc8f90a47f1c457e7"
+RUNTIME_VERSION = "riftlift-0.5.1"
+RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.5.1/riftlift-compat.zip"
+RUNTIME_SHA256 = "6a397eefa0fa17688a23831e6d4a4c44ad40e888259498bcc8f90a47f1c457e7"
 
 
 @dataclass(frozen=True, slots=True)
@@ -508,11 +508,13 @@ def install_meta_runtime(paths: Paths) -> Path:
     return support
 
 
-def install_revive(paths: Paths) -> Path:
-    destination = paths.tools / "revive"
+def install_rift_runtime(paths: Paths) -> Path:
+    destination = paths.tools / "rift-runtime"
     required = (
-        "ReviveInjector.exe",
-        "LibReviveXR64.dll",
+        "RiftLiftLauncher.exe",
+        "RiftLiftOpenXR64.dll",
+        "RiftLiftOpenVR64.dll",
+        "bin/riftlift-runtime-host",
         "openvr_api64.dll",
         "LibOVRPlatformImpl64_1.dll",
         "Input/action_manifest.json",
@@ -523,28 +525,31 @@ def install_revive(paths: Paths) -> Path:
         "Input/vive_controller_default.json",
         "Input/vive_cosmos_default.json",
     )
+    native_host = destination / "bin/riftlift-runtime-host"
     if all((destination / name).is_file() for name in required):
+        native_host.chmod(native_host.stat().st_mode | 0o700)
         return destination
-    override = os.environ.get("RIFTLIFT_REVIVE_ARCHIVE")
+    override = os.environ.get("RIFTLIFT_RUNTIME_ARCHIVE")
     archive = (
         Path(override).expanduser()
         if override
         else download(
-            REVIVE_URL,
-            paths.cache / f"riftlift-compat-{REVIVE_VERSION}.zip",
-            REVIVE_SHA256,
+            RUNTIME_URL,
+            paths.cache / f"riftlift-compat-{RUNTIME_VERSION}.zip",
+            RUNTIME_SHA256,
         )
     )
     if destination.exists():
         shutil.rmtree(destination)
     _safe_zip(archive, destination)
-    nested = destination / "riftlift-revive"
-    if nested.is_dir() and not (destination / "ReviveInjector.exe").exists():
+    nested = destination / "riftlift-runtime"
+    if nested.is_dir() and not (destination / "RiftLiftLauncher.exe").exists():
         for item in nested.iterdir():
             shutil.move(str(item), destination / item.name)
         nested.rmdir()
     if not all((destination / name).is_file() for name in required):
-        raise RiftLiftError("Revive payload is incomplete")
+        raise RiftLiftError("RiftLift runtime payload is incomplete")
+    native_host.chmod(native_host.stat().st_mode | 0o700)
     return destination
 
 
@@ -566,7 +571,7 @@ def install_platform_compat(paths: Paths) -> Path:
     if runtime_real.is_file():
         shutil.copy2(runtime_real, destination / "LibOVRPlatformImpl64_1_real.dll")
     override = os.environ.get("RIFTLIFT_PLATFORM_SHIM")
-    bundled = paths.tools / "revive" / "LibOVRPlatformImpl64_1.dll"
+    bundled = paths.tools / "rift-runtime" / "LibOVRPlatformImpl64_1.dll"
     shim = Path(override).expanduser() if override else bundled
     if not shim.is_file():
         raise RiftLiftError(
@@ -582,7 +587,7 @@ def setup(paths: Paths) -> None:
     paths.create()
     install_proton(paths)
     install_meta_runtime(paths)
-    install_revive(paths)
+    install_rift_runtime(paths)
     install_platform_compat(paths)
 
 

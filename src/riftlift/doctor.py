@@ -22,7 +22,7 @@ from .detection import (
     uses_openvr_runtime,
 )
 from .diagnostics import recent_launches, redact, utc_now
-from .launch import revive_backend
+from .launch import runtime_backend
 from .runtime import META_PACKAGES, active_runtime_json, proton_dir
 from .steam import steam_root
 
@@ -189,7 +189,7 @@ def _recent_journal_errors() -> list[str]:
             "short-iso",
             "-n",
             "300",
-            "--grep=(riftlift|xrizer|revive|openxr|wineopenxr|proton)",
+            "--grep=(riftlift|xrizer|rift_runtime|openxr|wineopenxr|proton)",
         ],
         timeout=5,
     )
@@ -269,13 +269,14 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             else (_ for _ in ()).throw(FileNotFoundError("not installed"))
         ),
     )
-    revive = paths.tools / "revive"
+    rift_runtime = paths.tools / "rift-runtime"
     for label, relative in (
-        ("Revive injector", "ReviveInjector.exe"),
-        ("ReviveXR", "LibReviveXR64.dll"),
-        ("Classic Revive", "LibRevive64.dll"),
+        ("Windows ABI launcher", "RiftLiftLauncher.exe"),
+        ("OpenXR ABI bridge", "RiftLiftOpenXR64.dll"),
+        ("OpenVR ABI bridge", "RiftLiftOpenVR64.dll"),
+        ("Native XR host", "bin/riftlift-runtime-host"),
     ):
-        identity = _file_identity(revive / relative)
+        identity = _file_identity(rift_runtime / relative)
         checks.append((label, not identity.startswith("missing"), identity))
     meta_client = (
         paths.prefix
@@ -319,7 +320,7 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             if value
         ]
         try:
-            backend = revive_backend(game)
+            backend = runtime_backend(game)
         except Exception as error:
             backend = f"error: {error}"
         state = "OK" if present else "MISSING"
