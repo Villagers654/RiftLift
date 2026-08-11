@@ -52,6 +52,7 @@ def test_injector_uses_existing_prefix_and_windows_game_path(
     assert game_path.startswith("Z:\\")
     assert game_path.endswith("\\Binaries\\Game.exe")
     assert captured["environment_args"][-1] is True
+    assert captured["env"]["DXVK_NO_VR"] == "1"
 
 
 def test_platform_shim_does_not_redirect_oculus_vr_runtime(
@@ -202,3 +203,4 @@ def test_launch_accepts_explicit_openvr_backend(tmp_path: Path, monkeypatch) -> 
     assert launch(paths, game, []) == 0
     command = captured["command"]
     assert command[command.index("/wait") + 1] == "/openvr"
+    assert "DXVK_NO_VR" not in captured["env"]

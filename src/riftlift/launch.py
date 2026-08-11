@@ -40,6 +40,14 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         game.platform_shim,
         game.platform_offline or verified_rift_download,
     )
+    if backend == "openxr":
+        # Proton records OpenVR's Vulkan requirements in the shared Wine
+        # prefix. DXVK otherwise consumes those stale requirements alongside
+        # WineOpenXR's and can request host-only extensions from Wine's Vulkan
+        # device, making D3D device creation fail before the title reaches XR.
+        # Keep the selected backend authoritative while leaving explicit
+        # OpenVR diagnostic launches untouched.
+        environment["DXVK_NO_VR"] = "1"
     wrapper_value = os.environ.get("RIFTLIFT_LAUNCH_WRAPPER", "").strip()
     wrapper: list[str] = []
     if wrapper_value:
