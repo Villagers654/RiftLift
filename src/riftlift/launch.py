@@ -7,8 +7,26 @@ import subprocess
 from pathlib import Path
 
 from .config import Game, Paths
+from .detection import uses_openvr_runtime
 from .runtime import install_proton, install_revive, launch_environment
 from .util import RiftLiftError, linux_to_windows
+
+
+def revive_backend(game: Game) -> str:
+    """Select a translation path from install capabilities, never a title list."""
+    override = os.environ.get("RIFTLIFT_REVIVE_BACKEND", "").strip().lower()
+    if override:
+        if override not in {"openxr", "openvr"}:
+            raise RiftLiftError(
+                "RIFTLIFT_REVIVE_BACKEND must be 'openxr' or 'openvr'"
+            )
+        return override
+
+    # Games shipping both Oculus and OpenVR integrations generally depend on
+    # the mature compositor/overlay behavior in classic Revive. Oculus-only
+    # installs take the shorter ReviveXR path. This static capability probe is
+    # deterministic, adds no failed first launch, and contains no title rules.
+    return "openvr" if uses_openvr_runtime(game.game_dir) else "openxr"
 
 
 def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
@@ -16,11 +34,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         raise RiftLiftError(f"game executable is missing: {game.executable_path}")
     revive = install_revive(paths)
     proton = install_proton(paths) / "proton"
-    backend = os.environ.get("RIFTLIFT_REVIVE_BACKEND", "openxr").strip().lower()
-    if backend not in {"openxr", "openvr"}:
-        raise RiftLiftError(
-            "RIFTLIFT_REVIVE_BACKEND must be 'openxr' or 'openvr'"
-        )
+    backend = revive_backend(game)
     arguments = [
         str(proton),
         # Proton deliberately skips OpenVR path/runtime setup for its

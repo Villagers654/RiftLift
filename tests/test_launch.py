@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from riftlift.config import Game, Paths
-from riftlift.launch import launch
+from riftlift.launch import launch, revive_backend
 from riftlift.runtime import launch_environment, setup
 from riftlift.util import RiftLiftError
 
@@ -207,6 +207,48 @@ def test_launch_accepts_explicit_openvr_backend(tmp_path: Path, monkeypatch) -> 
     assert command[1] == "run"
     assert "DXVK_NO_VR" not in captured["env"]
     assert captured["env"]["VR_OVERRIDE"] == "/opt/xrizer"
+
+
+def test_dual_runtime_game_uses_classic_revive_without_title_rules(
+    tmp_path: Path, monkeypatch
+) -> None:
+    game_dir = tmp_path / "generic-game"
+    executable = game_dir / "Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    (game_dir / "Plugins").mkdir()
+    (game_dir / "Plugins/openvr_api.dll").write_bytes(b"")
+    game = Game(
+        "generic",
+        "Generic",
+        "1",
+        "steam.app.1",
+        str(game_dir),
+        executable.name,
+        [],
+    )
+    monkeypatch.delenv("RIFTLIFT_REVIVE_BACKEND", raising=False)
+
+    assert revive_backend(game) == "openvr"
+
+
+def test_oculus_only_game_uses_direct_revive_xr(tmp_path: Path, monkeypatch) -> None:
+    game_dir = tmp_path / "generic-game"
+    executable = game_dir / "Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    game = Game(
+        "generic",
+        "Generic",
+        "1",
+        "generic-key",
+        str(game_dir),
+        executable.name,
+        [],
+    )
+    monkeypatch.delenv("RIFTLIFT_REVIVE_BACKEND", raising=False)
+
+    assert revive_backend(game) == "openxr"
 
 
 def test_steam_game_keeps_steam_identity(tmp_path: Path, monkeypatch) -> None:
