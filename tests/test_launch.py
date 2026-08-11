@@ -204,5 +204,6 @@ def test_launch_accepts_explicit_openvr_backend(tmp_path: Path, monkeypatch) -> 
     assert launch(paths, game, []) == 0
     command = captured["command"]
     assert command[command.index("/wait") + 1] == "/openvr"
+    assert command[1] == "run"
     assert "DXVK_NO_VR" not in captured["env"]
     assert captured["env"]["VR_OVERRIDE"] == "/opt/xrizer"

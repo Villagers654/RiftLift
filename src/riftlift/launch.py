@@ -23,7 +23,11 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         )
     arguments = [
         str(proton),
-        "runinprefix",
+        # Proton deliberately skips OpenVR path/runtime setup for its
+        # runinprefix maintenance verb. Classic Revive needs the normal game
+        # verb so Proton maps VR_OVERRIDE into C:\\vrclient; ReviveXR uses
+        # WineOpenXR directly and keeps the lightweight existing-prefix path.
+        "run" if backend == "openvr" else "runinprefix",
         str(revive / "ReviveInjector.exe"),
         "/wait",
         f"/{backend}",
