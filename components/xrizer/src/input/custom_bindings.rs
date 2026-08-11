@@ -881,6 +881,9 @@ mod tests {
     use openvr as vr;
     use slotmap::Key;
 
+    // Keep action handles owned in tests so the SessionData read guard can be
+    // released before profile-event polling takes its write lock.
+
     macro_rules! get_toggle_action {
         ($fixture:expr, $handle:expr, $toggle_data:ident) => {
             let input = $fixture.input.clone();
@@ -888,7 +891,8 @@ mod tests {
             let actions = data.input_data.get_loaded_actions().unwrap();
             let ExtraActionData { toggle_action, .. } = actions.try_get_extra($handle).unwrap();
 
-            let $toggle_data = toggle_action.as_ref().unwrap();
+            let $toggle_data = toggle_action.as_ref().unwrap().clone();
+            drop(data);
         };
     }
 
@@ -899,7 +903,8 @@ mod tests {
             let actions = data.input_data.get_loaded_actions().unwrap();
             let ExtraActionData { analog_action, .. } = actions.try_get_extra($handle).unwrap();
 
-            let $analog_data = analog_action.as_ref().unwrap();
+            let $analog_data = analog_action.as_ref().unwrap().clone();
+            drop(data);
         };
     }
 
@@ -930,7 +935,9 @@ mod tests {
                 panic!("Got {} dpad bindings when one was expected", bindings.len());
             }
 
-            let $dpad_data = &bindings[0].actions;
+            let $dpad_data = bindings[0].actions.clone();
+            drop(bindings);
+            drop(data);
         };
     }
 
@@ -941,7 +948,12 @@ mod tests {
             let actions = data.input_data.get_loaded_actions().unwrap();
             let ExtraActionData { grab_actions, .. } = actions.try_get_extra($handle).unwrap();
 
-            let $grab_data = grab_actions.as_ref().unwrap();
+            let grab_data = grab_actions.as_ref().unwrap();
+            let $grab_data: GrabActions<Actions> = GrabActions {
+                force_action: grab_data.force_action.clone(),
+                value_action: grab_data.value_action.clone(),
+            };
+            drop(data);
         };
     }
 
@@ -952,7 +964,8 @@ mod tests {
             let actions = data.input_data.get_loaded_actions().unwrap();
             let ExtraActionData { double_action, .. } = actions.try_get_extra($handle).unwrap();
 
-            let $double_data = double_action.as_ref().unwrap();
+            let $double_data = double_action.as_ref().unwrap().as_raw();
+            drop(data);
         };
     }
 
@@ -1256,10 +1269,14 @@ mod tests {
                 (*path == f.input.get_subaction_path(Hand::Right)).then_some(*data)
             })
             .unwrap();
-        assert!(!std::ptr::eq(left_binding, right_binding));
+        let bindings_are_distinct = !std::ptr::eq(left_binding, right_binding);
+        let left_actions = left_binding.actions.clone();
+        drop(bindings);
+        drop(data);
+        assert!(bindings_are_distinct);
 
         fakexr::set_action_state(
-            left_binding.actions.xy.as_raw(),
+            left_actions.xy.as_raw(),
             ActionState::Vector2(1.0, 0.0),
             LeftHand,
         );
@@ -1654,11 +1671,7 @@ mod tests {
         f.load_actions(c"actions.json");
         get_double_action!(f, boolact, double_action);
         let set_action = |state: bool| {
-            fakexr::set_action_state(
-                double_action.as_raw(),
-                fakexr::ActionState::Bool(state),
-                LeftHand,
-            );
+            fakexr::set_action_state(double_action, fakexr::ActionState::Bool(state), LeftHand);
         };
 
         f.set_interaction_profile::<Knuckles>(LeftHand);
@@ -1706,11 +1719,7 @@ mod tests {
         f.load_actions(c"actions.json");
         get_double_action!(f, boolact, double_action);
         let set_action = |state: bool| {
-            fakexr::set_action_state(
-                double_action.as_raw(),
-                fakexr::ActionState::Bool(state),
-                LeftHand,
-            );
+            fakexr::set_action_state(double_action, fakexr::ActionState::Bool(state), LeftHand);
         };
 
         f.set_interaction_profile::<Knuckles>(LeftHand);
@@ -1732,7 +1741,7 @@ mod tests {
         let late_press_time = xr::Time::from_nanos(duration.as_nanos() as _);
         let set_action_late = |state| {
             fakexr::set_action_state_with_time(
-                double_action.as_raw(),
+                double_action,
                 fakexr::ActionState::Bool(state),
                 LeftHand,
                 late_press_time,
