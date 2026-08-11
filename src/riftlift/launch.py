@@ -17,9 +17,7 @@ def revive_backend(game: Game) -> str:
     override = os.environ.get("RIFTLIFT_REVIVE_BACKEND", "").strip().lower()
     if override:
         if override not in {"openxr", "openvr"}:
-            raise RiftLiftError(
-                "RIFTLIFT_REVIVE_BACKEND must be 'openxr' or 'openvr'"
-            )
+            raise RiftLiftError("RIFTLIFT_REVIVE_BACKEND must be 'openxr' or 'openvr'")
         return override
 
     # Games shipping both Oculus and OpenVR integrations generally depend on
@@ -51,7 +49,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         *game.arguments,
         *extra_arguments,
     ]
-    verified_rift_download = not game.app_key.startswith("steam.app.")
+    verified_rift_download = game.source == "meta"
     openvr_runtime = os.environ.get("VR_OVERRIDE", "").strip()
     environment = launch_environment(
         paths,

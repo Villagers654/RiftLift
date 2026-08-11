@@ -106,13 +106,68 @@ def test_store_action_matches_the_selected_game_source(tmp_path: Path) -> None:
         "game.exe",
         [],
         store_url="https://store.steampowered.com/app/456/",
+        source="steam",
     )
 
     window.show_game(steam)
     assert window.store_link.text() == "Open in Steam ↗"
     window.show_game(rift)
     assert window.store_link.text() == "Open in Rift Store ↗"
+    local = Game(
+        "local",
+        "Local Game",
+        "",
+        "local.local-game",
+        "/tmp",
+        "game.exe",
+        [],
+        source="local",
+    )
+    window.show_game(local)
+    assert not window.store_link.isVisible()
 
+    window.close()
+    app.processEvents()
+
+
+def test_local_game_dialog_requires_an_existing_executable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    dialogs = []
+    monkeypatch.setattr(
+        QtWidgets.QDialog, "exec", lambda dialog: dialogs.append(dialog)
+    )
+
+    window.local_dialog()
+    dialog = dialogs[0]
+    executable = next(
+        entry
+        for entry in dialog.findChildren(QtWidgets.QLineEdit)
+        if entry.placeholderText() == "/path/to/game.exe"
+    )
+    add_button = next(
+        button
+        for button in dialog.findChildren(QtWidgets.QPushButton)
+        if button.text() == "Add"
+    )
+    assert not add_button.isEnabled()
+    game = tmp_path / "Local Game.exe"
+    game.write_bytes(b"MZ")
+    executable.setText(str(game))
+    assert add_button.isEnabled()
+
+    dialog.close()
     window.close()
     app.processEvents()
 
@@ -255,6 +310,10 @@ def test_install_stays_disabled_until_rift_link_is_valid(
 
     window.add_dialog()
     dialog = dialogs[0]
+    assert any(
+        button.text() == "Add a local game…"
+        for button in dialog.findChildren(QtWidgets.QPushButton)
+    )
     entry = dialog.findChild(QtWidgets.QLineEdit)
     install = next(
         button

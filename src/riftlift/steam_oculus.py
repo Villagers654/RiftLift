@@ -62,6 +62,7 @@ def _game_from_manifest(manifest: Path) -> Game | None:
         platform_shim=False,
         store_url=f"https://store.steampowered.com/app/{app_id}/",
         steam_app_id=int(app_id),
+        source="steam",
     )
 
 

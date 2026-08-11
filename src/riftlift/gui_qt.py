@@ -16,7 +16,7 @@ from .auth_ui import AuthDialog
 from .config import Game, Paths, games
 from .doctor import doctor
 from .launch import launch
-from .library import add
+from .library import add, add_local
 from .metadata import fetch_catalog_metadata, populate_game_metadata
 from .steam import sync_with_restart
 from .steam_oculus import add_steam_game
@@ -347,10 +347,9 @@ class Window(QtWidgets.QMainWindow):
         self.slug = game.slug
         self.stack.setCurrentIndex(1)
         self.game_name.setText(game.name)
+        self.store_link.setVisible(game.source != "local")
         self.store_link.setText(
-            "Open in Steam ↗"
-            if game.app_key.startswith("steam.app.")
-            else "Open in Rift Store ↗"
+            "Open in Steam ↗" if game.source == "steam" else "Open in Rift Store ↗"
         )
         self.meta.setText(
             " • ".join(
@@ -358,7 +357,7 @@ class Window(QtWidgets.QMainWindow):
                 for x in (game.developer, game.version, ", ".join(game.genres[:2]))
                 if x
             )
-            or f"Meta app {game.app_id}"
+            or ("Local game" if game.source == "local" else f"Meta app {game.app_id}")
         )
         self.detail.set_artwork(game.artwork.get("portrait", ""))
 
@@ -394,7 +393,7 @@ class Window(QtWidgets.QMainWindow):
             QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(g.directory))
 
     def open_store(self):
-        if g := self.game():
+        if (g := self.game()) and g.source != "local":
             QtGui.QDesktopServices.openUrl(
                 QtCore.QUrl(
                     g.store_url or f"https://www.meta.com/experiences/pcvr/{g.app_id}/"
@@ -415,6 +414,11 @@ class Window(QtWidgets.QMainWindow):
                 "Paste the URL of a PC VR game you own on the Meta store.", "muted"
             )
         )
+        local = self.button(
+            "Add a local game…", lambda: (d.reject(), self.local_dialog())
+        )
+        local.setObjectName("link")
+        l.addWidget(local, alignment=QtCore.Qt.AlignLeft)
         l.addWidget(self.label("Meta Rift store URL", "section"))
         entry = QtWidgets.QLineEdit()
         entry.setPlaceholderText("https://www.meta.com/experiences/pcvr/…")
@@ -513,6 +517,106 @@ class Window(QtWidgets.QMainWindow):
 
         submit.clicked.connect(accept)
         entry.returnPressed.connect(accept)
+        d.exec()
+
+    def local_dialog(self):
+        d = QtWidgets.QDialog(self)
+        d.setWindowTitle("Add a local VR game")
+        d.setMinimumWidth(600)
+        d.setStyleSheet(STYLE)
+        layout = QtWidgets.QVBoxLayout(d)
+        layout.setContentsMargins(26, 24, 26, 24)
+        layout.setSpacing(12)
+        layout.addWidget(self.label("Add a local VR game", "game"))
+        layout.addWidget(
+            self.label(
+                "Choose an installed Windows VR game. RiftLift leaves its files in place.",
+                "muted",
+            )
+        )
+
+        layout.addWidget(self.label("Game executable", "section"))
+        executable_row = QtWidgets.QHBoxLayout()
+        executable = QtWidgets.QLineEdit()
+        executable.setPlaceholderText("/path/to/game.exe")
+        browse = self.button(
+            "Browse…", lambda: choose_file(executable, "Windows games (*.exe)")
+        )
+        executable_row.addWidget(executable, 1)
+        executable_row.addWidget(browse)
+        layout.addLayout(executable_row)
+
+        layout.addWidget(self.label("Name", "section"))
+        name = QtWidgets.QLineEdit()
+        name.setPlaceholderText("Filled from the executable")
+        layout.addWidget(name)
+        layout.addWidget(self.label("Launch arguments (optional)", "section"))
+        arguments = QtWidgets.QLineEdit()
+        layout.addWidget(arguments)
+        layout.addWidget(self.label("Cover image (optional)", "section"))
+        artwork_row = QtWidgets.QHBoxLayout()
+        artwork = QtWidgets.QLineEdit()
+        artwork.setPlaceholderText("PNG, JPEG, or WebP")
+        artwork_browse = self.button(
+            "Browse…",
+            lambda: choose_file(artwork, "Images (*.png *.jpg *.jpeg *.webp)"),
+        )
+        artwork_row.addWidget(artwork, 1)
+        artwork_row.addWidget(artwork_browse)
+        layout.addLayout(artwork_row)
+
+        steam = QtWidgets.QCheckBox("Add to Steam when finished")
+        steam.setChecked(True)
+        layout.addWidget(steam)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
+        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setIcon(QtGui.QIcon())
+        submit = buttons.addButton("Add", QtWidgets.QDialogButtonBox.AcceptRole)
+        submit.setObjectName("primary")
+        submit.setEnabled(False)
+        buttons.rejected.connect(d.reject)
+        layout.addWidget(buttons)
+
+        def choose_file(target: QtWidgets.QLineEdit, file_filter: str):
+            selected, _ = QtWidgets.QFileDialog.getOpenFileName(
+                d, "Choose a file", target.text(), file_filter
+            )
+            if selected:
+                target.setText(selected)
+
+        def executable_changed(value: str):
+            path = QtCore.QFileInfo(value.strip())
+            submit.setEnabled(path.isFile() and path.suffix().casefold() == "exe")
+            if path.isFile() and not name.text().strip():
+                name.setText(path.completeBaseName())
+
+        executable.textChanged.connect(executable_changed)
+
+        def accept():
+            path = executable.text().strip()
+            if not submit.isEnabled():
+                executable.setFocus()
+                return
+            sync = steam.isChecked()
+            game_name = name.text().strip() or None
+            game_arguments = arguments.text().strip() or None
+            game_artwork = artwork.text().strip() or None
+            d.accept()
+
+            def operation():
+                game = add_local(
+                    self.paths,
+                    path,
+                    name=game_name,
+                    arguments=game_arguments,
+                    artwork=game_artwork,
+                )
+                if sync:
+                    sync_with_restart(self.paths)
+                return game.slug
+
+            self.run_task("Adding local game", operation, refresh=True)
+
+        submit.clicked.connect(accept)
         d.exec()
 
     def run_task(self, label, operation, success="Done", refresh=False):

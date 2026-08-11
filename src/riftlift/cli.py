@@ -11,7 +11,7 @@ from . import __version__
 from .config import Game, Paths, games
 from .doctor import doctor
 from .launch import launch
-from .library import add
+from .library import add, add_local
 from .metadata import populate_game_metadata
 from .runtime import complete_login, login, setup
 from .steam import sync_with_restart
@@ -63,6 +63,24 @@ def parser() -> argparse.ArgumentParser:
     )
     add_command.add_argument(
         "--no-steam", action="store_true", help="download without updating Steam"
+    )
+
+    local_command = commands.add_parser(
+        "add-local", help="add an existing Windows VR game to RiftLift"
+    )
+    local_command.add_argument("executable", help="path to the game's .exe file")
+    local_command.add_argument("--name", help="library name (default: executable name)")
+    local_command.add_argument(
+        "--root", help="game folder containing the executable (default: its folder)"
+    )
+    local_command.add_argument("--arguments", help="launch arguments")
+    local_command.add_argument(
+        "--app-key", help="Oculus application key (advanced; normally unnecessary)"
+    )
+    local_command.add_argument("--artwork", help="cover image file")
+    local_command.add_argument("--game-version", default="", help="displayed version")
+    local_command.add_argument(
+        "--no-steam", action="store_true", help="register without updating Steam"
     )
 
     launch_command = commands.add_parser("launch", help="launch an installed game")
@@ -124,6 +142,22 @@ def run(arguments: argparse.Namespace) -> int:
             target = sync_with_restart(paths)
             print(f"Added to Steam ({target}).")
         return 0
+    if arguments.command == "add-local":
+        game = add_local(
+            paths,
+            arguments.executable,
+            name=arguments.name,
+            root=arguments.root,
+            arguments=arguments.arguments,
+            app_key=arguments.app_key,
+            artwork=arguments.artwork,
+            version=arguments.game_version,
+        )
+        print(f"Added local game {game.name} as {game.slug}.")
+        if not arguments.no_steam:
+            target = sync_with_restart(paths)
+            print(f"Added to Steam ({target}).")
+        return 0
     if arguments.command == "launch":
         return launch(paths, Game.load(paths, arguments.slug), arguments.arguments)
     if arguments.command == "launch-steam":
@@ -139,7 +173,10 @@ def run(arguments: argparse.Namespace) -> int:
     if arguments.command == "list":
         installed = games(paths)
         if not installed:
-            print("No games installed. Use: riftlift add META_RIFT_STORE_URL")
+            print(
+                "No games installed. Use 'riftlift add STORE_URL' or "
+                "'riftlift add-local GAME.exe'."
+            )
         for game in installed:
             print(f"{game.slug:<36} {game.name} {game.version}")
         return 0

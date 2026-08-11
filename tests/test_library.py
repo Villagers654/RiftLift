@@ -4,8 +4,10 @@ from pathlib import Path
 from riftlift.library import (
     _best_executable,
     _launch_arguments,
+    add_local,
     default_download_workers,
 )
+from riftlift.config import Paths
 
 
 def test_download_workers_scale_with_available_cpus() -> None:
@@ -60,3 +62,59 @@ def test_explicit_overrides_remain_available(tmp_path: Path) -> None:
         "--custom",
         "value",
     ]
+
+
+def test_add_local_registers_existing_game_without_copying_it(tmp_path: Path) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "managed-games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    root = tmp_path / "installed/Echo"
+    executable = root / "bin/win10/echovr.exe"
+    _pe64(executable)
+
+    game = add_local(
+        paths,
+        executable,
+        name="Echo VR",
+        root=root,
+        arguments='-noovr --region "US East"',
+        app_key="ready-at-dawn-echo-arena",
+        version="test",
+    )
+
+    assert game.slug == "echo-vr"
+    assert game.source == "local"
+    assert game.game_dir == root.resolve()
+    assert game.executable == "bin/win10/echovr.exe"
+    assert game.arguments == ["-noovr", "--region", '"US East"']
+    assert game.app_key == "ready-at-dawn-echo-arena"
+    assert not game.platform_offline
+    assert executable.is_file()
+    assert not paths.games.exists() or not any(paths.games.iterdir())
+
+
+def test_add_local_rejects_executable_outside_selected_root(tmp_path: Path) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "managed-games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = tmp_path / "elsewhere/game.exe"
+    _pe64(executable)
+    root = tmp_path / "other-root"
+    root.mkdir()
+
+    try:
+        add_local(paths, executable, root=root)
+    except ValueError as error:
+        assert "inside the local game folder" in str(error)
+    else:
+        raise AssertionError("outside executable was accepted")

@@ -292,3 +292,44 @@ def test_steam_game_keeps_steam_identity(tmp_path: Path, monkeypatch) -> None:
     assert launch(paths, game, []) == 0
     assert captured["env"]["SteamAppId"] == "732690"
     assert captured["env"]["SteamGameId"] == "732690"
+
+
+def test_local_game_does_not_inherit_verified_rift_offline_mode(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = tmp_path / "local/Game.exe"
+    executable.parent.mkdir()
+    executable.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    revive = tmp_path / "revive"
+    proton.mkdir()
+    revive.mkdir()
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr("riftlift.launch.install_revive", lambda _paths: revive)
+    captured = {}
+    monkeypatch.setattr(
+        "riftlift.launch.launch_environment",
+        lambda *args: captured.update(environment_args=args) or {},
+    )
+    monkeypatch.setattr("riftlift.launch.subprocess.call", lambda *_args, **_kwargs: 0)
+    game = Game(
+        "local",
+        "Local",
+        "",
+        "local.local",
+        str(executable.parent),
+        executable.name,
+        [],
+        source="local",
+    )
+
+    assert launch(paths, game, []) == 0
+    assert captured["environment_args"][-1] is False

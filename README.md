@@ -78,6 +78,8 @@ The desktop app is the recommended way to use RiftLift:
 - **System** checks whether RiftLift and your OpenXR setup are ready.
 - **Sign In** opens Meta's sign-in flow.
 - **Add Game** downloads an owned Rift game and optionally adds it to Steam.
+- **Add a local game…** inside **Add Game** registers an existing Windows VR
+  game without moving or copying it.
 - **Steam Games** finds installed Steam titles with a compatible Oculus mode.
 - **Launch in VR** starts the selected game through your active OpenXR runtime.
 - The **⟳** button reloads games added elsewhere and refreshes store details
@@ -124,6 +126,7 @@ Everything in the desktop app is also available from the command line:
 riftlift doctor
 riftlift login
 riftlift add 'https://www.meta.com/experiences/APP_ID/'
+riftlift add-local '/path/to/game.exe' --name 'My VR Game'
 riftlift list
 riftlift launch GAME-SLUG
 ```
@@ -142,6 +145,22 @@ Rift Store manifests can use `riftlift add --executable PATH` and
 `--arguments '...'`, but normal games should not need either override.
 Download concurrency adapts to the CPUs available to RiftLift; use `--jobs` only
 when you want to override it.
+
+### Existing local games
+
+For a Windows Oculus game installed outside Meta or Steam, choose **Add Game**,
+then **Add a local game…**. Pick its `.exe`, give it a name, and optionally
+choose cover art. RiftLift references the existing folder in place.
+
+The command-line equivalent is:
+
+```bash
+riftlift add-local '/path/to/game.exe' --name 'My VR Game'
+```
+
+Use `--root` when the executable sits below the folder that contains the rest
+of the game, or `--arguments` when the game documents required launch options.
+`--app-key` is available for packages that publish an Oculus application key.
 
 ## Steam games with an Oculus mode
 
@@ -195,10 +214,11 @@ Proton environment. It combines:
   and
 - a small compatibility bridge for older Oculus Platform SDK games.
 
-The rendering path is:
+RiftLift selects a rendering path from the runtimes bundled with each game:
 
 ```text
-Rift game -> RiftLift ReviveXR -> GE-Proton WineOpenXR -> your OpenXR runtime -> headset
+Oculus-only game -> RiftLift ReviveXR -> GE-Proton WineOpenXR -> OpenXR -> headset
+Oculus + OpenVR game -> RiftLift Revive -> RiftLift xrizer -> OpenXR -> headset
 ```
 
 RiftLift uses Meta's entitlement service before downloading a game. The legacy

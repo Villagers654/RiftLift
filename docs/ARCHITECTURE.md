@@ -17,18 +17,28 @@ Those belong to the user's working OpenXR/headset setup. RiftLift consumes the
 standard active OpenXR manifest and never assumes PSVR2, WayVR, Envision, or a
 particular Monado service name.
 
+RiftLift can create those manifests from entitlement-backed Meta downloads,
+installed Steam Oculus builds, or local Windows game folders. Local entries
+remain in place and are never treated as ownership-verified Meta downloads.
+
 ## Rendering paths
 
-Rift titles use the shortest path:
+Oculus-only titles use the shortest path:
 
 ```text
 Rift game -> ReviveXR -> WineOpenXR -> active Linux OpenXR runtime
 ```
 
-[RiftLift xrizer](https://github.com/Villagers654/xrizer) remains the maintained
-OpenVR-to-OpenXR project for applications that actually use OpenVR. It is not
-injected into the Rift path above, and RiftLift does not replace an xrizer
-already supplied by the host setup.
+Titles that bundle both Oculus and OpenVR integrations use the mature classic
+Revive compositor path:
+
+```text
+Game -> Revive -> RiftLift xrizer -> active Linux OpenXR runtime
+```
+
+The choice is made from installed runtime capabilities, not a game-name list or
+a failed-launch retry. RiftLift does not replace an xrizer already supplied by
+the host setup.
 
 ## Host integration contract
 

@@ -92,10 +92,85 @@ def add(
         arguments=launch_arguments,
         version=build.version,
         platform_offline=True,
+        source="meta",
     )
     game.save(paths)
     try:
         populate_game_metadata(paths, game)
     except RiftLiftError as error:
         print(f"warning: catalog metadata was not available: {error}")
+    return game
+
+
+def add_local(
+    paths: Paths,
+    executable: str | Path,
+    *,
+    name: str | None = None,
+    root: str | Path | None = None,
+    arguments: str | None = None,
+    app_key: str | None = None,
+    artwork: str | Path | None = None,
+    version: str = "",
+) -> Game:
+    """Register an existing Windows VR game without copying its installation."""
+    paths.create()
+    executable_path = Path(executable).expanduser().resolve()
+    if not executable_path.is_file():
+        raise ValueError(f"local game executable was not found: {executable_path}")
+    if executable_path.suffix.casefold() != ".exe":
+        raise ValueError("local games must point to a Windows .exe file")
+
+    game_root = (
+        Path(root).expanduser().resolve()
+        if root is not None
+        else executable_path.parent
+    )
+    if not game_root.is_dir():
+        raise ValueError(f"local game folder was not found: {game_root}")
+    try:
+        relative_executable = executable_path.relative_to(game_root)
+    except ValueError as error:
+        raise ValueError(
+            "the executable must be inside the local game folder"
+        ) from error
+
+    game_name = (name or executable_path.stem).strip()
+    if not game_name:
+        raise ValueError("local game name cannot be empty")
+    slug = slugify(game_name)
+    launch_arguments = shlex.split(arguments, posix=False) if arguments else []
+    game = Game(
+        slug=slug,
+        name=game_name,
+        app_id="",
+        app_key=(app_key or f"local.{slug}").strip(),
+        directory=str(game_root),
+        executable=relative_executable.as_posix(),
+        arguments=launch_arguments,
+        version=version.strip(),
+        platform_shim=True,
+        platform_offline=False,
+        source="local",
+    )
+    if not game.app_key:
+        raise ValueError("local game app key cannot be empty")
+
+    target = paths.data / "games" / f"{slug}.json"
+    if target.exists():
+        existing = Game.load(paths, slug)
+        if existing.executable_path.resolve() != executable_path:
+            raise ValueError(
+                f"{game_name!r} conflicts with existing game {existing.name!r}; "
+                "choose a different name"
+            )
+
+    if artwork is not None:
+        from .metadata import generate_artwork
+
+        artwork_path = Path(artwork).expanduser().resolve()
+        if not artwork_path.is_file():
+            raise ValueError(f"local artwork was not found: {artwork_path}")
+        game.artwork = generate_artwork(paths, game, artwork_path.read_bytes())
+    game.save(paths)
     return game

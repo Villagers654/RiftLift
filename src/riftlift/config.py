@@ -62,6 +62,7 @@ class Game:
     genres: list[str] = field(default_factory=list)
     artwork: dict[str, str] = field(default_factory=dict)
     steam_app_id: int = 0
+    source: str = "meta"
 
     @property
     def game_dir(self) -> Path:
@@ -86,8 +87,14 @@ class Game:
             value: dict[str, Any] = json.loads(target.read_text())
         except FileNotFoundError as error:
             raise ValueError(
-                f"unknown game {slug!r}; run 'riftlift add STORE_URL' first"
+                f"unknown game {slug!r}; add it to RiftLift first"
             ) from error
+        if "source" not in value:
+            value["source"] = (
+                "steam"
+                if str(value.get("app_key", "")).startswith("steam.app.")
+                else "meta"
+            )
         allowed = {field.name for field in fields(cls)}
         return cls(**{key: item for key, item in value.items() if key in allowed})
 
