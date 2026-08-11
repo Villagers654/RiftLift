@@ -158,6 +158,8 @@ For a Windows Oculus game installed outside Meta or Steam, choose **Add Game**,
 then **Add a local game…**. Pick its `.exe`, give it a name, and optionally
 choose cover art. RiftLift references the existing folder in place.
 
+![RiftLift adding an existing local Windows VR game](docs/images/riftlift-local-game.png)
+
 The command-line equivalent is:
 
 ```bash
