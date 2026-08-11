@@ -409,11 +409,6 @@ class Window(QtWidgets.QMainWindow):
         l.setContentsMargins(26, 24, 26, 24)
         l.setSpacing(12)
         l.addWidget(self.label("Add to your library", "game"))
-        l.addWidget(
-            self.label(
-                "Paste the URL of a PC VR game you own on the Meta store.", "muted"
-            )
-        )
         local = self.button(
             "Add a local game…", lambda: (d.reject(), self.local_dialog())
         )
