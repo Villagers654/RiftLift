@@ -73,7 +73,7 @@ def test_add_local_registers_existing_game_without_copying_it(tmp_path: Path) ->
         tmp_path / "prefix",
         tmp_path / "tools",
     )
-    root = tmp_path / "installed/Echo"
+    root = tmp_path / "installed/ready-at-dawn-echo-arena"
     executable = root / "bin/win10/echovr.exe"
     _pe64(executable)
 
@@ -81,9 +81,7 @@ def test_add_local_registers_existing_game_without_copying_it(tmp_path: Path) ->
         paths,
         executable,
         name="Echo VR",
-        root=root,
         arguments='-noovr --region "US East"',
-        app_key="ready-at-dawn-echo-arena",
         version="test",
     )
 

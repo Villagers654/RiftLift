@@ -121,11 +121,23 @@ def add_local(
     if executable_path.suffix.casefold() != ".exe":
         raise ValueError("local games must point to a Windows .exe file")
 
-    game_root = (
-        Path(root).expanduser().resolve()
-        if root is not None
-        else executable_path.parent
-    )
+    inferred_app_key = None
+    if (
+        root is None
+        and executable_path.parent.name.casefold() == "win10"
+        and executable_path.parent.parent.name.casefold() == "bin"
+    ):
+        # Oculus PC packages conventionally keep their executable below
+        # <canonical app key>/bin/win10. Import the complete package so the
+        # working directory and Platform SDK identity survive a GUI import.
+        game_root = executable_path.parent.parent.parent
+        inferred_app_key = game_root.name
+    else:
+        game_root = (
+            Path(root).expanduser().resolve()
+            if root is not None
+            else executable_path.parent
+        )
     if not game_root.is_dir():
         raise ValueError(f"local game folder was not found: {game_root}")
     try:
@@ -144,7 +156,7 @@ def add_local(
         slug=slug,
         name=game_name,
         app_id="",
-        app_key=(app_key or f"local.{slug}").strip(),
+        app_key=(app_key or inferred_app_key or f"local.{slug}").strip(),
         directory=str(game_root),
         executable=relative_executable.as_posix(),
         arguments=launch_arguments,
