@@ -13,6 +13,7 @@ from .doctor import doctor
 from .launch import launch
 from .library import add, add_local
 from .metadata import populate_game_metadata
+from .playtime import playtime, playtime_label
 from .runtime import complete_login, login, setup
 from .steam import sync_with_restart
 from .steam_oculus import steam_oculus_game, steam_oculus_games
@@ -185,7 +186,8 @@ def run(arguments: argparse.Namespace) -> int:
                 "'riftlift add-local GAME.exe'."
             )
         for game in installed:
-            print(f"{game.slug:<36} {game.name} {game.version}")
+            played = playtime_label(playtime(paths, game.slug))
+            print(f"{game.slug:<36} {game.name} {game.version} [{played}]")
         return 0
     if arguments.command == "steam-sync":
         print(sync_with_restart(paths))

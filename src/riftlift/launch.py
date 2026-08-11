@@ -15,6 +15,7 @@ from .detection import (
     uses_oculus_xr_plugin,
     uses_openvr_runtime,
 )
+from .playtime import PlaytimeSession
 from .runtime import install_proton, install_revive, launch_environment
 from .util import RiftLiftError, linux_to_windows
 
@@ -170,12 +171,23 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         wrapper=bool(wrapper),
         capabilities=capabilities,
     )
+    playtime_session: PlaytimeSession | None = None
     try:
+        try:
+            playtime_session = PlaytimeSession(paths, game.slug)
+        except OSError as error:
+            print(f"warning: local playtime tracking could not start: {error}")
         exit_code = subprocess.call(
             [*wrapper, *arguments], cwd=game.game_dir, env=environment
         )
     except BaseException as error:
         launch_finished(paths, launch_id, started, error=str(error))
         raise
+    finally:
+        if playtime_session is not None:
+            try:
+                playtime_session.close()
+            except OSError as error:
+                print(f"warning: local playtime could not be saved: {error}")
     launch_finished(paths, launch_id, started, exit_code=exit_code)
     return exit_code

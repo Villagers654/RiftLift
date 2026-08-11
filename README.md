@@ -3,7 +3,8 @@
 **Play your Meta Rift PC VR games on Linux.**
 
 RiftLift gives you one desktop app to sign in to Meta, download games you own,
-add them to Steam, and launch them through your existing OpenXR headset setup.
+add them to Steam, track playtime locally, and launch them through your existing
+OpenXR headset setup.
 If your headset works with Monado, SteamVR is not required.
 
 ![RiftLift showing an installed Meta Rift library](docs/images/riftlift-library.png)

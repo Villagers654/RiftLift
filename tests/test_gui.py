@@ -13,6 +13,7 @@ from riftlift.cli import parser
 from riftlift.config import Game, Paths
 from riftlift.gui_qt import Window, is_valid_rift_store_url
 from riftlift.metadata import CatalogMetadata
+from riftlift.playtime import add_playtime, mark_launch
 from riftlift.util import RiftLiftError
 
 
@@ -126,6 +127,29 @@ def test_store_action_matches_the_selected_game_source(tmp_path: Path) -> None:
     window.show_game(local)
     assert not window.store_link.isVisible()
 
+    window.close()
+    app.processEvents()
+
+
+def test_selected_game_shows_local_playtime(tmp_path: Path) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    mark_launch(paths, "echo")
+    add_playtime(paths, "echo", 7380)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
+
+    window.show_game(game)
+
+    assert "2h 3m played" in window.meta.text()
     window.close()
     app.processEvents()
 

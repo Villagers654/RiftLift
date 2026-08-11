@@ -18,6 +18,7 @@ from .doctor import doctor
 from .launch import launch
 from .library import add, add_local
 from .metadata import fetch_catalog_metadata, populate_game_metadata
+from .playtime import playtime, playtime_label
 from .steam import sync_with_restart
 from .steam_oculus import add_steam_game
 from .steam_ui import SteamGamesDialog
@@ -351,14 +352,17 @@ class Window(QtWidgets.QMainWindow):
         self.store_link.setText(
             "Open in Steam ↗" if game.source == "steam" else "Open in Rift Store ↗"
         )
-        self.meta.setText(
-            " • ".join(
-                x
-                for x in (game.developer, game.version, ", ".join(game.genres[:2]))
-                if x
+        details = [
+            value
+            for value in (game.developer, game.version, ", ".join(game.genres[:2]))
+            if value
+        ]
+        if not details:
+            details.append(
+                "Local game" if game.source == "local" else f"Meta app {game.app_id}"
             )
-            or ("Local game" if game.source == "local" else f"Meta app {game.app_id}")
-        )
+        details.append(playtime_label(playtime(self.paths, game.slug)))
+        self.meta.setText(" • ".join(details))
         self.detail.set_artwork(game.artwork.get("portrait", ""))
 
     def game(self):
@@ -370,6 +374,7 @@ class Window(QtWidgets.QMainWindow):
                 f"Launching {g.name}",
                 lambda: launch(self.paths, g, []),
                 f"{g.name} closed",
+                refresh=True,
             )
 
     def refresh_library(self):

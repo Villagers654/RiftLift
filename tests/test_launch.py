@@ -2,6 +2,7 @@ from pathlib import Path
 
 from riftlift.config import Game, Paths
 from riftlift.launch import launch, oculus_launch_arguments, revive_backend
+from riftlift.playtime import playtime
 from riftlift.runtime import launch_environment, setup
 from riftlift.util import RiftLiftError, linux_to_windows
 
@@ -57,6 +58,7 @@ def test_injector_uses_existing_prefix_and_windows_game_path(
     assert captured["env"]["DXVK_NO_VR"] == "1"
     assert captured["env"]["UMU_ID"] == "umu-default"
     assert captured["env"]["UMU_USE_STEAM"] == "0"
+    assert playtime(paths, game.slug).launches == 1
 
 
 def test_classic_revive_uses_bundled_action_manifest(
