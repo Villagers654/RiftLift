@@ -111,7 +111,10 @@ fn parse_pose_binding<'de, D: serde::Deserializer<'de>>(
     };
 
     let pose = match pose {
-        "raw" => BoundPoseType::Raw,
+        // Legacy SteamVR binding files use handgrip for the controller's grip
+        // pose. OpenXR's grip pose is also what XRizer uses for OpenVR's raw
+        // controller pose, so preserve that established meaning.
+        "raw" | "handgrip" => BoundPoseType::Raw,
         "tip" => BoundPoseType::Tip,
         "gdc2015" => BoundPoseType::Gdc2015,
         other => {
@@ -153,6 +156,7 @@ pub enum ActionBinding {
     Button(ActionBindingData<ButtonInput, ButtonParameters>),
     ToggleButton(ActionBindingData<ButtonInput>),
     Dpad(ActionBindingData<DpadInput, DpadParameters>),
+    DpadClick(ActionBindingData<DpadInput, DpadParameters>),
     Trigger(ActionBindingData<TriggerInput, ClickThresholdParams>),
     ScalarConstant(ActionBindingData<ScalarConstantInput, ScalarConstantParameters>),
     ForceSensor(ActionBindingData<ForceSensorInput, ForceSensorParameters>),
@@ -341,7 +345,7 @@ struct DpadInput {
     center: Option<ActionBindingOutput<Custom>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Copy, Deserialize)]
 #[serde(default)]
 pub struct DpadParameters {
     pub sub_mode: DpadSubMode,
@@ -361,7 +365,7 @@ impl Default for DpadParameters {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DpadSubMode {
     Click,
@@ -537,6 +541,59 @@ pub fn handle_dpad_binding(
     }
 }
 
+fn handle_dpad_source(
+    validate_path: &dyn PathValidator,
+    context: &mut BindingsProfileLoadContext,
+    action_set_name: &str,
+    action_set: &xr::ActionSet,
+    data: &ActionBindingData<DpadInput, DpadParameters>,
+    forced_sub_mode: Option<DpadSubMode>,
+) {
+    let Some(ValidActionBindingData {
+        path,
+        inputs,
+        parameters,
+    }) = data.validate_path()
+    else {
+        return;
+    };
+
+    if validate_path(path).is_none() {
+        InvalidActionPath(path, &format!("{inputs:#?}")).warn();
+        return;
+    }
+
+    let overridden_parameters = forced_sub_mode.map(|sub_mode| DpadParameters {
+        sub_mode,
+        ..parameters.copied().unwrap_or_default()
+    });
+    let parameters = overridden_parameters.as_ref().or(parameters);
+    handle_dpad_binding(
+        |s| {
+            // TODO: don't do this conversion dance
+            let Ok(path) = s.parse::<DynInputPath>() else {
+                warn!("invalid path {s} for dpad binding");
+                return None;
+            };
+
+            if let Some(path) = validate_path(path)
+                .map(|path| context.instance.string_to_path(&path.to_string()).unwrap())
+            {
+                return Some(path);
+            }
+
+            InvalidActionPath(path, s).warn();
+            None
+        },
+        path,
+        action_set_name,
+        action_set,
+        context,
+        inputs,
+        parameters,
+    );
+}
+
 pub fn handle_sources(
     validate_path: &dyn PathValidator,
     context: &mut BindingsProfileLoadContext,
@@ -704,42 +761,23 @@ pub fn handle_sources(
                 }
             }
             ActionBinding::Dpad(data) => {
-                let Some(ValidActionBindingData {
-                    path,
-                    inputs,
-                    parameters,
-                }) = data.validate_path()
-                else {
-                    continue;
-                };
-
-                if validate_path(path).is_none() {
-                    InvalidActionPath(path, &format!("{inputs:#?}")).warn();
-                    continue;
-                }
-                handle_dpad_binding(
-                    |s| {
-                        // TODO: don't do this conversion dance
-                        let Ok(path) = s.parse::<DynInputPath>() else {
-                            warn!("invalid path {s} for dpad binding");
-                            return None;
-                        };
-
-                        if let Some(path) = validate_path(path)
-                            .map(|path| context.instance.string_to_path(&path.to_string()).unwrap())
-                        {
-                            return Some(path);
-                        }
-
-                        InvalidActionPath(path, s).warn();
-                        None
-                    },
-                    path,
+                handle_dpad_source(
+                    validate_path,
+                    context,
                     action_set_name,
                     action_set,
+                    data,
+                    None,
+                );
+            }
+            ActionBinding::DpadClick(data) => {
+                handle_dpad_source(
+                    validate_path,
                     context,
-                    inputs,
-                    parameters,
+                    action_set_name,
+                    action_set,
+                    data,
+                    Some(DpadSubMode::Click),
                 );
             }
             ActionBinding::Trigger(data) => {
@@ -1032,5 +1070,40 @@ pub fn handle_pose_bindings(context: &mut BindingsProfileLoadContext, bindings: 
             "bound {:?} to pose {} for hand {hand:?}",
             *pose_ty, output.path
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_legacy_dpad_click_and_handgrip_bindings() {
+        let parsed: Bindings = serde_json::from_str(
+            r#"{
+                "bindings": {
+                    "/actions/test": {
+                        "sources": [{
+                            "mode": "dpad_click",
+                            "path": "/user/hand/left/input/trackpad",
+                            "inputs": {"north": {"output": "/actions/test/in/up"}},
+                            "parameters": {"overlap_pct": "0"}
+                        }],
+                        "poses": [{
+                            "output": "/actions/test/in/hand",
+                            "path": "/user/hand/left/pose/handgrip"
+                        }]
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let bindings = &parsed.bindings["/actions/test"];
+
+        assert!(matches!(bindings.sources[0], ActionBinding::DpadClick(_)));
+        assert!(matches!(
+            bindings.poses.as_ref().unwrap()[0].path,
+            (Hand::Left, BoundPoseType::Raw)
+        ));
     }
 }
