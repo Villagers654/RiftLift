@@ -140,9 +140,13 @@ jobs:
       - name: Restore vcpkg binary cache
         uses: actions/cache@v4
         with:
-          path: ${{ runner.temp }}\vcpkg-binary-cache
-          key: revive-vcpkg-v1-${{ runner.os }}
-          restore-keys: revive-vcpkg-${{ runner.os }}-
+          path: |
+            ${{ runner.temp }}\vcpkg-binary-cache
+            C:\vcpkg\installed
+          key: revive-vcpkg-v2-${{ runner.os }}
+          restore-keys: |
+            revive-vcpkg-v1-${{ runner.os }}
+            revive-vcpkg-${{ runner.os }}-
       - name: Install native dependencies
         shell: pwsh
         run: |
