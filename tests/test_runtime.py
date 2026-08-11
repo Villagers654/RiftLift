@@ -64,8 +64,12 @@ def test_runtime_payload_is_reused_only_for_current_version(tmp_path, monkeypatc
 
 def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):
     paths = Paths(
-        tmp_path / "data", tmp_path / "cache", tmp_path / "config",
-        tmp_path / "games", tmp_path / "prefix", tmp_path / "tools",
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
     )
     paths.create()
     archive = tmp_path / "xrizer.tar.gz"
@@ -80,7 +84,11 @@ def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):
 
     assert (destination / "libxrizer.so").read_bytes() == payload
     assert (destination / "bin/linux64/vrclient.so").read_bytes() == payload
-    assert (destination / "bin/version.txt").read_text().strip() == OPENVR_RUNTIME_VERSION
-    assert (destination / ".riftlift-version").read_text().strip() == OPENVR_RUNTIME_VERSION
+    assert (
+        destination / "bin/version.txt"
+    ).read_text().strip() == OPENVR_RUNTIME_VERSION
+    assert (
+        destination / ".riftlift-version"
+    ).read_text().strip() == OPENVR_RUNTIME_VERSION
     archive.unlink()
     assert install_openvr_runtime(paths) == destination

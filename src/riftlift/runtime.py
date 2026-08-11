@@ -26,7 +26,9 @@ RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0
 RUNTIME_SHA256 = "78f34947f5308e1e261c8bc5a61139f61357c62235e5f609e7287dc7b86d3bee"
 OPENVR_RUNTIME_VERSION = "riftlift-0.9.0-alpha.3"
 OPENVR_RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.3/riftlift-xrizer.tar.gz"
-OPENVR_RUNTIME_SHA256 = "2b2a6ab4c69142b641f6c2bbb62201c6ad9b714d4854c2878adc8240a1f6aabf"
+OPENVR_RUNTIME_SHA256 = (
+    "2b2a6ab4c69142b641f6c2bbb62201c6ad9b714d4854c2878adc8240a1f6aabf"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,7 +269,9 @@ def _safe_tar(archive: Path, destination: Path) -> None:
             if target != root and root not in target.parents:
                 raise RiftLiftError(f"unsafe path in {archive.name}: {member.name}")
             if member.issym() or member.islnk():
-                raise RiftLiftError(f"links are not allowed in {archive.name}: {member.name}")
+                raise RiftLiftError(
+                    f"links are not allowed in {archive.name}: {member.name}"
+                )
         source.extractall(destination, filter="data")
 
 
@@ -653,7 +657,9 @@ def install_openvr_runtime(paths: Paths) -> Path:
         archive = Path(override).expanduser()
     else:
         if not OPENVR_RUNTIME_SHA256:
-            raise RiftLiftError("RiftLift OpenVR runtime release checksum is not configured")
+            raise RiftLiftError(
+                "RiftLift OpenVR runtime release checksum is not configured"
+            )
         archive = download(
             OPENVR_RUNTIME_URL,
             paths.cache / f"openvr-runtime-{OPENVR_RUNTIME_VERSION}.tar.gz",
