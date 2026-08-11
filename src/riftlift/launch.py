@@ -17,6 +17,7 @@ from .detection import (
 from .playtime import PlaytimeSession
 from .runtime import (
     install_proton,
+    install_openvr_runtime,
     install_rift_runtime,
     launch_environment,
     native_xr_bridge,
@@ -104,6 +105,8 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
     ]
     verified_rift_download = game.source == "meta"
     openvr_runtime = os.environ.get("VR_OVERRIDE", "").strip()
+    if backend == "openvr" and not openvr_runtime:
+        openvr_runtime = str(install_openvr_runtime(paths))
     environment = launch_environment(
         paths,
         game.game_dir,
@@ -140,7 +143,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         environment["RIFTLIFT_ACTION_MANIFEST"] = str(
             rift_runtime / "Input" / "action_manifest.json"
         )
-    if backend == "openvr" and openvr_runtime:
+    if backend == "openvr":
         # proton_environment intentionally removes inherited OpenVR state so
         # direct OpenXR launches cannot be polluted by it. The other bridge is
         # an OpenVR client, however, so preserve the caller's selected

@@ -78,6 +78,9 @@ def test_launcher_uses_existing_prefix_and_windows_game_path(
     monkeypatch.setattr(
         "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
     )
+    monkeypatch.setattr(
+        "riftlift.launch.install_openvr_runtime", lambda _paths: tmp_path / "xrizer"
+    )
     captured = {}
     monkeypatch.setattr(
         "riftlift.launch.launch_environment",
@@ -288,7 +291,9 @@ def test_launch_has_no_device_specific_wrapper(tmp_path: Path, monkeypatch) -> N
     assert captured["command"][0] == str(proton / "proton")
 
 
-def test_launch_accepts_explicit_openvr_backend(tmp_path: Path, monkeypatch) -> None:
+def test_openvr_backend_uses_packaged_translator_by_default(
+    tmp_path: Path, monkeypatch
+) -> None:
     paths = Paths(
         tmp_path / "data",
         tmp_path / "cache",
@@ -308,9 +313,13 @@ def test_launch_accepts_explicit_openvr_backend(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setattr(
         "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
     )
+    packaged_openvr = tmp_path / "packaged-openvr"
+    monkeypatch.setattr(
+        "riftlift.launch.install_openvr_runtime", lambda _paths: packaged_openvr
+    )
     monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
     monkeypatch.setenv("RIFTLIFT_RUNTIME_BACKEND", "openvr")
-    monkeypatch.setenv("VR_OVERRIDE", "/opt/xrizer")
+    monkeypatch.delenv("VR_OVERRIDE", raising=False)
     captured: dict[str, object] = {}
     monkeypatch.setattr(
         "riftlift.launch.subprocess.call",
@@ -331,7 +340,7 @@ def test_launch_accepts_explicit_openvr_backend(tmp_path: Path, monkeypatch) -> 
     assert command[command.index("/wait") + 1] == "/openvr"
     assert command[1] == "run"
     assert captured["env"]["DXVK_NO_VR"] == "1"
-    assert captured["env"]["VR_OVERRIDE"] == "/opt/xrizer"
+    assert captured["env"]["VR_OVERRIDE"] == str(packaged_openvr)
     assert captured["env"]["UMU_ID"] == "umu-default"
     assert captured["env"]["UMU_USE_STEAM"] == "0"
     assert "PROTON_VR_RUNTIME" not in captured["env"]

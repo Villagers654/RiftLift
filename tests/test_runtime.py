@@ -1,8 +1,15 @@
 from pathlib import Path
 import zipfile
+import tarfile
+import io
 
 from riftlift.config import Paths
-from riftlift.runtime import RUNTIME_VERSION, install_rift_runtime
+from riftlift.runtime import (
+    OPENVR_RUNTIME_VERSION,
+    RUNTIME_VERSION,
+    install_openvr_runtime,
+    install_rift_runtime,
+)
 
 REQUIRED_RUNTIME_FILES = (
     "RiftLiftLauncher.exe",
@@ -53,3 +60,25 @@ def test_runtime_payload_is_reused_only_for_current_version(tmp_path, monkeypatc
 
     archive.unlink()
     assert install_rift_runtime(paths) == destination
+
+
+def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):
+    paths = Paths(
+        tmp_path / "data", tmp_path / "cache", tmp_path / "config",
+        tmp_path / "games", tmp_path / "prefix", tmp_path / "tools",
+    )
+    paths.create()
+    archive = tmp_path / "xrizer.tar.gz"
+    payload = b"native openvr runtime"
+    with tarfile.open(archive, "w:gz") as bundle:
+        info = tarfile.TarInfo("xrizer/libxrizer.so")
+        info.size = len(payload)
+        bundle.addfile(info, io.BytesIO(payload))
+    monkeypatch.setenv("RIFTLIFT_OPENVR_RUNTIME_ARCHIVE", str(archive))
+
+    destination = install_openvr_runtime(paths)
+
+    assert (destination / "libxrizer.so").read_bytes() == payload
+    assert (destination / ".riftlift-version").read_text().strip() == OPENVR_RUNTIME_VERSION
+    archive.unlink()
+    assert install_openvr_runtime(paths) == destination

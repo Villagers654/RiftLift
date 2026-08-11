@@ -289,6 +289,14 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             )
         except Exception as error:
             checks.append((f"Native {backend.upper()} unixlib", False, str(error)))
+    openvr_runtime = paths.tools / "openvr-runtime/libxrizer.so"
+    checks.append(
+        (
+            "RiftLift OpenVR translator",
+            openvr_runtime.is_file(),
+            _file_identity(openvr_runtime),
+        )
+    )
     meta_client = (
         paths.prefix
         / "pfx/drive_c/Program Files/Oculus/Support/oculus-client/Client.exe"

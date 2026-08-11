@@ -24,6 +24,9 @@ PROTON_SHA256 = "861c2edc8d40d051fb1e7a692deb953be52bd339c46d90f2b7dde50ddad9126
 RUNTIME_VERSION = "riftlift-0.9.0-alpha.2"
 RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.2/riftlift-compat.zip"
 RUNTIME_SHA256 = "410b3179c664a8ebe332c6bedb904c713ce5b63affb2fcc9e59c96291dce30ba"
+OPENVR_RUNTIME_VERSION = "riftlift-0.9.0-alpha.2"
+OPENVR_RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.2/riftlift-xrizer.tar.gz"
+OPENVR_RUNTIME_SHA256 = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,6 +256,19 @@ def _safe_zip(archive: Path, destination: Path) -> None:
             if target != root and root not in target.parents:
                 raise RiftLiftError(f"unsafe path in {archive.name}: {member.filename}")
         source.extractall(destination)
+
+
+def _safe_tar(archive: Path, destination: Path) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    root = destination.resolve()
+    with tarfile.open(archive) as source:
+        for member in source.getmembers():
+            target = (destination / member.name).resolve()
+            if target != root and root not in target.parents:
+                raise RiftLiftError(f"unsafe path in {archive.name}: {member.name}")
+            if member.issym() or member.islnk():
+                raise RiftLiftError(f"links are not allowed in {archive.name}: {member.name}")
+        source.extractall(destination, filter="data")
 
 
 def install_proton(paths: Paths) -> Path:
@@ -619,6 +635,49 @@ def install_rift_runtime(paths: Paths) -> Path:
     return destination
 
 
+def install_openvr_runtime(paths: Paths) -> Path:
+    """Install RiftLift's native OpenVR-to-OpenXR implementation."""
+    destination = paths.tools / "openvr-runtime"
+    library = destination / "libxrizer.so"
+    version_marker = destination / ".riftlift-version"
+    if (
+        library.is_file()
+        and version_marker.is_file()
+        and version_marker.read_text().strip() == OPENVR_RUNTIME_VERSION
+    ):
+        return destination
+    override = os.environ.get("RIFTLIFT_OPENVR_RUNTIME_ARCHIVE")
+    if override:
+        archive = Path(override).expanduser()
+    else:
+        if not OPENVR_RUNTIME_SHA256:
+            raise RiftLiftError("RiftLift OpenVR runtime release checksum is not configured")
+        archive = download(
+            OPENVR_RUNTIME_URL,
+            paths.cache / f"openvr-runtime-{OPENVR_RUNTIME_VERSION}.tar.gz",
+            OPENVR_RUNTIME_SHA256,
+        )
+    if destination.exists():
+        shutil.rmtree(destination)
+    staging = paths.tools / ".openvr-runtime-unpack"
+    if staging.exists():
+        shutil.rmtree(staging)
+    try:
+        _safe_tar(archive, staging)
+        nested = staging / "xrizer"
+        source = nested if nested.is_dir() else staging
+        if not (source / "libxrizer.so").is_file():
+            raise RiftLiftError("RiftLift OpenVR runtime payload is incomplete")
+        source.replace(destination)
+        if staging.exists():
+            shutil.rmtree(staging)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+    version_marker.write_text(f"{OPENVR_RUNTIME_VERSION}\n")
+    return destination
+
+
 def install_platform_compat(paths: Paths) -> Path:
     source = install_meta_runtime(paths) / "oculus-runtime"
     destination = paths.tools / "platform-compat"
@@ -654,6 +713,7 @@ def setup(paths: Paths) -> None:
     install_proton(paths)
     install_meta_runtime(paths)
     install_rift_runtime(paths)
+    install_openvr_runtime(paths)
     install_platform_compat(paths)
 
 
