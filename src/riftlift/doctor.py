@@ -171,7 +171,9 @@ def _connected_inputs() -> str:
         if not line.startswith("N: Name="):
             continue
         name = line.partition("=")[2].strip('"')
-        if re.search(r"(?i)(controller|gamepad|sense|oculus|vive|index|quest|vr2)", name):
+        if re.search(
+            r"(?i)(controller|gamepad|sense|oculus|vive|index|quest|vr2)", name
+        ):
             names.append(name)
     return ", ".join(dict.fromkeys(names)) or "none detected"
 
@@ -237,7 +239,9 @@ def _recent_game_log_errors(paths: Paths) -> list[str]:
             lines = candidate.read_text(errors="replace").splitlines()[-500:]
         except OSError:
             continue
-        matches = [redact(line.strip())[:600] for line in lines if _ERROR_LINE.search(line)]
+        matches = [
+            redact(line.strip())[:600] for line in lines if _ERROR_LINE.search(line)
+        ]
         if matches:
             result.append(f"{redact(str(candidate))}:")
             result.extend(f"  {line}" for line in matches[-6:])
@@ -322,7 +326,9 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         game_lines.append(
             f"{state:7} {game.name} [{game.source}; {backend}; {', '.join(capabilities) or 'no engine markers'}]"
         )
-        checks.append((f"Game: {game.name}", present, redact(str(game.executable_path))))
+        checks.append(
+            (f"Game: {game.name}", present, redact(str(game.executable_path)))
+        )
 
     width = max(len(label) for label, _, _ in checks)
     passed = sum(ok for _, ok, _ in checks)
@@ -368,7 +374,9 @@ def build_report(paths: Paths) -> tuple[str, bool]:
     )
     launches = recent_launches(paths)
     if not launches:
-        lines.append("No structured launch history yet (new launches will appear here).")
+        lines.append(
+            "No structured launch history yet (new launches will appear here)."
+        )
     for item in launches:
         if item.get("event") != "finished":
             outcome = "INTERRUPTED (no completion recorded)"

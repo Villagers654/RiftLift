@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from riftlift.config import Game, Paths
-from riftlift.diagnostics import launch_finished, launch_started, recent_launches, redact
+from riftlift.diagnostics import (
+    launch_finished,
+    launch_started,
+    recent_launches,
+    redact,
+)
 from riftlift.doctor import build_report, upload_report
 
 
@@ -87,7 +92,9 @@ def test_build_report_includes_recent_launch_evidence(
     monkeypatch.setattr("riftlift.doctor._vulkan_summary", lambda: "driverName = RADV")
     monkeypatch.setattr("riftlift.doctor._connected_inputs", lambda: "Test Controller")
     monkeypatch.setattr("riftlift.doctor._service_state", lambda _name: "active")
-    monkeypatch.setattr("riftlift.doctor._recent_journal_errors", lambda: ["XR_ERROR failed"])
+    monkeypatch.setattr(
+        "riftlift.doctor._recent_journal_errors", lambda: ["XR_ERROR failed"]
+    )
     monkeypatch.setattr("riftlift.doctor._recent_game_log_errors", lambda _paths: [])
     monkeypatch.setattr(
         "riftlift.doctor.recent_launches",

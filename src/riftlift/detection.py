@@ -199,7 +199,9 @@ def uses_oculus_xr_plugin(directory: Path) -> bool:
     Treating that integration as an installed capability lets the launcher
     select the mature compositor-backed translation path without a title list.
     """
-    return any(path.name.casefold() == "oculusxrplugin.dll" for path in _walk(directory))
+    return any(
+        path.name.casefold() == "oculusxrplugin.dll" for path in _walk(directory)
+    )
 
 
 def uses_d3d12_runtime(executable: Path) -> bool:

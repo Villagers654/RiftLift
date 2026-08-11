@@ -60,7 +60,9 @@ def _append(paths: Paths, record: dict[str, Any]) -> None:
             stream.seek(0)
             stream.truncate()
             stream.writelines(lines)
-        stream.write(json.dumps(record, ensure_ascii=True, separators=(",", ":")) + "\n")
+        stream.write(
+            json.dumps(record, ensure_ascii=True, separators=(",", ":")) + "\n"
+        )
         stream.flush()
         fcntl.flock(stream, fcntl.LOCK_UN)
 
@@ -140,7 +142,9 @@ def recent_launches(paths: Paths, limit: int = 5) -> list[dict[str, Any]]:
     failures = [
         item
         for item in completed
-        if item.get("event") != "finished" or item.get("exit_code") not in (0, None) or item.get("error")
+        if item.get("event") != "finished"
+        or item.get("exit_code") not in (0, None)
+        or item.get("error")
     ]
     selected = failures[-limit:]
     for item in reversed(completed):
