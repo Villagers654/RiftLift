@@ -1622,39 +1622,6 @@ impl vr::IVROverlay021On024 for OverlayMan {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::compose_transforms;
-    use openvr as vr;
-
-    #[test]
-    fn tracked_relative_transform_is_composed_in_device_space() {
-        let absolute = vr::HmdMatrix34_t {
-            m: [
-                [0.0, -1.0, 0.0, 4.0],
-                [1.0, 0.0, 0.0, 5.0],
-                [0.0, 0.0, 1.0, 6.0],
-            ],
-        };
-        let local = vr::HmdMatrix34_t {
-            m: [
-                [1.0, 0.0, 0.0, 2.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, -1.0],
-            ],
-        };
-
-        assert_eq!(
-            compose_transforms(absolute, local).m,
-            [
-                [0.0, -1.0, 0.0, 4.0],
-                [1.0, 0.0, 0.0, 7.0],
-                [0.0, 0.0, 1.0, 5.0],
-            ]
-        );
-    }
-}
-
 impl vr::IVROverlay020On021 for OverlayMan {
     fn MoveGamepadFocusToNeighbor(
         &self,
@@ -1743,5 +1710,38 @@ impl vr::IVROverlay007On010 for OverlayMan {
         _: *mut vr::vr_0_9_12::VREvent_t,
     ) -> bool {
         todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compose_transforms;
+    use openvr as vr;
+
+    #[test]
+    fn tracked_relative_transform_is_composed_in_device_space() {
+        let absolute = vr::HmdMatrix34_t {
+            m: [
+                [0.0, -1.0, 0.0, 4.0],
+                [1.0, 0.0, 0.0, 5.0],
+                [0.0, 0.0, 1.0, 6.0],
+            ],
+        };
+        let local = vr::HmdMatrix34_t {
+            m: [
+                [1.0, 0.0, 0.0, 2.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, -1.0],
+            ],
+        };
+
+        assert_eq!(
+            compose_transforms(absolute, local).m,
+            [
+                [0.0, -1.0, 0.0, 4.0],
+                [1.0, 0.0, 0.0, 7.0],
+                [0.0, 0.0, 1.0, 5.0],
+            ]
+        );
     }
 }

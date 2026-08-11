@@ -627,7 +627,8 @@ impl vr::IVRCompositor029_Interface for Compositor {
         let stride = unsafe { (&raw const (*timing).m_nSize).read() } as usize;
         let minimum_size = offset_of!(vr::Compositor_FrameTiming, m_HmdPose)
             + std::mem::size_of::<vr::TrackedDevicePose_t>();
-        if stride < minimum_size || stride % std::mem::align_of::<vr::Compositor_FrameTiming>() != 0
+        if stride < minimum_size
+            || !stride.is_multiple_of(std::mem::align_of::<vr::Compositor_FrameTiming>())
         {
             return 0;
         }
