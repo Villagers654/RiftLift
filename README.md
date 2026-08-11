@@ -1,11 +1,12 @@
 # RiftLift
 
-**Play your Meta Rift PC VR games on Linux.**
+**Play your Meta Rift (Oculus Rift) PC VR games on Linux.**
 
-RiftLift gives you one desktop app to sign in to Meta, download games you own,
-add them to Steam, track playtime locally, and launch them through your existing
-OpenXR headset setup.
-If your headset works with Monado, SteamVR is not required.
+RiftLift is a Linux compatibility app for Meta Rift PC VR games. Its desktop
+GUI handles Meta sign-in, owned-game downloads, Steam shortcuts, local playtime,
+and launching through your existing OpenXR headset setup. It supports Rift
+Store releases and compatible Steam games that include an Oculus mode. If your
+headset works with Monado, SteamVR is not required.
 
 ![RiftLift showing an installed Meta Rift library](docs/images/riftlift-library.png)
 
