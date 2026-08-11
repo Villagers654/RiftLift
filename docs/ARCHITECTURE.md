@@ -42,8 +42,9 @@ Linux runtime directly. RiftLift does not create a second XR process or proxy
 runtime calls over a socket.
 
 The choice is made from installed runtime capabilities, not a game-name list or
-a failed-launch retry. RiftLift does not replace an xrizer already supplied by
-the host setup.
+a failed-launch retry. RiftLift installs and pins the in-repository xrizer build
+for this path, so compatibility does not depend on a host-provided copy. An
+explicit `VR_OVERRIDE` remains available for runtime development and debugging.
 
 ## Host integration contract
 

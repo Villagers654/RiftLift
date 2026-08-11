@@ -226,7 +226,8 @@ RiftLift keeps its files under `~/.local/share/riftlift` and uses one reusable
 Proton environment. It combines:
 
 - the built-in [Rift compatibility runtime](runtime);
-- the in-repository [xrizer](components/xrizer) OpenVR-to-OpenXR runtime;
+- a pinned build of the in-repository [xrizer](components/xrizer)
+  OpenVR-to-OpenXR runtime;
 - GE-Proton and WineOpenXR;
 - Meta's native browser sign-in service and the PC runtime files games need;
 - the entitlement-respecting
@@ -260,7 +261,8 @@ The Rift compatibility runtime lives at the repository root under
 [`runtime/`](runtime), while xrizer lives under [`components/`](components).
 Their builds and release artifacts are produced by RiftLift's top-level
 workflows, so contributors do not need to coordinate separate forks or
-releases.
+releases. Setup installs both automatically; users do not need to install or
+configure xrizer separately.
 
 ### Credits
 
