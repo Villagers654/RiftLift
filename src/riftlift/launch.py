@@ -16,12 +16,17 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         raise RiftLiftError(f"game executable is missing: {game.executable_path}")
     revive = install_revive(paths)
     proton = install_proton(paths) / "proton"
+    backend = os.environ.get("RIFTLIFT_REVIVE_BACKEND", "openxr").strip().lower()
+    if backend not in {"openxr", "openvr"}:
+        raise RiftLiftError(
+            "RIFTLIFT_REVIVE_BACKEND must be 'openxr' or 'openvr'"
+        )
     arguments = [
         str(proton),
         "runinprefix",
         str(revive / "ReviveInjector.exe"),
         "/wait",
-        "/openxr",
+        f"/{backend}",
         "/app",
         game.app_key,
         linux_to_windows(game.executable_path),
@@ -44,6 +49,8 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
                 f"configured launch wrapper was not found: {wrapper_value}"
             )
     print(
-        f"Launching {game.name} through ReviveXR -> WineOpenXR -> active OpenXR runtime..."
+        f"Launching {game.name} through "
+        f"{'ReviveXR -> WineOpenXR' if backend == 'openxr' else 'Revive -> OpenVR bridge'} "
+        "-> active OpenXR runtime..."
     )
     return subprocess.call([*wrapper, *arguments], cwd=game.game_dir, env=environment)

@@ -162,3 +162,43 @@ def test_launch_has_no_device_specific_wrapper(tmp_path: Path, monkeypatch) -> N
     )
     assert launch(paths, game, []) == 0
     assert captured["command"][0] == str(proton / "proton")
+
+
+def test_launch_accepts_explicit_openvr_backend(tmp_path: Path, monkeypatch) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "sample/Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    revive = tmp_path / "revive"
+    proton.mkdir()
+    revive.mkdir()
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr("riftlift.launch.install_revive", lambda _paths: revive)
+    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
+    monkeypatch.setenv("RIFTLIFT_REVIVE_BACKEND", "openvr")
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "riftlift.launch.subprocess.call",
+        lambda command, **kwargs: captured.update(command=command, **kwargs) or 0,
+    )
+
+    game = Game(
+        "sample",
+        "Sample",
+        "1",
+        "sample-key",
+        str(executable.parent),
+        executable.name,
+        [],
+    )
+    assert launch(paths, game, []) == 0
+    command = captured["command"]
+    assert command[command.index("/wait") + 1] == "/openvr"
