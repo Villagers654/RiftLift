@@ -79,6 +79,8 @@ def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):
     destination = install_openvr_runtime(paths)
 
     assert (destination / "libxrizer.so").read_bytes() == payload
+    assert (destination / "bin/linux64/vrclient.so").read_bytes() == payload
+    assert (destination / "bin/version.txt").read_text().strip() == OPENVR_RUNTIME_VERSION
     assert (destination / ".riftlift-version").read_text().strip() == OPENVR_RUNTIME_VERSION
     archive.unlink()
     assert install_openvr_runtime(paths) == destination

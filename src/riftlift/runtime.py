@@ -639,9 +639,11 @@ def install_openvr_runtime(paths: Paths) -> Path:
     """Install RiftLift's native OpenVR-to-OpenXR implementation."""
     destination = paths.tools / "openvr-runtime"
     library = destination / "libxrizer.so"
+    proton_library = destination / "bin/linux64/vrclient.so"
     version_marker = destination / ".riftlift-version"
     if (
         library.is_file()
+        and proton_library.is_file()
         and version_marker.is_file()
         and version_marker.read_text().strip() == OPENVR_RUNTIME_VERSION
     ):
@@ -674,6 +676,15 @@ def install_openvr_runtime(paths: Paths) -> Path:
     finally:
         if staging.exists():
             shutil.rmtree(staging)
+    proton_library.parent.mkdir(parents=True, exist_ok=True)
+    # Proton's VR_OVERRIDE contract is a SteamVR-shaped runtime directory,
+    # not a direct shared-library path. Keep one real payload and expose it at
+    # the standard vrclient location without relying on archive symlinks.
+    try:
+        os.link(library, proton_library)
+    except OSError:
+        shutil.copy2(library, proton_library)
+    (destination / "bin/version.txt").write_text(f"{OPENVR_RUNTIME_VERSION}\n")
     version_marker.write_text(f"{OPENVR_RUNTIME_VERSION}\n")
     return destination
 
