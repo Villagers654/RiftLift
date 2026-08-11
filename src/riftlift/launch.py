@@ -45,6 +45,13 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         game.platform_shim,
         game.platform_offline or verified_rift_download,
     )
+    if game.steam_app_id is not None:
+        # Steam-distributed Oculus builds may still use Steamworks for DRM,
+        # ownership, saves, or startup. Rift-store games deliberately keep the
+        # isolated zero identity supplied by proton_environment.
+        steam_id = str(game.steam_app_id)
+        environment["SteamAppId"] = steam_id
+        environment["SteamGameId"] = steam_id
     if backend == "openxr":
         # Proton records OpenVR's Vulkan requirements in the shared Wine
         # prefix. DXVK otherwise consumes those stale requirements alongside
