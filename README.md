@@ -11,6 +11,8 @@ If your headset works with Monado, SteamVR is not required.
 > RiftLift is an early release. Many games work, but some titles may still need
 > compatibility fixes.
 
+See the [compatibility wiki](docs/COMPATIBILITY.md) for games tested with real VR output.
+
 ## Quick start
 
 Before you start, you need:
