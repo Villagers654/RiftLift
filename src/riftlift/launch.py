@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 from .config import Game, Paths
+from .diagnostics import launch_finished, launch_started
 from .detection import (
     is_unity_player,
     is_unreal_shipping,
@@ -151,4 +152,30 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         f"{'ReviveXR -> WineOpenXR' if backend == 'openxr' else 'Revive -> OpenVR bridge'} "
         "-> active OpenXR runtime..."
     )
-    return subprocess.call([*wrapper, *arguments], cwd=game.game_dir, env=environment)
+    capabilities = [
+        name
+        for name, detected in (
+            ("openvr", uses_openvr_runtime(game.game_dir)),
+            ("oculus-xr-plugin", uses_oculus_xr_plugin(game.game_dir)),
+            ("d3d12", uses_d3d12_runtime(game.executable_path)),
+            ("unity", is_unity_player(game.executable_path)),
+            ("unreal", is_unreal_shipping(game.executable_path)),
+        )
+        if detected
+    ]
+    launch_id, started = launch_started(
+        paths,
+        game,
+        backend,
+        wrapper=bool(wrapper),
+        capabilities=capabilities,
+    )
+    try:
+        exit_code = subprocess.call(
+            [*wrapper, *arguments], cwd=game.game_dir, env=environment
+        )
+    except BaseException as error:
+        launch_finished(paths, launch_id, started, error=str(error))
+        raise
+    launch_finished(paths, launch_id, started, exit_code=exit_code)
+    return exit_code

@@ -92,6 +92,12 @@ Steam may restart once when RiftLift adds or updates shortcuts.
 
 Start with **System** in the desktop app, or run `riftlift doctor`.
 
+Doctor checks the Linux graphics/XR stack, RiftLift components, installed
+games, and a small amount of recent launch/error evidence. It prints the
+report and creates a shareable public paste automatically. Credentials, email
+addresses, and home-directory paths are redacted; use `riftlift doctor
+--no-paste` when you only want a local copy.
+
 Common fixes:
 
 - **RiftLift cannot find OpenXR:** start your normal Monado setup and try again.
@@ -123,7 +129,7 @@ Your sign-in and installed games are preserved.
 Everything in the desktop app is also available from the command line:
 
 ```bash
-riftlift doctor
+riftlift doctor                 # prints and creates a shareable diagnostic paste
 riftlift login
 riftlift add 'https://www.meta.com/experiences/APP_ID/'
 riftlift add-local '/path/to/game.exe' --name 'My VR Game'

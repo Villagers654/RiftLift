@@ -107,7 +107,14 @@ def parser() -> argparse.ArgumentParser:
     metadata_command.add_argument(
         "--refresh", action="store_true", help="refresh cached catalog data and artwork"
     )
-    commands.add_parser("doctor", help="verify the runtime, Steam, and installed games")
+    doctor_command = commands.add_parser(
+        "doctor", help="create a shareable runtime and recent-launch diagnostic report"
+    )
+    doctor_command.add_argument(
+        "--no-paste",
+        action="store_true",
+        help="print locally without creating a public paste",
+    )
     return root
 
 
@@ -192,7 +199,7 @@ def run(arguments: argparse.Namespace) -> int:
             print(f"Updated metadata for {game.name}.")
         return 0
     if arguments.command == "doctor":
-        return doctor(paths)
+        return doctor(paths, paste=not arguments.no_paste)
     raise AssertionError(arguments.command)
 
 
