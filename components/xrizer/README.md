@@ -1,6 +1,6 @@
 # xrizer - XR-ize your OpenVR games
 
-> **RiftLift compatibility fork:** this fork adds generic Linux loader and
+> **RiftLift compatibility component:** this source tree adds generic Linux loader and
 > OpenXR STAGE-boundary behavior used by
 > [RiftLift](https://github.com/Villagers654/RiftLift). The changes remain
 > runtime- and headset-independent so they can be proposed upstream cleanly.
@@ -11,9 +11,7 @@ Note that xrizer is currently immature. Many things are likely broken, so please
 
 # Download & Usage
 
-[Latest nightly](https://nightly.link/Villagers654/xrizer/workflows/ci/main/xrizer-nightly-release.zip) - Bleeding edge!
-
-[Latest release](https://github.com/Villagers654/xrizer/releases/latest/download/xrizer-release.zip)
+[RiftLift releases](https://github.com/Villagers654/RiftLift/releases)
 
 Choose a download and click it to download a zip. Unzip it and place it wherever you like.
 

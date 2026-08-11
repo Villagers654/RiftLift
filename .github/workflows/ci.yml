@@ -23,3 +23,60 @@ jobs:
       - run: black --check src tests
       - run: python -m compileall -q src
       - run: bash -n install.sh scripts/*.sh
+
+  xrizer:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: components/xrizer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang cmake glslc libopenxr-dev libvulkan-dev libx11-xcb-dev ninja-build
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            components/xrizer/target
+          key: xrizer-${{ runner.os }}-${{ hashFiles('components/xrizer/Cargo.lock') }}
+      - run: cargo fmt --check
+      - run: cargo test --release
+      - run: cargo clippy --workspace --all-targets
+
+  revive:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: components/revive
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Download Oculus PC SDK
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'oculus-sdk.zip'
+          Invoke-WebRequest 'https://securecdn.oculus.com/binaries/download/?id=4377593722298679' -OutFile $archive
+          Expand-Archive $archive -DestinationPath Externals -Force
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\vcpkg-binary-cache
+          key: revive-vcpkg-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+      - name: Install native dependencies
+        shell: pwsh
+        run: |
+          $env:VCPKG_DEFAULT_BINARY_CACHE = Join-Path $env:RUNNER_TEMP 'vcpkg-binary-cache'
+          New-Item -ItemType Directory -Force $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+          & C:\vcpkg\vcpkg.exe install --triplet x86-windows-static detours openxr-loader glfw3
+          & C:\vcpkg\vcpkg.exe install --triplet x64-windows-static detours openxr-loader glfw3
+          & C:\vcpkg\vcpkg.exe integrate install
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build RiftLift translation backends
+        shell: pwsh
+        run: |
+          msbuild Revive.sln /m /t:ReviveXR /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
+          msbuild Revive.sln /m /t:ReviveXR /p:Configuration=Release /p:Platform=x86 /p:PlatformToolset=v143
+          msbuild Revive.sln /m /t:Revive /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
+          msbuild Revive.sln /m /t:ReviveInjector /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143

@@ -1,0 +1,9 @@
+[submodule "components/revive/Externals/Vulkan"]
+	path = components/revive/Externals/Vulkan
+	url = https://github.com/KhronosGroup/Vulkan-Headers.git
+[submodule "components/revive/Externals/microprofile"]
+	path = components/revive/Externals/microprofile
+	url = https://github.com/zeux/microprofile.git
+[submodule "components/revive/Externals/openvr"]
+	path = components/revive/Externals/openvr
+	url = https://github.com/ValveSoftware/openvr.git

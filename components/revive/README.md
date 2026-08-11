@@ -1,6 +1,6 @@
 # Revive Compatibility Layer
 
-> **RiftLift compatibility fork:** this fork carries the source-level
+> **RiftLift compatibility component:** this source tree carries the
 > Wine/Proton, Monado, and xrizer fixes packaged by
 > [RiftLift](https://github.com/Villagers654/RiftLift). Windows behavior stays
 > upstream-compatible unless the `RIFTLIFT_XRIZER` launcher opt-in is set.

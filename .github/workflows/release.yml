@@ -1,31 +1,113 @@
-name: Release compatibility payload
+name: Build RiftLift compatibility payloads
 
 on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  payload:
+  revive:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: components/revive
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Download Oculus PC SDK
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'oculus-sdk.zip'
+          Invoke-WebRequest 'https://securecdn.oculus.com/binaries/download/?id=4377593722298679' -OutFile $archive
+          Expand-Archive $archive -DestinationPath Externals -Force
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\vcpkg-binary-cache
+          key: revive-vcpkg-${{ runner.os }}-${{ hashFiles('.github/workflows/release.yml') }}
+      - name: Install native dependencies
+        shell: pwsh
+        run: |
+          $env:VCPKG_DEFAULT_BINARY_CACHE = Join-Path $env:RUNNER_TEMP 'vcpkg-binary-cache'
+          New-Item -ItemType Directory -Force $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+          & C:\vcpkg\vcpkg.exe install --triplet x86-windows-static detours openxr-loader glfw3
+          & C:\vcpkg\vcpkg.exe install --triplet x64-windows-static detours openxr-loader glfw3
+          & C:\vcpkg\vcpkg.exe integrate install
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build Revive and ReviveXR
+        shell: pwsh
+        run: |
+          msbuild Revive.sln /m /t:ReviveXR /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
+          msbuild Revive.sln /m /t:ReviveXR /p:Configuration=Release /p:Platform=x86 /p:PlatformToolset=v143
+          msbuild Revive.sln /m /t:Revive /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
+          msbuild Revive.sln /m /t:ReviveInjector /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
+      - name: Collect Revive payload
+        shell: pwsh
+        run: |
+          $out = New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\riftlift-revive"
+          Copy-Item Release\ReviveInjector.exe $out
+          Copy-Item Release\openvr_api64.dll $out
+          Copy-Item Release\LibRevive64.dll $out
+          Copy-Item Release\LibReviveXR32.dll $out
+          Copy-Item Release\LibReviveXR64.dll $out
+          Copy-Item Revive\Input "$out\Input" -Recurse
+          Copy-Item LICENSE $out
+          Compress-Archive "$out\*" "$env:RUNNER_TEMP\riftlift-revive.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: riftlift-revive-source-build
+          path: ${{ runner.temp }}\riftlift-revive.zip
+
+  xrizer:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: components/xrizer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang cmake glslc libopenxr-dev libvulkan-dev libx11-xcb-dev ninja-build
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            components/xrizer/target
+          key: xrizer-${{ runner.os }}-${{ hashFiles('components/xrizer/Cargo.lock') }}
+      - run: cargo build --release
+      - name: Collect xrizer payload
+        run: |
+          mkdir -p ../../out/xrizer
+          cp target/release/libxrizer.so LICENSE ../../out/xrizer/
+          tar -C ../../out -czf ../../riftlift-xrizer.tar.gz xrizer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: riftlift-xrizer
+          path: riftlift-xrizer.tar.gz
+
+  compatibility:
+    needs: revive
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v5
+        with:
+          name: riftlift-revive-source-build
+          path: downloaded
       - name: Install PE tooling
         run: sudo apt-get update && sudo apt-get install -y llvm mingw-w64 unzip
-      - name: Download pinned compatibility inputs
+      - name: Download pinned Meta Platform implementation
         run: |
-          curl --fail --location --output revive.zip \
-            "https://github.com/Villagers654/Revive/releases/download/riftlift-0.1.2/riftlift-revive.zip"
-          echo "dc7c199763cea4f5b798b315af4761062b1e1eb994ee2f5866919304792df996  revive.zip" | sha256sum -c -
           curl --fail --location --output platform.pkg \
             "https://securecdn-atl3-3.oculus.com/binaries/download/?id=3766757683456363"
           echo "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009  platform.pkg" | sha256sum -c -
-      - name: Build generic Platform SDK bridge
+      - name: Build complete compatibility payload
         run: |
           unzip -q platform.pkg LibOVRPlatformImpl64_1.dll
           mkdir -p out
-          unzip -q revive.zip -d out
+          unzip -q downloaded/riftlift-revive.zip -d out
           scripts/build-platform-shim.sh LibOVRPlatformImpl64_1.dll out/LibOVRPlatformImpl64_1.dll
           cp LICENSE out/RIFTLIFT-LICENSE
           find out -type f -exec touch -d '1980-01-01 00:00:00 UTC' {} +

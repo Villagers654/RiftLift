@@ -5,7 +5,7 @@ edition.workspace = true
 resolver = "2"
 license = "GPL-3.0-or-later"
 description = "XR-ize your favorite OpenVR games"
-repository = "https://github.com/Villagers654/xrizer"
+repository = "https://github.com/Villagers654/RiftLift"
 readme = "README.md"
 
 [lib]
