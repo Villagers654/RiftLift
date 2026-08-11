@@ -218,7 +218,7 @@ int wmain(int argc, wchar_t *argv[]) {
 			// select the classic backend explicitly instead of silently falling
 			// back to the OpenXR bridge when a native OpenVR runtime is available.
 			dlls.add(moduleDir + std::string("\\openvr_api64.dll"));
-			dlls.add(moduleDir + std::string("\\RiftLift64.dll"));
+			dlls.add(moduleDir + std::string("\\RiftLiftOpenVR64.dll"));
 		}
 		else if (wcscmp(argv[i], L"/proxy") == 0)
 		{
@@ -274,7 +274,7 @@ int wmain(int argc, wchar_t *argv[]) {
 		if (vr::VR_IsRuntimeInstalled())
 		{
 			dlls.add(moduleDir + std::string("\\openvr_api64.dll"));
-			dlls.add(moduleDir + std::string("\\RiftLift64.dll"));
+			dlls.add(moduleDir + std::string("\\RiftLiftOpenVR64.dll"));
 		}
 		else
 		{

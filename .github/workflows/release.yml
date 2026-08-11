@@ -49,6 +49,9 @@ jobs:
           msbuild RiftLiftRuntime.sln /m /t:RiftLiftOpenXR /p:Configuration=Release /p:Platform=x86 /p:PlatformToolset=v143
           msbuild RiftLiftRuntime.sln /m /t:RiftLiftOpenVR /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
           msbuild RiftLiftRuntime.sln /m /t:RiftLiftLauncher /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
+          $launcher = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes((Resolve-Path 'Release\RiftLiftLauncher.exe')))
+          if (-not $launcher.Contains('RiftLiftOpenVR64.dll')) { throw 'Launcher does not reference the packaged OpenVR bridge' }
+          if ($launcher.Contains('\RiftLift64.dll')) { throw 'Launcher still references the obsolete OpenVR bridge name' }
       - name: Collect Windows bridge payload
         shell: pwsh
         run: |
