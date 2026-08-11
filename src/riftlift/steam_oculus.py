@@ -9,7 +9,6 @@ from .detection import (
     best_windows_executable,
     is_unreal_shipping,
     uses_oculus_runtime,
-    uses_openvr_runtime,
 )
 from .library import slugify
 from .steam import steam_root
@@ -95,16 +94,6 @@ def game_from_steam_command(game: Game, command: list[str]) -> Game:
         executable=executable.relative_to(directory).as_posix(),
         arguments=values[index + 1 :],
     )
-
-
-def steam_command_uses_oculus(game: Game, command: list[str]) -> bool:
-    """Select Revive only for the Oculus mode of a multi-runtime Steam game."""
-    if not command:
-        return True
-    values = command[1:] if command[:1] == ["--"] else command
-    if any("oculus" in value.casefold() for value in values):
-        return True
-    return not uses_openvr_runtime(game.game_dir)
 
 
 def steam_oculus_games(root: Path | None = None) -> list[Game]:

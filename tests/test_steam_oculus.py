@@ -4,11 +4,9 @@ from pathlib import Path
 import pytest
 
 from riftlift.config import Game, Paths
-from riftlift.cli import parser
 from riftlift.steam_oculus import (
     add_steam_game,
     game_from_steam_command,
-    steam_command_uses_oculus,
     steam_oculus_game,
     steam_oculus_games,
 )
@@ -92,36 +90,6 @@ def test_steam_expanded_command_selects_actual_executable_and_arguments(
 
     assert selected.executable == "Binaries/Alternate.exe"
     assert selected.arguments == ["-mode", "vr"]
-
-
-def test_multi_runtime_steam_game_respects_selected_launch_mode(tmp_path: Path) -> None:
-    directory = _manifest(tmp_path, "HybridVR", "1005")
-    executable = directory / "HybridVR.exe"
-    _pe64(executable, b"\0LibOVRRT64_1.dll\0")
-    _pe64(directory / "openvr_api.dll")
-    game = steam_oculus_games(tmp_path)[0]
-
-    assert not steam_command_uses_oculus(game, ["--", str(executable), "-steamvr"])
-    assert steam_command_uses_oculus(game, ["--", str(executable), "-vrmode", "oculus"])
-
-
-def test_explicit_oculus_mode_does_not_modify_the_game_command() -> None:
-    arguments = parser().parse_args(
-        ["launch-steam", "--oculus", "1005", "--", "/games/HybridVR.exe"]
-    )
-
-    assert arguments.oculus is True
-    assert arguments.app_id == "1005"
-    assert arguments.steam_command == ["/games/HybridVR.exe"]
-
-
-def test_oculus_only_steam_game_always_uses_revive(tmp_path: Path) -> None:
-    directory = _manifest(tmp_path, "OculusOnly", "1006")
-    executable = directory / "OculusOnly.exe"
-    _pe64(executable, b"\0LibOVRRT64_1.dll\0")
-    game = steam_oculus_games(tmp_path)[0]
-
-    assert steam_command_uses_oculus(game, ["--", str(executable)])
 
 
 def test_rejects_unknown_or_non_oculus_game(tmp_path: Path) -> None:
