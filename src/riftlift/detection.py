@@ -10,6 +10,7 @@ _OCULUS_FILENAMES = {
     "ovrplugin.dll",
 }
 _OCULUS_IMPORTS = (b"libovrrt64_1.dll",)
+_D3D12_IMPORTS = (b"d3d12.dll", "d3d12.dll".encode("utf-16le"))
 _NON_GAME_EXECUTABLES = (
     "crash",
     "helper",
@@ -80,6 +81,17 @@ def uses_oculus_runtime(directory: Path) -> bool:
 def uses_openvr_runtime(directory: Path) -> bool:
     """Return whether the install also carries an OpenVR client runtime."""
     return any(path.name.casefold() == "openvr_api.dll" for path in _walk(directory))
+
+
+def uses_d3d12_runtime(executable: Path) -> bool:
+    """Return whether the selected Windows game executable references D3D12.
+
+    ReviveXR's direct WineOpenXR path currently supports D3D11 clients.  A
+    static import/string probe lets D3D12 Oculus clients select classic Revive
+    before launch, without maintaining a title database or deliberately
+    failing the first run.
+    """
+    return _contains_any(executable, _D3D12_IMPORTS)
 
 
 def _unity_executables(directory: Path) -> list[Path]:

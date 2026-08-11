@@ -19,6 +19,9 @@
 #define RIFTLIFT_USER_ID UINT64_C(1)
 #define MSG_ENTITLEMENT UINT32_C(0x186B58B1)
 #define MSG_LOGGED_IN_USER UINT32_C(0x436F345D)
+#define MSG_ACCESS_TOKEN UINT32_C(0x06A85ABE)
+#define MSG_ORG_SCOPED_ID UINT32_C(0x18F0B01B)
+#define MSG_USER_PROOF UINT32_C(0x22810483)
 #define MSG_ACHIEVEMENT_DEFINITIONS UINT32_C(0x03D3458D)
 #define MSG_ACHIEVEMENT_PROGRESS UINT32_C(0x4F9FDE1D)
 #define MSG_CLOUD_BUCKET_METADATA UINT32_C(0x7327A50D)
@@ -30,6 +33,13 @@ typedef struct FakeMessage {
     uint64_t request_id;
     uint32_t type;
 } FakeMessage;
+
+/* Payloads can outlive the response message that delivered them. Keep the
+ * small identity objects stable for the lifetime of the process instead of
+ * returning a pointer into a message that the application will free. */
+static const FakeMessage fake_user = {FAKE_MAGIC, 0, MSG_LOGGED_IN_USER};
+static const FakeMessage fake_org_scoped_id = {FAKE_MAGIC, 0, MSG_ORG_SCOPED_ID};
+static const FakeMessage fake_user_proof = {FAKE_MAGIC, 0, MSG_USER_PROOF};
 
 static SRWLOCK queue_lock = SRWLOCK_INIT;
 static FakeMessage *queue[16];
@@ -54,6 +64,12 @@ static uint64_t configured_user_id(void)
     }
     parsed = strtoull(value, &end, 10);
     return end && *end == '\0' && parsed ? (uint64_t)parsed : RIFTLIFT_USER_ID;
+}
+
+static const char *configured_value(const char *name, const char *fallback)
+{
+    const char *value = getenv(name);
+    return value && *value ? value : fallback;
 }
 
 static FARPROC real_proc(const char *name)
@@ -142,6 +158,25 @@ __declspec(dllexport) uint64_t __cdecl ovr_User_GetLoggedInUser(void)
 {
     log_call("login request: success queued");
     return enqueue(MSG_LOGGED_IN_USER);
+}
+
+__declspec(dllexport) uint64_t __cdecl ovr_User_GetAccessToken(void)
+{
+    log_call("access token request: local success queued");
+    return enqueue(MSG_ACCESS_TOKEN);
+}
+
+__declspec(dllexport) uint64_t __cdecl ovr_User_GetOrgScopedID(uint64_t user_id)
+{
+    (void)user_id;
+    log_call("org scoped id request: local success queued");
+    return enqueue(MSG_ORG_SCOPED_ID);
+}
+
+__declspec(dllexport) uint64_t __cdecl ovr_User_GetUserProof(void)
+{
+    log_call("user proof request: local success queued");
+    return enqueue(MSG_USER_PROOF);
 }
 
 __declspec(dllexport) uint64_t __cdecl ovr_Entitlement_GetIsViewerEntitled(void)
@@ -393,9 +428,64 @@ __declspec(dllexport) void *__cdecl ovr_Message_GetUser(const void *object)
     typedef void *(__cdecl *function_type)(const void *);
     const FakeMessage *message = (const FakeMessage *)object;
     if (message && message->magic == FAKE_MAGIC) {
-        return (void *)object;
+        return (void *)&fake_user;
     }
     union { FARPROC source; function_type target; } convert = {real_proc("ovr_Message_GetUser")};
+    return convert.target ? convert.target(object) : NULL;
+}
+
+__declspec(dllexport) const char *__cdecl ovr_Message_GetString(const void *object)
+{
+    typedef const char *(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC && message->type == MSG_ACCESS_TOKEN) {
+        return configured_value("RIFTLIFT_ACCESS_TOKEN", "riftlift-local-access-token");
+    }
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_Message_GetString")};
+    return convert.target ? convert.target(object) : NULL;
+}
+
+__declspec(dllexport) void *__cdecl ovr_Message_GetOrgScopedID(const void *object)
+{
+    typedef void *(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC && message->type == MSG_ORG_SCOPED_ID) {
+        return (void *)&fake_org_scoped_id;
+    }
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_Message_GetOrgScopedID")};
+    return convert.target ? convert.target(object) : NULL;
+}
+
+__declspec(dllexport) uint64_t __cdecl ovr_OrgScopedID_GetID(const void *object)
+{
+    typedef uint64_t(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC && message->type == MSG_ORG_SCOPED_ID) {
+        return configured_user_id();
+    }
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_OrgScopedID_GetID")};
+    return convert.target ? convert.target(object) : configured_user_id();
+}
+
+__declspec(dllexport) void *__cdecl ovr_Message_GetUserProof(const void *object)
+{
+    typedef void *(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC && message->type == MSG_USER_PROOF) {
+        return (void *)&fake_user_proof;
+    }
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_Message_GetUserProof")};
+    return convert.target ? convert.target(object) : NULL;
+}
+
+__declspec(dllexport) const char *__cdecl ovr_UserProof_GetNonce(const void *object)
+{
+    typedef const char *(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC && message->type == MSG_USER_PROOF) {
+        return configured_value("RIFTLIFT_USER_PROOF", "riftlift-local-user-proof");
+    }
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_UserProof_GetNonce")};
     return convert.target ? convert.target(object) : NULL;
 }
 

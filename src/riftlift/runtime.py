@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import tarfile
@@ -514,6 +515,13 @@ def install_revive(paths: Paths) -> Path:
         "LibReviveXR64.dll",
         "openvr_api64.dll",
         "LibOVRPlatformImpl64_1.dll",
+        "Input/action_manifest.json",
+        "Input/gamepad_default.json",
+        "Input/holographic_controller_default.json",
+        "Input/knuckles_default.json",
+        "Input/oculus_touch_default.json",
+        "Input/vive_controller_default.json",
+        "Input/vive_cosmos_default.json",
     )
     if all((destination / name).is_file() for name in required):
         return destination
@@ -651,6 +659,36 @@ def active_runtime_json() -> Path:
     )
 
 
+def platform_user_id(paths: Paths) -> str:
+    """Return a unique identity that remains stable across game launches."""
+    override = os.environ.get("RIFTLIFT_USER_ID", "").strip()
+    identity_file = paths.config / "platform-user-id"
+
+    def validate(value: str, source: str) -> str:
+        try:
+            parsed = int(value)
+        except ValueError as error:
+            raise RiftLiftError(f"{source} must contain a positive integer") from error
+        if not 0 < parsed < 2**64:
+            raise RiftLiftError(f"{source} must contain a positive 64-bit integer")
+        return str(parsed)
+
+    if override:
+        return validate(override, "RIFTLIFT_USER_ID")
+    if identity_file.is_file():
+        return validate(identity_file.read_text().strip(), str(identity_file))
+
+    paths.config.mkdir(parents=True, exist_ok=True)
+    generated = str(secrets.randbits(62) | (1 << 61))
+    try:
+        descriptor = os.open(identity_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return validate(identity_file.read_text().strip(), str(identity_file))
+    with os.fdopen(descriptor, "w") as stream:
+        stream.write(f"{generated}\n")
+    return generated
+
+
 def launch_environment(
     paths: Paths, game_dir: Path, platform_shim: bool, platform_offline: bool = False
 ) -> dict[str, str]:
@@ -667,13 +705,16 @@ def launch_environment(
         }
     )
     if platform_shim:
-        compatibility = install_platform_compat(paths)
-        compatibility_win = linux_to_windows(compatibility)
+        install_platform_compat(paths)
         meta_runtime = (
             paths.prefix / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime"
         )
         meta_runtime_win = linux_to_windows(meta_runtime)
-        environment["WINEPATH"] = f"{compatibility_win};{meta_runtime_win}"
+        # Keep a single canonical copy of each Platform SDK DLL visible. Wine
+        # may otherwise preload a second public DLL from a Z: path; the vendor
+        # loader detects the mismatch and refuses to initialize.
+        environment["WINEPATH"] = meta_runtime_win
+        environment["RIFTLIFT_USER_ID"] = platform_user_id(paths)
         if platform_offline:
             environment["RIFTLIFT_PLATFORM_OFFLINE"] = "1"
     return environment

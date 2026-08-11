@@ -46,13 +46,55 @@ def test_injector_uses_existing_prefix_and_windows_game_path(
         ["-vr"],
     )
     assert launch(paths, game, []) == 0
-    assert captured["command"][1] == "runinprefix"
+    assert captured["command"][1] == "run"
     assert "/wait" in captured["command"]
-    game_path = captured["command"][captured["command"].index("sample-key") + 1]
+    cwd_index = captured["command"].index("/cwd")
+    assert captured["command"][cwd_index + 1].endswith("\\sample")
+    game_path = captured["command"][cwd_index + 2]
     assert game_path.startswith("Z:\\")
     assert game_path.endswith("\\Binaries\\Game.exe")
     assert captured["environment_args"][-1] is True
     assert captured["env"]["DXVK_NO_VR"] == "1"
+    assert captured["env"]["UMU_ID"] == "umu-default"
+    assert captured["env"]["UMU_USE_STEAM"] == "0"
+
+
+def test_classic_revive_uses_bundled_action_manifest(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "sample/Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    revive = tmp_path / "revive"
+    proton.mkdir()
+    (revive / "Input").mkdir(parents=True)
+    manifest = revive / "Input/action_manifest.json"
+    manifest.write_text("{}")
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr("riftlift.launch.install_revive", lambda _paths: revive)
+    monkeypatch.setattr("riftlift.launch.revive_backend", lambda _game: "openvr")
+    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
+    monkeypatch.setenv("VR_OVERRIDE", "/opt/xrizer")
+
+    game = Game(
+        "sample", "Sample", "1", "sample-key", str(executable.parent), "Game.exe", []
+    )
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "riftlift.launch.subprocess.call",
+        lambda command, **kwargs: captured.update(command=command, **kwargs) or 0,
+    )
+    assert launch(paths, game, []) == 0
+    assert captured["env"]["REVIVE_ACTION_MANIFEST"] == str(manifest)
 
 
 def test_platform_shim_does_not_redirect_oculus_vr_runtime(
@@ -76,11 +118,35 @@ def test_platform_shim_does_not_redirect_oculus_vr_runtime(
 
     environment = launch_environment(paths, paths.games / "sample", True)
 
-    platform_path, runtime_path = environment["WINEPATH"].split(";")
-    assert platform_path.endswith("\\platform-compat")
-    assert runtime_path.endswith("\\Program Files\\Oculus\\Support\\oculus-runtime")
+    assert environment["WINEPATH"].endswith(
+        "\\Program Files\\Oculus\\Support\\oculus-runtime"
+    )
+    assert "platform-compat" not in environment["WINEPATH"]
+    assert int(environment["RIFTLIFT_USER_ID"]) > 0
     assert "LIBOVR_DLL_DIR" not in environment
     assert environment["WINEDLLOVERRIDES"] == "d3d11=n;dxgi=n"
+
+
+def test_platform_identity_is_persistent_and_overrideable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from riftlift.runtime import platform_user_id
+
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    generated = platform_user_id(paths)
+    assert platform_user_id(paths) == generated
+    assert (paths.config / "platform-user-id").read_text().strip() == generated
+    assert (paths.config / "platform-user-id").stat().st_mode & 0o777 == 0o600
+
+    monkeypatch.setenv("RIFTLIFT_USER_ID", "35227")
+    assert platform_user_id(paths) == "35227"
 
 
 def test_active_runtime_uses_explicit_standard_manifest(
@@ -207,6 +273,9 @@ def test_launch_accepts_explicit_openvr_backend(tmp_path: Path, monkeypatch) -> 
     assert command[1] == "run"
     assert "DXVK_NO_VR" not in captured["env"]
     assert captured["env"]["VR_OVERRIDE"] == "/opt/xrizer"
+    assert captured["env"]["UMU_ID"] == "umu-default"
+    assert captured["env"]["UMU_USE_STEAM"] == "0"
+    assert "PROTON_VR_RUNTIME" not in captured["env"]
 
 
 def test_dual_runtime_game_uses_classic_revive_without_title_rules(
@@ -249,6 +318,27 @@ def test_oculus_only_game_uses_direct_revive_xr(tmp_path: Path, monkeypatch) -> 
     monkeypatch.delenv("RIFTLIFT_REVIVE_BACKEND", raising=False)
 
     assert revive_backend(game) == "openxr"
+
+
+def test_d3d12_oculus_game_uses_classic_revive_without_title_rules(
+    tmp_path: Path, monkeypatch
+) -> None:
+    game_dir = tmp_path / "generic-game"
+    executable = game_dir / "Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ\0unrelated\0D3D12.dll\0")
+    game = Game(
+        "generic",
+        "Generic",
+        "1",
+        "generic-key",
+        str(game_dir),
+        executable.name,
+        [],
+    )
+    monkeypatch.delenv("RIFTLIFT_REVIVE_BACKEND", raising=False)
+
+    assert revive_backend(game) == "openvr"
 
 
 def test_steam_game_keeps_steam_identity(tmp_path: Path, monkeypatch) -> None:
