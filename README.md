@@ -72,7 +72,9 @@ Leave **Add to Steam when finished** checked and click **Install**. Use
 
 Select the game in RiftLift and click **Launch in VR**. You can also launch its
 new shortcut from Steam or from a headset dashboard that reads your Steam VR
-library, such as WayVR.
+library, such as WayVR. RiftLift tracks the time spent in each game and shows
+the total beside its details. Playtime stays on your computer and is counted
+whenever the game is launched through RiftLift, including its Steam shortcut.
 
 ## Everyday use
 
@@ -85,6 +87,7 @@ The desktop app is the recommended way to use RiftLift:
   game without moving or copying it.
 - **Steam Games** finds installed Steam titles with a compatible Oculus mode.
 - **Launch in VR** starts the selected game through your active OpenXR runtime.
+- Game details show the playtime RiftLift has tracked locally.
 - The **⟳** button reloads games added elsewhere and refreshes store details
   and artwork.
 - **View Activity** shows download, setup, launch, and diagnostic messages.
