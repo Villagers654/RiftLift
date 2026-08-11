@@ -185,6 +185,7 @@ def test_launch_accepts_explicit_openvr_backend(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setattr("riftlift.launch.install_revive", lambda _paths: revive)
     monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
     monkeypatch.setenv("RIFTLIFT_REVIVE_BACKEND", "openvr")
+    monkeypatch.setenv("VR_OVERRIDE", "/opt/xrizer")
     captured: dict[str, object] = {}
     monkeypatch.setattr(
         "riftlift.launch.subprocess.call",
@@ -204,3 +205,4 @@ def test_launch_accepts_explicit_openvr_backend(tmp_path: Path, monkeypatch) -> 
     command = captured["command"]
     assert command[command.index("/wait") + 1] == "/openvr"
     assert "DXVK_NO_VR" not in captured["env"]
+    assert captured["env"]["VR_OVERRIDE"] == "/opt/xrizer"

@@ -34,6 +34,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         *extra_arguments,
     ]
     verified_rift_download = not game.app_key.startswith("steam.app.")
+    openvr_runtime = os.environ.get("VR_OVERRIDE", "").strip()
     environment = launch_environment(
         paths,
         game.game_dir,
@@ -48,6 +49,12 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         # Keep the selected backend authoritative while leaving explicit
         # OpenVR diagnostic launches untouched.
         environment["DXVK_NO_VR"] = "1"
+    elif openvr_runtime:
+        # proton_environment intentionally removes inherited OpenVR state so
+        # direct ReviveXR launches cannot be polluted by it. Classic Revive is
+        # itself an OpenVR client, however, so preserve the caller's selected
+        # OpenVR-to-OpenXR runtime (normally XRizer) for this backend only.
+        environment["VR_OVERRIDE"] = openvr_runtime
     wrapper_value = os.environ.get("RIFTLIFT_LAUNCH_WRAPPER", "").strip()
     wrapper: list[str] = []
     if wrapper_value:
