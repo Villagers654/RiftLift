@@ -21,9 +21,9 @@ from .util import RiftLiftError, download, linux_to_windows, run
 PROTON_VERSION = "GE-Proton11-3"
 PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{PROTON_VERSION}/{PROTON_VERSION}.tar.gz"
 PROTON_SHA256 = "861c2edc8d40d051fb1e7a692deb953be52bd339c46d90f2b7dde50ddad91266"
-RUNTIME_VERSION = "riftlift-0.5.1"
-RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.5.1/riftlift-compat.zip"
-RUNTIME_SHA256 = "6a397eefa0fa17688a23831e6d4a4c44ad40e888259498bcc8f90a47f1c457e7"
+RUNTIME_VERSION = "riftlift-0.9.0-alpha.1"
+RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.1/riftlift-compat.zip"
+RUNTIME_SHA256 = "2e2f2b2bca55b8b00054379bd010e5e9d405d949313da75608a15388301b897d"
 
 
 @dataclass(frozen=True, slots=True)
