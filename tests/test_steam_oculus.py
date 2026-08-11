@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from riftlift.config import Game, Paths
+from riftlift.cli import parser
 from riftlift.steam_oculus import (
     add_steam_game,
     game_from_steam_command,
@@ -102,6 +103,16 @@ def test_multi_runtime_steam_game_respects_selected_launch_mode(tmp_path: Path) 
 
     assert not steam_command_uses_oculus(game, ["--", str(executable), "-steamvr"])
     assert steam_command_uses_oculus(game, ["--", str(executable), "-vrmode", "oculus"])
+
+
+def test_explicit_oculus_mode_does_not_modify_the_game_command() -> None:
+    arguments = parser().parse_args(
+        ["launch-steam", "--oculus", "1005", "--", "/games/HybridVR.exe"]
+    )
+
+    assert arguments.oculus is True
+    assert arguments.app_id == "1005"
+    assert arguments.steam_command == ["/games/HybridVR.exe"]
 
 
 def test_oculus_only_steam_game_always_uses_revive(tmp_path: Path) -> None:

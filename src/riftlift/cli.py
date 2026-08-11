@@ -71,6 +71,11 @@ def parser() -> argparse.ArgumentParser:
     steam_launch = commands.add_parser(
         "launch-steam", help="launch an installed Steam Oculus XR game"
     )
+    steam_launch.add_argument(
+        "--oculus",
+        action="store_true",
+        help="explicitly run the expanded Steam command through RiftLift",
+    )
     steam_launch.add_argument("app_id")
     steam_launch.add_argument("steam_command", nargs=argparse.REMAINDER)
     commands.add_parser(
@@ -132,7 +137,9 @@ def run(arguments: argparse.Namespace) -> int:
         from .steam_oculus import game_from_steam_command, steam_command_uses_oculus
 
         discovered = steam_oculus_game(arguments.app_id)
-        if not steam_command_uses_oculus(discovered, arguments.steam_command):
+        if not arguments.oculus and not steam_command_uses_oculus(
+            discovered, arguments.steam_command
+        ):
             command = (
                 arguments.steam_command[1:]
                 if arguments.steam_command[:1] == ["--"]
