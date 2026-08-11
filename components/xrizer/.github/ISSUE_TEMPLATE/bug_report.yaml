@@ -1,0 +1,38 @@
+name: Bug Report
+description: File a bug report
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      placeholder: Arch Linux, Ubuntu 24.04, Windows 11
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: OpenXR Runtime
+      placeholder: Monado, WiVRn, VDXR
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Describe the issue.
+      value: |
+        **Please attach a log if applicable.**
+        Logs are located at `~/.local/state/xrizer/xrizer.txt`.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: checkboxes
+    attributes:
+      label: Please confirm you have reproduced this on the latest commit.
+      options:
+        - label: I have reproduced this on the latest commit
+          required: true

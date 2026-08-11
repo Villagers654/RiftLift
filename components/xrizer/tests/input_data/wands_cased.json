@@ -1,0 +1,71 @@
+{
+	"bindings": {
+		"/actions/set1": {
+			"poses": [
+				{
+					"path": "/user/hand/left/pose/raw",
+					"output": "/actions/set1/in/PoseAct"
+				}
+			],
+			"skeleton": [
+				{
+					"output": "/actions/set1/in/SkelAct",
+					"path": "/user/hand/left/input/skeleton/left"
+				}
+			],
+			"haptics": [
+				{
+					"output": "/actions/set1/in/VibAct",
+					"path": "/user/hand/left/output/haptic"
+				}
+			],
+			"sources": [
+				{
+					"inputs": {
+						"click": {
+							"output": "/actions/set1/in/BoolAct"
+						}
+					},
+					"mode": "button",
+					"path": "/user/hand/left/input/grip"
+				},
+				{
+					"inputs": {
+						"south": {
+							"output": "/actions/set1/in/BoolAct"
+						}
+					},
+					"mode": "dpad",
+					"path": "/user/hand/left/input/trackpad"
+				},
+				{
+					"mode": "trigger",
+					"inputs": {
+						"pull": {
+							"output": "/actions/set1/in/Vec1Act"
+						}
+					},
+					"path": "/user/hand/left/input/trigger"
+				},
+				{
+					"mode": "scalar_constant",
+					"inputs": {
+						"value": {
+							"output": "/actions/set1/in/Vec1Act"
+						}
+					},
+					"path": "/user/hand/left/input/trigger"
+				},
+				{
+					"mode": "trackpad",
+					"inputs": {
+						"position": {
+							"output": "/actions/set1/in/Vec2Act"
+						}
+					},
+					"path": "/user/hand/left/input/trackpad"
+				}
+			]
+		}
+	}
+}

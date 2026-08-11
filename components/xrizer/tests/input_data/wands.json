@@ -1,0 +1,154 @@
+{
+	"bindings": {
+		"/actions/set1": {
+			"poses": [
+				{
+					"output": "/actions/set1/in/pose",
+					"path": "/user/hand/left/pose/raw"
+				},
+				{
+					"output": "/actions/set1/in/pose",
+					"path": "/user/hand/right/pose/raw"
+				},
+				{
+					"output": "/actions/set1/in/posel",
+					"path": "/user/hand/left/pose/raw"
+				},
+				{
+					"output": "/actions/set1/in/poser",
+					"path": "/user/hand/right/pose/raw"
+				}
+			],
+			"haptics": [
+				{
+					"output": "/actions/set1/in/vib",
+					"path": "/user/hand/left/output/haptic"
+				},
+				{
+					"output": "/actions/set1/in/vib",
+					"path": "/user/hand/right/output/haptic"
+				}
+			],
+			"skeleton": [
+				{
+					"output": "/actions/set1/in/skellyl",
+					"path": "/user/hand/left/input/skeleton/left"
+				},
+				{
+					"output": "/actions/set1/in/skellyr",
+					"path": "/user/hand/right/input/skeleton/right"
+				}
+			],
+			"sources": [
+				{
+					"inputs": {
+						"click": {
+							"output": "/actions/set1/in/boolact"
+						}
+					},
+					"mode": "button",
+					"path": "/user/hand/left/input/grip"
+				},
+				{
+					"inputs": {
+						"click": {
+							"output": "/actions/set1/in/boolact"
+						}
+					},
+					"mode": "button",
+					"path": "/user/hand/right/input/grip"
+				},
+				{
+					"inputs": {
+						"click": {
+							"output": "/actions/set1/in/boolact"
+						}
+					},
+					"mode": "button",
+					"parameters": {
+						"force_input": ""
+					},
+					"path": "/user/hand/left/input/application_menu"
+				},
+				{
+					"inputs": {
+						"click": {
+							"output": "/actions/set1/in/boolact"
+						}
+					},
+					"mode": "button",
+					"path": "/user/hand/right/input/application_menu"
+				},
+				{
+					"inputs": {
+						"click": {
+							"output": "/actions/set1/in/boolact"
+						}
+					},
+					"mode": "button",
+					"path": "/user/hand/left/input/trigger"
+				},
+				{
+					"inputs": {
+						"click": {
+							"output": "/actions/set1/in/boolact"
+						}
+					},
+					"mode": "button",
+					"path": "/user/hand/right/input/trigger"
+				},
+				{
+					"inputs": {
+						"pull": {
+							"output": "/actions/set1/in/vec1act"
+						}
+					},
+					"mode": "trigger",
+					"path": "/user/hand/left/input/trigger"
+				},
+				{
+					"inputs": {
+						"pull": {
+							"output": "/actions/set1/in/vec1act"
+						}
+					},
+					"mode": "trigger",
+					"path": "/user/hand/right/input/trigger"
+				},
+				{
+					"inputs": {
+						"value": {
+							"output": "/actions/set1/in/vec1act"
+						}
+					},
+					"mode": "scalar_constant",
+					"path": "/user/hand/right/input/grip"
+				},
+				{
+					"inputs": {
+						"position": {
+							"output": "/actions/set1/in/vec2act"
+						},
+						"click": {
+							"output": "/actions/set1/in/boolact"
+						},
+						"touch": {
+							"output": "/actions/set1/in/boolact"
+						}
+					},
+					"mode": "trackpad",
+					"path": "/user/hand/left/input/trackpad"
+				},
+				{
+					"inputs": {
+						"position": {
+							"output": "/actions/set1/in/vec2act"
+						}
+					},
+					"mode": "trackpad",
+					"path": "/user/hand/right/input/trackpad"
+				}
+			]
+		}
+	}
+}

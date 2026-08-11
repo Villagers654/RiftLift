@@ -1,0 +1,47 @@
+{
+	"action_sets": [
+		{
+			"name": "/actions/set1",
+			"usage": "leftright"
+		}
+	],
+	"actions": [
+		{
+			"name": "/actions/set1/in/BoolAct",
+			"requirement": "mandatory",
+			"type": "boolean"
+		},
+		{
+			"name": "/actions/set1/in/Vec1Act",
+			"requirement": "mandatory",
+			"type": "vector1"
+		},
+		{
+			"name": "/actions/set1/in/Vec2Act",
+			"requirement": "mandatory",
+			"type": "vector2"
+		},
+		{
+			"name": "/actions/set1/in/VibAct",
+			"requirement": "mandatory",
+			"type": "vibration"
+		},
+		{
+			"name": "/actions/set1/in/PoseAct",
+			"requirement": "mandatory",
+			"type": "pose"
+		},
+		{
+			"name": "/actions/set1/in/SkelAct",
+			"requirement": "mandatory",
+			"type": "skeleton",
+			"skeleton": "/skeleton/hand/left"
+		}
+	],
+	"default_bindings": [
+		{
+			"binding_url": "wands_cased.json",
+			"controller_type": "vive_controller"
+		}
+	]
+}

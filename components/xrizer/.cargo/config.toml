@@ -1,0 +1,10 @@
+[env]
+# TODO: get leak checker passing
+MIRIFLAGS = "-Zmiri-disable-isolation -Zmiri-permissive-provenance -Zmiri-ignore-leaks -Zmiri-deterministic-floats"
+
+[alias]
+xbuild = "run --package xbuild --quiet --"
+c = "clippy --workspace --all-targets"
+
+[profile.release]
+strip = "debuginfo"
