@@ -13,9 +13,10 @@ jobs:
       run:
         working-directory: components/revive
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v5
+      - name: Fetch required Revive dependency files
+        shell: bash
+        run: scripts/prepare-revive-ci-deps.sh
       - name: Download Oculus PC SDK
         shell: pwsh
         run: |
@@ -26,7 +27,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}\vcpkg-binary-cache
-          key: revive-vcpkg-${{ runner.os }}-${{ hashFiles('.github/workflows/release.yml') }}
+          key: revive-vcpkg-v1-${{ runner.os }}
+          restore-keys: revive-vcpkg-${{ runner.os }}-
       - name: Install native dependencies
         shell: pwsh
         run: |
@@ -66,7 +68,7 @@ jobs:
       run:
         working-directory: components/xrizer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install native build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang cmake glslc libopenxr-dev libvulkan-dev libx11-xcb-dev ninja-build
       - uses: actions/cache@v4
@@ -75,7 +77,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             components/xrizer/target
-          key: xrizer-${{ runner.os }}-${{ hashFiles('components/xrizer/Cargo.lock') }}
+          key: xrizer-release-v1-${{ runner.os }}-${{ hashFiles('components/xrizer/Cargo.lock') }}
       - run: cargo build --release
       - name: Collect xrizer payload
         run: |
@@ -91,7 +93,7 @@ jobs:
     needs: revive
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v5
         with:
           name: riftlift-revive-source-build
