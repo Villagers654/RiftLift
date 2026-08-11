@@ -157,6 +157,7 @@ pub enum ActionBinding {
     ToggleButton(ActionBindingData<ButtonInput>),
     Dpad(ActionBindingData<DpadInput, DpadParameters>),
     DpadClick(ActionBindingData<DpadInput, DpadParameters>),
+    DpadTouch(ActionBindingData<DpadInput, DpadParameters>),
     Trigger(ActionBindingData<TriggerInput, ClickThresholdParams>),
     ScalarConstant(ActionBindingData<ScalarConstantInput, ScalarConstantParameters>),
     ForceSensor(ActionBindingData<ForceSensorInput, ForceSensorParameters>),
@@ -780,6 +781,16 @@ pub fn handle_sources(
                     Some(DpadSubMode::Click),
                 );
             }
+            ActionBinding::DpadTouch(data) => {
+                handle_dpad_source(
+                    validate_path,
+                    context,
+                    action_set_name,
+                    action_set,
+                    data,
+                    Some(DpadSubMode::Touch),
+                );
+            }
             ActionBinding::Trigger(data) => {
                 let Some(ValidActionBindingData {
                     path,
@@ -1083,12 +1094,19 @@ mod tests {
             r#"{
                 "bindings": {
                     "/actions/test": {
-                        "sources": [{
-                            "mode": "dpad_click",
-                            "path": "/user/hand/left/input/trackpad",
-                            "inputs": {"north": {"output": "/actions/test/in/up"}},
-                            "parameters": {"overlap_pct": "0"}
-                        }],
+                        "sources": [
+                            {
+                                "mode": "dpad_click",
+                                "path": "/user/hand/left/input/trackpad",
+                                "inputs": {"north": {"output": "/actions/test/in/up"}},
+                                "parameters": {"overlap_pct": "0"}
+                            },
+                            {
+                                "mode": "dpad_touch",
+                                "path": "/user/hand/right/input/trackpad",
+                                "inputs": {"south": {"output": "/actions/test/in/down"}}
+                            }
+                        ],
                         "poses": [{
                             "output": "/actions/test/in/hand",
                             "path": "/user/hand/left/pose/handgrip"
@@ -1101,6 +1119,7 @@ mod tests {
         let bindings = &parsed.bindings["/actions/test"];
 
         assert!(matches!(bindings.sources[0], ActionBinding::DpadClick(_)));
+        assert!(matches!(bindings.sources[1], ActionBinding::DpadTouch(_)));
         assert!(matches!(
             bindings.poses.as_ref().unwrap()[0].path,
             (Hand::Left, BoundPoseType::Raw)
