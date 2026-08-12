@@ -13,7 +13,13 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from .auth import is_signed_in
 from .auth_ui import AuthDialog
-from .config import Game, Paths, games
+from .config import (
+    Game,
+    Paths,
+    debug_logging_enabled,
+    games,
+    set_debug_logging,
+)
 from .doctor import doctor
 from .launch import launch
 from .library import add, add_local
@@ -134,6 +140,7 @@ class Window(QtWidgets.QMainWindow):
         self.installed: list[Game] = []
         self.slug: str | None = None
         self.busy = False
+        self.busy_label = ""
         self.log = ""
         self.log_views: list[QtWidgets.QTextEdit] = []
         self.events = Events()
@@ -167,6 +174,14 @@ class Window(QtWidgets.QMainWindow):
         head.setSpacing(10)
         head.addWidget(self.label("RiftLift", "title"))
         head.addStretch()
+        self.debug_logging = QtWidgets.QCheckBox("Debug logging")
+        self.debug_logging.setChecked(debug_logging_enabled(self.paths))
+        self.debug_logging.setToolTip(
+            "Save detailed Proton logs for future System reports. "
+            "Storage is automatically limited."
+        )
+        self.debug_logging.toggled.connect(self.set_debug_logging)
+        head.addWidget(self.debug_logging)
         self.check = self.button(
             "System",
             lambda: self.run_task("Checking your system", lambda: doctor(self.paths)),
@@ -276,6 +291,14 @@ class Window(QtWidgets.QMainWindow):
         activity.setObjectName("nav")
         bl.addWidget(activity)
         outer.addWidget(bar)
+
+    def set_debug_logging(self, enabled):
+        set_debug_logging(self.paths, enabled)
+        self.status.setText(
+            "Debug logging enabled for future launches"
+            if enabled
+            else "Debug logging disabled"
+        )
 
     def refresh(self, preferred=None):
         preferred = preferred or self.slug
@@ -624,6 +647,7 @@ class Window(QtWidgets.QMainWindow):
             self.status.setText("Another operation is already running")
             return
         self.busy = True
+        self.busy_label = label
         self.status.setText(label + "…")
         self.addbtn.setEnabled(False)
         self.refresh_button.setEnabled(False)
@@ -643,6 +667,7 @@ class Window(QtWidgets.QMainWindow):
 
     def _finish(self, message, result, refresh, error):
         self.busy = False
+        self.busy_label = ""
         self.addbtn.setEnabled(True)
         self.refresh_button.setEnabled(True)
         if error:
@@ -657,6 +682,15 @@ class Window(QtWidgets.QMainWindow):
                     if isinstance(result, str)
                     else refresh if isinstance(refresh, str) else self.slug
                 )
+
+    def closeEvent(self, event):
+        if self.busy:
+            event.ignore()
+            self.status.setText(
+                f"{self.busy_label} is still running; minimize RiftLift instead"
+            )
+            return
+        super().closeEvent(event)
 
     def _append_log(self, value):
         self.log = (self.log + value)[-30000:]

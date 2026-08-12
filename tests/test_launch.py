@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from riftlift.config import Game, Paths
+from riftlift.diagnostics import recent_launches
 from riftlift.launch import launch, oculus_launch_arguments, runtime_backend
 from riftlift.playtime import playtime
 from riftlift.runtime import launch_environment, native_xr_bridge, setup
@@ -118,6 +119,45 @@ def test_launcher_uses_existing_prefix_and_windows_game_path(
     assert captured["stdout"].closed
     assert captured["stderr"] == -2  # subprocess.STDOUT
     assert playtime(paths, game.slug).launches == 1
+
+
+def test_cancelled_launch_records_named_error(tmp_path: Path, monkeypatch) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "sample/Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    runtime = tmp_path / "runtime"
+    proton.mkdir()
+    runtime.mkdir()
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr("riftlift.launch.install_rift_runtime", lambda _paths: runtime)
+    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
+    monkeypatch.setattr(
+        "riftlift.launch.subprocess.call",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+    game = Game(
+        "sample",
+        "Sample",
+        "1",
+        "sample-key",
+        str(executable.parent),
+        executable.name,
+        [],
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        launch(paths, game, [])
+
+    assert recent_launches(paths)[0]["error"] == "KeyboardInterrupt"
 
 
 def test_openvr_bridge_uses_bundled_action_manifest(

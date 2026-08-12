@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .auth import complete_browser_login, sign_out
 from .auth_browser import default_browser, launch_browser_login, stop_browser
-from .config import Paths
+from .config import Paths, debug_logging_enabled
 from .diagnostics import prepare_proton_logs
 from .meta_auth import MetaAuthSession, install_protocol_handler, record_callback
 from .util import RiftLiftError, download, linux_to_windows, run
@@ -30,6 +30,15 @@ OPENVR_RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download
 OPENVR_RUNTIME_SHA256 = (
     "7142fffca124ec11396d86b7cb77404cea54b4710f3c026be63d3510c51fefaa"
 )
+
+
+def debug_logging_active(paths: Paths) -> bool:
+    override = os.environ.get("RIFTLIFT_PROTON_LOG")
+    return (
+        override not in {"", "0"}
+        if override is not None
+        else debug_logging_enabled(paths)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -358,6 +367,9 @@ def native_xr_bridge(proton: Path, backend: str) -> NativeXrBridge:
 def proton_environment(paths: Paths, game_dir: Path | None = None) -> dict[str, str]:
     root = steam_root()
     environment = os.environ.copy()
+    debug_logging = debug_logging_active(paths)
+    proton_log = "1" if debug_logging else "0"
+    wine_debug = environment.get("RIFTLIFT_WINEDEBUG", "-all")
     for variable in (
         "VR_OVERRIDE",
         "XR_RUNTIME_JSON",
@@ -373,8 +385,8 @@ def proton_environment(paths: Paths, game_dir: Path | None = None) -> dict[str, 
             "STEAM_COMPAT_LIBRARY_PATHS": str(root / "steamapps"),
             "SteamAppId": "0",
             "SteamGameId": "0",
-            "PROTON_LOG": environment.get("RIFTLIFT_PROTON_LOG", "0"),
-            "WINEDEBUG": environment.get("RIFTLIFT_WINEDEBUG", "-all"),
+            "PROTON_LOG": proton_log,
+            "WINEDEBUG": wine_debug,
         }
     )
     if environment["PROTON_LOG"] != "0":

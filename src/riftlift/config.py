@@ -107,3 +107,19 @@ def games(paths: Paths) -> list[Game]:
         except (OSError, TypeError, ValueError, json.JSONDecodeError):
             continue
     return result
+
+
+def debug_logging_enabled(paths: Paths) -> bool:
+    return (paths.config / "debug-logging").is_file()
+
+
+def set_debug_logging(paths: Paths, enabled: bool) -> None:
+    target = paths.config / "debug-logging"
+    if not enabled:
+        target.unlink(missing_ok=True)
+        return
+    paths.config.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w") as stream:
+        stream.write("1\n")
+    target.chmod(0o600)

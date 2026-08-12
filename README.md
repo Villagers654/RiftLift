@@ -117,8 +117,9 @@ Common fixes:
   retry.
 - **A game is missing from Steam:** close Steam, run `riftlift steam-sync`, and
   reopen it.
-- **A game fails to launch:** run **System**, then retry from a terminal with
-  `RIFTLIFT_PROTON_LOG=1 riftlift launch GAME-SLUG`.
+- **A game fails to launch:** enable **Debug logging** in the top bar, reproduce
+  the problem once, then click **System**. RiftLift retains a bounded set of
+  detailed Proton logs and includes relevant excerpts in the report.
 
 For a nonstandard Monado manifest, set
 `XR_RUNTIME_JSON=/path/to/openxr_monado.json` before opening RiftLift. If your

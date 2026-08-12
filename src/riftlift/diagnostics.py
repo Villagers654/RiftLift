@@ -147,6 +147,7 @@ def launch_started(
     *,
     wrapper: bool,
     capabilities: list[str],
+    debug_logging: bool = False,
 ) -> tuple[str, float]:
     launch_id = uuid.uuid4().hex[:12]
     started = time.monotonic()
@@ -165,6 +166,7 @@ def launch_started(
             "executable": game.executable_path.name,
             "capabilities": capabilities,
             "wrapper": wrapper,
+            "debug_logging": debug_logging,
         },
     )
     return launch_id, started
@@ -224,18 +226,7 @@ def recent_launches(paths: Paths, limit: int = 5) -> list[dict[str, Any]]:
             launches[launch_id].update(finished)
 
     completed = [launches[item] for item in order if item in launches]
-    failures = [
-        item
-        for item in completed
-        if item.get("event") != "finished"
-        or item.get("exit_code") not in (0, None)
-        or item.get("error")
-    ]
-    selected = failures[-limit:]
-    for item in reversed(completed):
-        if item not in selected:
-            selected.append(item)
-        if len(selected) >= limit:
-            break
-    selected.sort(key=completed.index, reverse=True)
-    return selected[:limit]
+    # Keep this section genuinely recent. Prioritizing every historical failure
+    # makes a repaired launch look broken forever and keeps stale remediation in
+    # future doctor reports.
+    return list(reversed(completed[-limit:]))

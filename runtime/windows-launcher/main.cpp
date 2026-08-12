@@ -201,6 +201,7 @@ int wmain(int argc, wchar_t *argv[]) {
 
 	bool debug = false;
 	bool waitForExit = false;
+	bool identifyOpenVRApplication = false;
 	StringArray dlls;
 	std::string appKey;
 	std::wstring workingDirOverride;
@@ -219,6 +220,7 @@ int wmain(int argc, wchar_t *argv[]) {
 			// back to the OpenXR bridge when a native OpenVR runtime is available.
 			dlls.add(moduleDir + std::string("\\openvr_api64.dll"));
 			dlls.add(moduleDir + std::string("\\RiftLiftOpenVR64.dll"));
+			identifyOpenVRApplication = true;
 		}
 		else if (wcscmp(argv[i], L"/proxy") == 0)
 		{
@@ -337,7 +339,7 @@ int wmain(int argc, wchar_t *argv[]) {
 
 	LOG("Succesfully injected!\n");
 
-	if (!appKey.empty())
+	if (!appKey.empty() && identifyOpenVRApplication)
 	{
 		vr::EVRInitError err;
 		vr::VR_Init(&err, vr::VRApplication_Utility);

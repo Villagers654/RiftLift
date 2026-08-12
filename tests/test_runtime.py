@@ -113,3 +113,28 @@ def test_proton_debug_logs_use_diagnostics_directory(tmp_path, monkeypatch):
     assert environment["PROTON_LOG"] == "1"
     assert environment["PROTON_LOG_DIR"] == str(paths.data / "diagnostics/proton")
     assert (paths.data / "diagnostics/proton").is_dir()
+
+
+def test_gui_debug_setting_enables_bounded_proton_logging(tmp_path, monkeypatch):
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    monkeypatch.setattr("riftlift.runtime.steam_root", lambda: tmp_path / "steam")
+    paths.config.mkdir(parents=True)
+    (paths.config / "debug-logging").write_text("1\n")
+    monkeypatch.delenv("RIFTLIFT_PROTON_LOG", raising=False)
+    monkeypatch.delenv("RIFTLIFT_WINEDEBUG", raising=False)
+
+    environment = proton_environment(paths)
+
+    assert environment["PROTON_LOG"] == "1"
+    assert environment["WINEDEBUG"] == "-all"
+
+    monkeypatch.setenv("RIFTLIFT_PROTON_LOG", "0")
+    environment = proton_environment(paths)
+    assert environment["PROTON_LOG"] == "0"

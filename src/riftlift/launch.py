@@ -184,6 +184,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         backend,
         wrapper=bool(wrapper),
         capabilities=capabilities,
+        debug_logging=environment.get("PROTON_LOG", "0") != "0",
     )
     print(
         "Native XR bridge: "
@@ -207,7 +208,12 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
                 stderr=subprocess.STDOUT,
             )
     except BaseException as error:
-        launch_finished(paths, launch_id, started, error=str(error))
+        launch_finished(
+            paths,
+            launch_id,
+            started,
+            error=str(error).strip() or type(error).__name__,
+        )
         raise
     finally:
         finish_launch_log(log_path)

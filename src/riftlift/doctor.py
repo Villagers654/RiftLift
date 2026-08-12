@@ -21,9 +21,21 @@ from .detection import (
     uses_oculus_xr_plugin,
     uses_openvr_runtime,
 )
-from .diagnostics import launch_log_path, recent_launches, redact, utc_now
+from .diagnostics import (
+    launch_log_path,
+    prepare_proton_logs,
+    recent_launches,
+    redact,
+    utc_now,
+)
 from .launch import runtime_backend
-from .runtime import META_PACKAGES, active_runtime_json, native_xr_bridge, proton_dir
+from .runtime import (
+    META_PACKAGES,
+    active_runtime_json,
+    debug_logging_active,
+    native_xr_bridge,
+    proton_dir,
+)
 from .steam import steam_root
 
 PASTE_URL = "https://paste.rs/"
@@ -202,16 +214,19 @@ def _recent_journal_errors(since: str | None = None) -> list[str]:
     )
     result = []
     for line in output.splitlines():
-        noisy = (
-            "Failed to parse bindings for ViveController" in line
-            or 'Failed to parse bindings for Unknown("holographic_controller")' in line
-            or "Unsupported application type: Utility" in line
-            or "riftlift-validate-" in line
-            or "riftlift-probe-" in line
-        )
-        if _ERROR_LINE.search(line) and not noisy:
+        if _ERROR_LINE.search(line) and not _noisy_evidence(line):
             result.append(redact(line.strip())[:600])
     return result[-8:]
+
+
+def _noisy_evidence(line: str) -> bool:
+    return (
+        "Failed to parse bindings for ViveController" in line
+        or 'Failed to parse bindings for Unknown("holographic_controller")' in line
+        or "Unsupported application type: Utility" in line
+        or "riftlift-validate-" in line
+        or "riftlift-probe-" in line
+    )
 
 
 def _tail_lines(path: Path) -> list[str]:
@@ -260,7 +275,9 @@ def _recent_game_log_errors(paths: Paths) -> list[str]:
         except OSError:
             continue
         matches = [
-            redact(line.strip())[:600] for line in lines if _ERROR_LINE.search(line)
+            redact(line.strip())[:600]
+            for line in lines
+            if _ERROR_LINE.search(line) and not _noisy_evidence(line)
         ]
         if matches:
             result.append(f"{redact(str(candidate))}:")
@@ -282,16 +299,19 @@ def _recent_launch_log_errors(
         except OSError:
             continue
         matches = [
-            redact(line.strip())[:600] for line in lines if _ERROR_LINE.search(line)
+            redact(line.strip())[:600]
+            for line in lines
+            if _ERROR_LINE.search(line) and not _noisy_evidence(line)
         ]
         if matches:
             result.append(f"{redact(str(target))}:")
             result.extend(f"  {line}" for line in matches[-8:])
-        elif launch.get("event") != "finished" or launch.get("exit_code") not in (
-            0,
-            None,
-        ):
-            tail = [redact(line.strip())[:600] for line in lines[-8:] if line.strip()]
+        elif launch.get("event") != "finished" or launch.get("exit_code") != 0:
+            tail = [
+                redact(line.strip())[:600]
+                for line in lines[-8:]
+                if line.strip() and not _noisy_evidence(line)
+            ]
             if tail:
                 result.append(f"{redact(str(target))} (tail):")
                 result.extend(f"  {line}" for line in tail)
@@ -299,7 +319,7 @@ def _recent_launch_log_errors(
 
 
 def _recent_proton_log_errors(paths: Paths) -> list[str]:
-    directory = paths.data / "diagnostics" / "proton"
+    directory = prepare_proton_logs(paths)
     try:
         candidates = sorted(
             (item for item in directory.glob("*.log") if item.is_file()),
@@ -315,7 +335,9 @@ def _recent_proton_log_errors(paths: Paths) -> list[str]:
         except OSError:
             continue
         matches = [
-            redact(line.strip())[:600] for line in lines if _ERROR_LINE.search(line)
+            redact(line.strip())[:600]
+            for line in lines
+            if _ERROR_LINE.search(line) and not _noisy_evidence(line)
         ]
         if matches:
             result.append(f"{redact(str(target))}:")
@@ -324,7 +346,9 @@ def _recent_proton_log_errors(paths: Paths) -> list[str]:
 
 
 def _recommendations(
-    checks: list[tuple[str, bool, str]], launches: list[dict[str, object]]
+    checks: list[tuple[str, bool, str]],
+    launches: list[dict[str, object]],
+    debug_logging: bool,
 ) -> list[str]:
     failed_labels = {label for label, ok, _detail in checks if not ok}
     result: list[str] = []
@@ -353,21 +377,34 @@ def _recommendations(
         result.append("Run `riftlift login` before installing Meta-owned games.")
     if any(label.startswith("Game: ") for label in failed_labels):
         result.append("Repair or re-register games whose executable is marked missing.")
+    unsuccessful = [
+        item
+        for item in launches
+        if item.get("event") != "finished"
+        or item.get("error")
+        or item.get("exit_code") != 0
+    ]
     if not launches:
+        if not debug_logging:
+            result.append(
+                "Enable Debug logging in the RiftLift GUI before reproducing the "
+                "problem."
+            )
         result.append(
             "Launch the affected game through RiftLift, then rerun doctor to capture "
             "launch-correlated evidence."
         )
-    elif any(
-        item.get("event") != "finished"
-        or item.get("error")
-        or item.get("exit_code") not in (0, None)
-        for item in launches
-    ):
-        result.append(
-            "Reproduce once with `RIFTLIFT_PROTON_LOG=1 riftlift launch GAME-SLUG`, "
-            "then rerun doctor."
-        )
+    elif unsuccessful and not all(item.get("debug_logging") for item in unsuccessful):
+        if debug_logging:
+            result.append(
+                "Debug logging is now enabled; reproduce once more, then run System "
+                "again."
+            )
+        else:
+            result.append(
+                "Enable Debug logging in the RiftLift GUI, reproduce once, then run "
+                "System again."
+            )
     return result
 
 
@@ -381,6 +418,7 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         except Exception as error:
             checks.append((label, False, redact(str(error))))
 
+    debug_logging = debug_logging_active(paths)
     runtime_ok, runtime_detail = _runtime_description()
     checks.append(("Active OpenXR runtime", runtime_ok, runtime_detail))
     check("Steam", steam_root)
@@ -497,6 +535,8 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         f"monado.service: {_service_state('monado.service')}",
         f"XR_RUNTIME_JSON: {redact(os.environ.get('XR_RUNTIME_JSON', '<unset>'))}",
         f"VR_OVERRIDE: {redact(os.environ.get('VR_OVERRIDE', '<unset>'))}",
+        "Debug logging: "
+        + ("enabled (bounded Proton diagnostic logs)" if debug_logging else "disabled"),
         "",
         "[Core checks]",
     ]
@@ -525,13 +565,16 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             outcome = "INTERRUPTED (no completion recorded)"
         elif item.get("error"):
             outcome = f"ERROR: {item['error']}"
+        elif item.get("exit_code") is None:
+            outcome = "INTERRUPTED (outcome not recorded)"
         else:
             outcome = f"exit {item.get('exit_code', '?')} after {item.get('duration_seconds', '?')}s"
         capabilities = ",".join(item.get("capabilities", [])) or "none"
         lines.append(
             f"{item.get('started_at', item.get('at', '?'))}  "
             f"{item.get('game', item.get('slug', '?'))}  "
-            f"{item.get('backend', '?')}  {outcome}  caps={capabilities}"
+            f"{item.get('backend', '?')}  {outcome}  caps={capabilities}  "
+            f"debug={'on' if item.get('debug_logging') else 'off'}"
         )
 
     launch_times = [
@@ -557,14 +600,14 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             "Journal scan skipped: no RiftLift launch window exists to distinguish "
             "game failures from unrelated Steam OpenXR probes."
         )
-    recommendations = _recommendations(checks, launches)
+    recommendations = _recommendations(checks, launches, debug_logging)
     if recommendations:
         lines.extend(["", "[Recommended next steps]"])
         lines.extend(f"- {item}" for item in recommendations)
     unsuccessful_launches = sum(
         item.get("event") != "finished"
         or bool(item.get("error"))
-        or item.get("exit_code") not in (0, None)
+        or item.get("exit_code") != 0
         for item in launches
     )
     successful_launches = len(launches) - unsuccessful_launches

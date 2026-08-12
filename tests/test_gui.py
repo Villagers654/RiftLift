@@ -85,6 +85,66 @@ def test_gui_exposes_only_the_primary_library_actions(tmp_path: Path) -> None:
     app.processEvents()
 
 
+def test_gui_cannot_close_while_an_operation_is_running(tmp_path: Path) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    window.busy = True
+    window.busy_label = "Launching Lone Echo"
+
+    class CloseEvent:
+        ignored = False
+
+        def ignore(self):
+            self.ignored = True
+
+    event = CloseEvent()
+    window.closeEvent(event)
+
+    assert event.ignored
+    assert "minimize RiftLift instead" in window.status.text()
+    window.busy = False
+    window.close()
+    app.processEvents()
+
+
+def test_gui_debug_logging_toggle_persists_setting(tmp_path: Path) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+
+    assert not window.debug_logging.isChecked()
+    window.debug_logging.setChecked(True)
+
+    assert (paths.config / "debug-logging").is_file()
+    assert "enabled for future launches" in window.status.text()
+    window.close()
+    app.processEvents()
+
+    restored = Window(paths)
+    assert restored.debug_logging.isChecked()
+    restored.debug_logging.setChecked(False)
+    assert not (paths.config / "debug-logging").exists()
+    restored.close()
+    app.processEvents()
+
+
 def test_store_action_matches_the_selected_game_source(tmp_path: Path) -> None:
     paths = Paths(
         tmp_path / "data",

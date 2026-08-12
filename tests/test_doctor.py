@@ -87,6 +87,25 @@ def test_recent_launches_preserve_failure_and_interruption(tmp_path: Path) -> No
     )
 
 
+def test_recent_launches_do_not_keep_stale_failures_forever(tmp_path: Path) -> None:
+    test_paths = paths(tmp_path)
+    sample = game(tmp_path)
+    failed, started = launch_started(
+        test_paths, sample, "openxr", wrapper=False, capabilities=[]
+    )
+    launch_finished(test_paths, failed, started, exit_code=1)
+    for _index in range(6):
+        successful, started = launch_started(
+            test_paths, sample, "openxr", wrapper=False, capabilities=[]
+        )
+        launch_finished(test_paths, successful, started, exit_code=0)
+
+    records = recent_launches(test_paths)
+
+    assert len(records) == 5
+    assert all(record.get("exit_code") == 0 for record in records)
+
+
 def test_diagnostic_log_is_compacted_to_bounded_tail(tmp_path: Path) -> None:
     target = tmp_path / "large.log"
     target.write_bytes(b"discard me\n" + b"x" * 100 + b"\nkeep me\n")
@@ -202,6 +221,46 @@ def test_build_report_includes_saved_launch_log_errors(
     assert "ordinary output" not in report
 
 
+def test_build_report_ignores_known_xrizer_utility_probe(
+    tmp_path: Path, monkeypatch
+) -> None:
+    test_paths = paths(tmp_path)
+    launch_id = "utility-probe"
+    target = launch_log_path(test_paths, launch_id)
+    target.parent.mkdir(parents=True)
+    target.write_text("Unsupported application type: Utility\n")
+    monkeypatch.setattr(
+        "riftlift.doctor._runtime_description", lambda: (True, "test runtime")
+    )
+    monkeypatch.setattr("riftlift.doctor.steam_root", lambda: tmp_path / "steam")
+    monkeypatch.setattr("riftlift.doctor._gpu_summary", lambda: "Test GPU")
+    monkeypatch.setattr("riftlift.doctor._vulkan_summary", lambda: "Test Vulkan")
+    monkeypatch.setattr("riftlift.doctor._connected_inputs", lambda: "none")
+    monkeypatch.setattr("riftlift.doctor._service_state", lambda _name: "inactive")
+    monkeypatch.setattr("riftlift.doctor._recent_journal_errors", lambda _since: [])
+    monkeypatch.setattr("riftlift.doctor._recent_game_log_errors", lambda _paths: [])
+    monkeypatch.setattr(
+        "riftlift.doctor.recent_launches",
+        lambda _paths: [
+            {
+                "id": launch_id,
+                "event": "finished",
+                "started_at": "2026-01-01T00:00:00+00:00",
+                "game": "Sample",
+                "backend": "openxr",
+                "exit_code": 0,
+                "duration_seconds": 1.0,
+                "capabilities": [],
+            }
+        ],
+    )
+
+    report, _healthy = build_report(test_paths)
+
+    assert "Unsupported application type: Utility" not in report
+    assert "No matching errors found during the recorded launch window" in report
+
+
 def test_build_report_includes_saved_proton_log_errors(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -209,6 +268,8 @@ def test_build_report_includes_saved_proton_log_errors(
     target = test_paths.data / "diagnostics/proton/steam-123.log"
     target.parent.mkdir(parents=True)
     target.write_text("ordinary output\nerr:module:failed to load bridge\n")
+    test_paths.config.mkdir(parents=True)
+    (test_paths.config / "debug-logging").write_text("1\n")
     monkeypatch.setattr(
         "riftlift.doctor._runtime_description", lambda: (True, "test runtime")
     )
@@ -225,6 +286,7 @@ def test_build_report_includes_saved_proton_log_errors(
 
     assert "err:module:failed to load bridge" in report
     assert "ordinary output" not in report
+    assert "Debug logging: enabled (bounded Proton diagnostic logs)" in report
 
 
 def test_build_report_does_not_attribute_unrelated_journal_errors_without_launch(
