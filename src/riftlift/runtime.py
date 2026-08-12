@@ -15,6 +15,7 @@ from pathlib import Path
 from .auth import complete_browser_login, sign_out
 from .auth_browser import default_browser, launch_browser_login, stop_browser
 from .config import Paths
+from .diagnostics import prepare_proton_logs
 from .meta_auth import MetaAuthSession, install_protocol_handler, record_callback
 from .util import RiftLiftError, download, linux_to_windows, run
 
@@ -376,6 +377,9 @@ def proton_environment(paths: Paths, game_dir: Path | None = None) -> dict[str, 
             "WINEDEBUG": environment.get("RIFTLIFT_WINEDEBUG", "-all"),
         }
     )
+    if environment["PROTON_LOG"] != "0":
+        proton_logs = prepare_proton_logs(paths)
+        environment["PROTON_LOG_DIR"] = str(proton_logs)
     return environment
 
 

@@ -9,6 +9,7 @@ from riftlift.runtime import (
     RUNTIME_VERSION,
     install_openvr_runtime,
     install_rift_runtime,
+    proton_environment,
 )
 
 REQUIRED_RUNTIME_FILES = (
@@ -92,3 +93,23 @@ def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):
     ).read_text().strip() == OPENVR_RUNTIME_VERSION
     archive.unlink()
     assert install_openvr_runtime(paths) == destination
+
+
+def test_proton_debug_logs_use_diagnostics_directory(tmp_path, monkeypatch):
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    steam = tmp_path / "steam"
+    monkeypatch.setattr("riftlift.runtime.steam_root", lambda: steam)
+    monkeypatch.setenv("RIFTLIFT_PROTON_LOG", "1")
+
+    environment = proton_environment(paths)
+
+    assert environment["PROTON_LOG"] == "1"
+    assert environment["PROTON_LOG_DIR"] == str(paths.data / "diagnostics/proton")
+    assert (paths.data / "diagnostics/proton").is_dir()

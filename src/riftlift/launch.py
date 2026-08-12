@@ -6,7 +6,13 @@ import shutil
 import subprocess
 
 from .config import Game, Paths
-from .diagnostics import launch_finished, launch_started
+from .diagnostics import (
+    finish_launch_log,
+    launch_finished,
+    launch_started,
+    prepare_launch_log,
+    prepare_proton_logs,
+)
 from .detection import (
     is_unity_player,
     is_unreal_shipping,
@@ -183,19 +189,30 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         "Native XR bridge: "
         f"{native_bridge.pe.name} -> {native_bridge.unix.name} (Wine unixlib)"
     )
+    log_path = prepare_launch_log(paths, launch_id)
+    print(f"Launch log: {log_path}")
     playtime_session: PlaytimeSession | None = None
     try:
         try:
             playtime_session = PlaytimeSession(paths, game.slug)
         except OSError as error:
             print(f"warning: local playtime tracking could not start: {error}")
-        exit_code = subprocess.call(
-            [*wrapper, *arguments], cwd=game.game_dir, env=environment
-        )
+        descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as launch_log:
+            exit_code = subprocess.call(
+                [*wrapper, *arguments],
+                cwd=game.game_dir,
+                env=environment,
+                stdout=launch_log,
+                stderr=subprocess.STDOUT,
+            )
     except BaseException as error:
         launch_finished(paths, launch_id, started, error=str(error))
         raise
     finally:
+        finish_launch_log(log_path)
+        if environment.get("PROTON_LOG", "0") != "0":
+            prepare_proton_logs(paths)
         if playtime_session is not None:
             try:
                 playtime_session.close()

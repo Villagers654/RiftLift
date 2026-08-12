@@ -112,6 +112,11 @@ def test_launcher_uses_existing_prefix_and_windows_game_path(
     assert captured["env"]["DXVK_NO_VR"] == "1"
     assert captured["env"]["UMU_ID"] == "umu-default"
     assert captured["env"]["UMU_USE_STEAM"] == "0"
+    launch_logs = list((paths.data / "diagnostics/logs").glob("launch-*.log"))
+    assert len(launch_logs) == 1
+    assert launch_logs[0].stat().st_mode & 0o777 == 0o600
+    assert captured["stdout"].closed
+    assert captured["stderr"] == -2  # subprocess.STDOUT
     assert playtime(paths, game.slug).launches == 1
 
 

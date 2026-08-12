@@ -21,7 +21,7 @@ from .detection import (
     uses_oculus_xr_plugin,
     uses_openvr_runtime,
 )
-from .diagnostics import recent_launches, redact, utc_now
+from .diagnostics import launch_log_path, recent_launches, redact, utc_now
 from .launch import runtime_backend
 from .runtime import META_PACKAGES, active_runtime_json, native_xr_bridge, proton_dir
 from .steam import steam_root
@@ -33,6 +33,7 @@ _ERROR_LINE = re.compile(
 )
 _LOG_NAMES = {"player.log", "output_log.txt", "crash.log", "error.log"}
 _MAX_REPORT = 48 * 1024
+_MAX_LOG_TAIL = 512 * 1024
 
 
 def _command(arguments: list[str], timeout: float = 4) -> str:
@@ -178,12 +179,18 @@ def _connected_inputs() -> str:
     return ", ".join(dict.fromkeys(names)) or "none detected"
 
 
-def _recent_journal_errors() -> list[str]:
+def _recent_journal_errors(since: str | None = None) -> list[str]:
+    # Steam probes OpenXR on its own and emits the same loader messages as a
+    # game.  Without a recorded RiftLift launch there is no sound way to
+    # attribute those messages to us, so do not include a global 24-hour
+    # scrape in the launch evidence section.
+    if since is None:
+        return []
     output = _command(
         [
             "journalctl",
             "--user",
-            "--since=-24h",
+            f"--since={since}",
             "--no-pager",
             "-o",
             "short-iso",
@@ -205,6 +212,19 @@ def _recent_journal_errors() -> list[str]:
         if _ERROR_LINE.search(line) and not noisy:
             result.append(redact(line.strip())[:600])
     return result[-8:]
+
+
+def _tail_lines(path: Path) -> list[str]:
+    with path.open("rb") as stream:
+        size = stream.seek(0, os.SEEK_END)
+        offset = max(0, size - _MAX_LOG_TAIL)
+        stream.seek(offset)
+        payload = stream.read()
+    if offset:
+        _partial, separator, payload = payload.partition(b"\n")
+        if not separator:
+            return []
+    return payload.decode(errors="replace").splitlines()
 
 
 def _recent_game_log_errors(paths: Paths) -> list[str]:
@@ -236,7 +256,7 @@ def _recent_game_log_errors(paths: Paths) -> list[str]:
     result = []
     for _, candidate in sorted(recent, reverse=True)[:3]:
         try:
-            lines = candidate.read_text(errors="replace").splitlines()[-500:]
+            lines = _tail_lines(candidate)[-500:]
         except OSError:
             continue
         matches = [
@@ -245,6 +265,109 @@ def _recent_game_log_errors(paths: Paths) -> list[str]:
         if matches:
             result.append(f"{redact(str(candidate))}:")
             result.extend(f"  {line}" for line in matches[-6:])
+    return result
+
+
+def _recent_launch_log_errors(
+    paths: Paths, launches: list[dict[str, object]]
+) -> list[str]:
+    result: list[str] = []
+    for launch in launches:
+        launch_id = launch.get("id")
+        if not isinstance(launch_id, str):
+            continue
+        target = launch_log_path(paths, launch_id)
+        try:
+            lines = _tail_lines(target)[-800:]
+        except OSError:
+            continue
+        matches = [
+            redact(line.strip())[:600] for line in lines if _ERROR_LINE.search(line)
+        ]
+        if matches:
+            result.append(f"{redact(str(target))}:")
+            result.extend(f"  {line}" for line in matches[-8:])
+        elif launch.get("event") != "finished" or launch.get("exit_code") not in (
+            0,
+            None,
+        ):
+            tail = [redact(line.strip())[:600] for line in lines[-8:] if line.strip()]
+            if tail:
+                result.append(f"{redact(str(target))} (tail):")
+                result.extend(f"  {line}" for line in tail)
+    return result
+
+
+def _recent_proton_log_errors(paths: Paths) -> list[str]:
+    directory = paths.data / "diagnostics" / "proton"
+    try:
+        candidates = sorted(
+            (item for item in directory.glob("*.log") if item.is_file()),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )[:2]
+    except OSError:
+        return []
+    result: list[str] = []
+    for target in candidates:
+        try:
+            lines = _tail_lines(target)[-1000:]
+        except OSError:
+            continue
+        matches = [
+            redact(line.strip())[:600] for line in lines if _ERROR_LINE.search(line)
+        ]
+        if matches:
+            result.append(f"{redact(str(target))}:")
+            result.extend(f"  {line}" for line in matches[-6:])
+    return result
+
+
+def _recommendations(
+    checks: list[tuple[str, bool, str]], launches: list[dict[str, object]]
+) -> list[str]:
+    failed_labels = {label for label, ok, _detail in checks if not ok}
+    result: list[str] = []
+    if "Active OpenXR runtime" in failed_labels:
+        result.append(
+            "Configure a working OpenXR runtime, then rerun `riftlift doctor`."
+        )
+    if "Steam" in failed_labels:
+        result.append("Start and sign in to Steam once so RiftLift can find it.")
+    setup_labels = {
+        "GE-Proton",
+        "Windows ABI launcher",
+        "OpenXR ABI bridge",
+        "OpenVR ABI bridge",
+        "Native OPENXR unixlib",
+        "Native OPENVR unixlib",
+        "RiftLift OpenVR translator",
+        "Meta client",
+        "Platform bridge",
+    }
+    if failed_labels & setup_labels:
+        result.append(
+            "Run `riftlift setup` to repair missing compatibility components."
+        )
+    if "Meta sign-in" in failed_labels:
+        result.append("Run `riftlift login` before installing Meta-owned games.")
+    if any(label.startswith("Game: ") for label in failed_labels):
+        result.append("Repair or re-register games whose executable is marked missing.")
+    if not launches:
+        result.append(
+            "Launch the affected game through RiftLift, then rerun doctor to capture "
+            "launch-correlated evidence."
+        )
+    elif any(
+        item.get("event") != "finished"
+        or item.get("error")
+        or item.get("exit_code") not in (0, None)
+        for item in launches
+    ):
+        result.append(
+            "Reproduce once with `RIFTLIFT_PROTON_LOG=1 riftlift launch GAME-SLUG`, "
+            "then rerun doctor."
+        )
     return result
 
 
@@ -406,17 +529,51 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             outcome = f"exit {item.get('exit_code', '?')} after {item.get('duration_seconds', '?')}s"
         capabilities = ",".join(item.get("capabilities", [])) or "none"
         lines.append(
-            f"{item.get('at', '?')}  {item.get('game', item.get('slug', '?'))}  "
+            f"{item.get('started_at', item.get('at', '?'))}  "
+            f"{item.get('game', item.get('slug', '?'))}  "
             f"{item.get('backend', '?')}  {outcome}  caps={capabilities}"
         )
 
-    evidence = [*_recent_journal_errors(), *_recent_game_log_errors(paths)]
+    launch_times = [
+        item.get("started_at", item.get("at"))
+        for item in launches
+        if isinstance(item.get("started_at", item.get("at")), str)
+        and item.get("started_at", item.get("at"))
+    ]
+    journal_since = min(launch_times) if launch_times else None
+    evidence = [
+        *_recent_launch_log_errors(paths, launches),
+        *_recent_proton_log_errors(paths),
+        *_recent_journal_errors(journal_since),
+        *_recent_game_log_errors(paths),
+    ]
     lines.extend(["", "[Recent error evidence]"])
-    lines.extend(evidence or ["No matching recent XR/game errors found."])
+    if evidence:
+        lines.extend(evidence)
+    elif launches:
+        lines.append("No matching errors found during the recorded launch window.")
+    else:
+        lines.append(
+            "Journal scan skipped: no RiftLift launch window exists to distinguish "
+            "game failures from unrelated Steam OpenXR probes."
+        )
+    recommendations = _recommendations(checks, launches)
+    if recommendations:
+        lines.extend(["", "[Recommended next steps]"])
+        lines.extend(f"- {item}" for item in recommendations)
+    unsuccessful_launches = sum(
+        item.get("event") != "finished"
+        or bool(item.get("error"))
+        or item.get("exit_code") not in (0, None)
+        for item in launches
+    )
+    successful_launches = len(launches) - unsuccessful_launches
     lines.extend(
         [
             "",
-            f"[Summary] {passed} passed, {failed} failed",
+            f"[Summary] checks: {passed} passed, {failed} failed; "
+            f"shown launches: {successful_launches} successful, "
+            f"{unsuccessful_launches} failed/interrupted",
         ]
     )
     report = redact("\n".join(lines).strip() + "\n")
