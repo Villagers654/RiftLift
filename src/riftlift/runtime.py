@@ -22,11 +22,11 @@ from .util import RiftLiftError, download, linux_to_windows, run
 PROTON_VERSION = "GE-Proton11-3"
 PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{PROTON_VERSION}/{PROTON_VERSION}.tar.gz"
 PROTON_SHA256 = "861c2edc8d40d051fb1e7a692deb953be52bd339c46d90f2b7dde50ddad91266"
-RUNTIME_VERSION = "riftlift-0.9.0-alpha.4"
-RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.4/riftlift-compat.zip"
+RUNTIME_VERSION = "riftlift-0.9.0-alpha.5"
+RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.5/riftlift-compat.zip"
 RUNTIME_SHA256 = "2069008ef5b13f4b6219ff93e03f9f72d9f8246a00f33db56987465564edf367"
-OPENVR_RUNTIME_VERSION = "riftlift-0.9.0-alpha.4"
-OPENVR_RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.4/riftlift-xrizer.tar.gz"
+OPENVR_RUNTIME_VERSION = "riftlift-0.9.0-alpha.5"
+OPENVR_RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.5/riftlift-xrizer.tar.gz"
 OPENVR_RUNTIME_SHA256 = (
     "7142fffca124ec11396d86b7cb77404cea54b4710f3c026be63d3510c51fefaa"
 )
