@@ -25,7 +25,8 @@ jobs:
             "$tag" \
             "release/riftlift-${version}-py3-none-any.whl" \
             release/riftlift-installer.sh
-          sha256sum release/* > release/SHA256SUMS
+          (cd release && sha256sum riftlift-* > SHA256SUMS)
+          (cd release && sha256sum -c SHA256SUMS)
           bash -n release/riftlift-installer.sh
           grep -F "release_tag='$tag'" release/riftlift-installer.sh
           grep -F "wheel_sha256='$(sha256sum "release/riftlift-${version}-py3-none-any.whl" | cut -d' ' -f1)'" release/riftlift-installer.sh
