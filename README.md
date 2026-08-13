@@ -12,11 +12,6 @@ headset works with Monado, SteamVR is not required.
 
 > **Alpha software:** game compatibility is still expanding.
 
-The 0.9 alpha moves RiftLift's Rift API translation layer into this repository
-and sends XR calls through Proton's in-process native Linux runtime boundary.
-There is no separate compatibility daemon or Meta VR service in the render
-path.
-
 See the [compatibility wiki](docs/COMPATIBILITY.md) for games tested with real VR output.
 
 ## Quick start
