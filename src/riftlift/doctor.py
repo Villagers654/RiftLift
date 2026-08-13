@@ -27,6 +27,7 @@ from .diagnostics import (
     prepare_proton_logs,
     recent_launches,
     redact,
+    system_build_components,
     utc_now,
 )
 from .launch import runtime_backend
@@ -238,6 +239,7 @@ def _current_components(paths: Paths) -> dict[str, str]:
         "proton": proton_build,
         **meta_builds,
         "platform_bridge": f"compat-runtime:{runtime_build}",
+        **system_build_components(),
         **xr_build_components(),
     }
 
@@ -278,19 +280,10 @@ def _component_comparison(
             "with the current build for a reliable comparison."
         ]
     lines: list[str] = []
-    names = [
-        *_expected_components(),
-        *(
-            name
-            for name in (
-                "envision",
-                "envision_profile",
-                "openxr_manifest",
-                "monado_runtime",
-            )
-            if name in captured or name in current
-        ),
-    ]
+    names = list(_expected_components())
+    names.extend(
+        sorted(name for name in set(captured) | set(current) if name not in names)
+    )
     for name in names:
         before = str(captured.get(name, "unknown"))
         now = current.get(name, "unknown")
@@ -839,6 +832,12 @@ def _recommendations(
             "Close GPU-heavy applications and overlays, reduce VR resolution, and "
             "retry after restarting the XR runtime."
         )
+    if "please authorize this new location" in evidence_text:
+        result.append(
+            "Authorize the new location through the EchoVRCE account prompt, then "
+            "retry. The captured log confirms that the community service was "
+            "reachable."
+        )
     if not launches:
         if not debug_logging:
             result.append(
@@ -877,6 +876,7 @@ def _debug_capture_summary(paths: Paths, enabled: bool) -> list[str]:
         ("Proton", "proton"),
         ("Graphics", "graphics"),
         ("Crash", "crashes"),
+        ("Game", "game"),
         ("Launch", "logs"),
     ):
         directory = paths.data / "diagnostics" / name
@@ -896,7 +896,7 @@ def _debug_capture_summary(paths: Paths, enabled: bool) -> list[str]:
             f"newest={newest_text}"
         )
     lines.append(
-        "Retention ceiling: approximately 120 MiB; oversized text keeps its header "
+        "Retention ceiling: approximately 165 MiB; oversized text keeps its header "
         "and failure tail."
     )
     lines.append(
@@ -909,6 +909,13 @@ def _debug_capture_summary(paths: Paths, enabled: bool) -> list[str]:
 
 def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> list[str]:
     joined = "\n".join(evidence).casefold()
+    if "please authorize this new location" in joined:
+        return [
+            "High confidence: Echo VR reached the community service, but that "
+            "service requires this new location to be authorized. XR and network "
+            "transport initialized successfully; this is an account authorization "
+            "gate, not an offline or lost-headset failure."
+        ]
     if "riftlift: patched 0 executable runtime imports" in joined:
         return [
             "High confidence: RiftLift loaded, but could not intercept the game's "
@@ -1242,6 +1249,7 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         *_recent_launch_log_errors(paths, evidence_launches),
         *_recent_proton_log_errors(paths, evidence_launches),
         *_recent_debug_file_errors(paths, evidence_launches, "graphics"),
+        *_recent_debug_file_errors(paths, evidence_launches, "game"),
         *_recent_debug_file_errors(
             paths, evidence_launches, "crashes", include_tail=True
         ),

@@ -6,17 +6,22 @@ import shlex
 import shutil
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from . import __version__
 from .config import Game, Paths
 from .diagnostics import (
+    clear_runtime_traces,
+    collect_game_logs,
     finish_launch_log,
     launch_finished,
     launch_started,
     prepare_debug_logs,
     prepare_launch_log,
     prepare_proton_logs,
+    trim_runtime_traces,
+    system_build_components,
 )
 from .detection import (
     is_unity_player,
@@ -136,6 +141,7 @@ def _launch_build_components(
         "proton": _installed_proton_build(proton_root),
         **_installed_meta_builds(paths),
         "platform_bridge": f"compat-runtime:{runtime_build}",
+        **system_build_components(),
         **xr_build_components(),
     }
 
@@ -194,6 +200,49 @@ def oculus_launch_arguments(game: Game, extra_arguments: list[str]) -> list[str]
     return arguments
 
 
+def _clear_stale_openvr_registry(paths: Paths, proton_root: Path) -> None:
+    """Make Proton probe the OpenVR runtime selected for this launch.
+
+    Proton caches its native OpenVR runtime and Vulkan-extension bridge in the
+    shared Wine registry.  A Wine server first initialized without RiftLift's
+    bundled XRizer can therefore keep pointing at SteamVR even after
+    ``VR_OVERRIDE`` changes.  Removing only this generated cache makes the
+    next Proton process rebuild it from the launch environment.
+    """
+    wine = proton_root / "files/bin/wine"
+    if not wine.is_file():
+        return
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "WINEPREFIX": str(paths.prefix / "pfx"),
+            "WINEDEBUG": "-all",
+        }
+    )
+    # Host desktop injectors are unrelated to prefix maintenance and may not
+    # have a matching 32-bit build, which only adds misleading loader errors.
+    environment.pop("LD_PRELOAD", None)
+    try:
+        subprocess.run(
+            [
+                str(wine),
+                "reg.exe",
+                "delete",
+                r"HKCU\Software\Wine\VR",
+                "/f",
+            ],
+            env=environment,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RiftLiftError(
+            f"could not refresh Proton's OpenVR runtime cache: {error}"
+        ) from error
+
+
 def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
     if not game.executable_path.is_file():
         raise RiftLiftError(f"game executable is missing: {game.executable_path}")
@@ -233,14 +282,13 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         # The bridge writes a compact first-call trace in Wine's temp folder.
         # Keep only the current reproduction so this cannot grow indefinitely
         # or make doctor correlate an old game's calls with a new failure.
-        for trace in (paths.prefix / "pfx/drive_c/users").glob(
-            "*/Temp/riftlift-runtime-trace.log"
-        ):
-            trace.unlink(missing_ok=True)
-    if game.steam_app_id:
+        clear_runtime_traces(paths)
+    if game.source == "steam" and game.steam_app_id:
         # Steam-distributed Oculus builds may still use Steamworks for DRM,
         # ownership, saves, or startup. Rift-store games deliberately keep the
-        # isolated zero identity supplied by proton_environment.
+        # isolated zero identity supplied by proton_environment. A Meta game
+        # synchronized into Steam also has a shortcut app ID; that ID is not a
+        # Steamworks identity and must never select Proton's steam.exe path.
         steam_id = str(game.steam_app_id)
         environment["SteamAppId"] = steam_id
         environment["SteamGameId"] = steam_id
@@ -273,6 +321,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         # an OpenVR client, however, so preserve the caller's selected
         # OpenVR-to-OpenXR runtime (normally XRizer) for this backend only.
         environment["VR_OVERRIDE"] = openvr_runtime
+        _clear_stale_openvr_registry(paths, proton_root)
     wrapper_value = os.environ.get("RIFTLIFT_LAUNCH_WRAPPER", "").strip()
     wrapper: list[str] = []
     if wrapper_value:
@@ -336,6 +385,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
             def maintain_log_limits() -> None:
                 while not stop_log_maintenance.wait(1):
                     finish_launch_log(log_path)
+                    trim_runtime_traces(paths)
                     # These two streams are opened in append mode, so they can
                     # be compacted safely while the game runs. DXVK and crash
                     # writers may use positional writes; compact those only
@@ -372,7 +422,14 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         raise
     finally:
         finish_launch_log(log_path)
+        trim_runtime_traces(paths)
         if environment.get("PROTON_LOG", "0") != "0":
+            collect_game_logs(
+                paths,
+                game,
+                launch_id,
+                time.time() - max(0.0, time.monotonic() - started),
+            )
             prepare_debug_logs(paths)
         if playtime_session is not None:
             try:

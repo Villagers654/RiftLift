@@ -9,6 +9,7 @@ import pytest
 from riftlift import __version__
 from riftlift.config import Game, Paths
 from riftlift.diagnostics import (
+    collect_game_logs,
     launch_log_path,
     launch_finished,
     launch_started,
@@ -162,6 +163,27 @@ def test_diagnostic_logs_are_count_and_size_bounded(tmp_path: Path) -> None:
     retained = sorted(directory.glob("launch-*.log"))
     assert [item.name for item in retained] == ["launch-3.log", "launch-4.log"]
     assert all(item.stat().st_size <= 128 for item in retained)
+
+
+def test_debug_capture_saves_recent_game_owned_logs_with_bounded_context(
+    tmp_path: Path,
+) -> None:
+    test_paths = paths(tmp_path)
+    sample = game(tmp_path)
+    log_directory = sample.game_dir / "_local/r14logs"
+    log_directory.mkdir(parents=True)
+    source = log_directory / "client.log"
+    source.write_bytes(b"header\n" + b"x" * (5 * 1024 * 1024) + b"\nlogin failed\n")
+
+    collect_game_logs(test_paths, sample, "launch123", source.stat().st_mtime - 1)
+
+    saved = list((test_paths.data / "diagnostics/game").iterdir())
+    assert len(saved) == 1
+    assert saved[0].stat().st_size <= 4 * 1024 * 1024
+    payload = saved[0].read_bytes()
+    assert payload.startswith(b"header\n")
+    assert b"middle game log output truncated" in payload
+    assert payload.endswith(b"login failed\n")
 
 
 def test_build_report_includes_recent_launch_evidence(

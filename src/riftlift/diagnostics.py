@@ -3,7 +3,10 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import platform
 import re
+import shutil
+import subprocess
 import time
 import uuid
 from datetime import datetime, timezone
@@ -22,6 +25,9 @@ _MAX_GRAPHICS_LOGS = 10
 _MAX_GRAPHICS_LOG_BYTES = 2 * 1024 * 1024
 _MAX_CRASH_LOGS = 5
 _MAX_CRASH_LOG_BYTES = 6 * 1024 * 1024
+_MAX_RUNTIME_TRACE_BYTES = 12 * 1024 * 1024
+_MAX_GAME_LOGS = 8
+_MAX_GAME_LOG_BYTES = 4 * 1024 * 1024
 _SECRET = re.compile(
     r"(?i)\b((?:"
     r"(?:(?:access|refresh|request|profile|client|native_sso)[_-]?)?token|"
@@ -164,7 +170,164 @@ def prepare_debug_logs(paths: Paths) -> dict[str, Path]:
         "proton": prepare_proton_logs(paths),
         "graphics": prepare_graphics_logs(paths),
         "crashes": prepare_crash_logs(paths),
+        "game": _prepare_debug_log_directory(
+            paths,
+            "game",
+            keep=_MAX_GAME_LOGS,
+            max_bytes=_MAX_GAME_LOG_BYTES,
+        ),
     }
+
+
+def _game_log_candidates(game: Game) -> list[Path]:
+    """Find game-owned text logs without crawling an entire large install."""
+    result: list[Path] = []
+    root_depth = len(game.game_dir.parts)
+    visited = 0
+    ignored = {
+        "assets",
+        "content",
+        "movies",
+        "pak",
+        "paks",
+        "shaders",
+        "textures",
+    }
+    try:
+        for root, directories, files in os.walk(game.game_dir):
+            visited += 1
+            depth = len(Path(root).parts) - root_depth
+            if depth >= 5 or visited >= 500:
+                directories[:] = []
+            else:
+                directories[:] = [
+                    item for item in directories if item.casefold() not in ignored
+                ]
+            log_directory = "log" in Path(root).name.casefold()
+            for name in files:
+                lowered = name.casefold()
+                if lowered in {
+                    "player.log",
+                    "output_log.txt",
+                    "crash.log",
+                    "error.log",
+                } or (log_directory and lowered.endswith((".log", ".txt"))):
+                    result.append(Path(root) / name)
+            if visited >= 500:
+                break
+    except OSError:
+        pass
+    return result
+
+
+def _copy_bounded_log(source: Path, target: Path, max_bytes: int) -> None:
+    """Preserve context and the newest failure without a large temporary copy."""
+    size = source.stat().st_size
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if size <= max_bytes:
+        shutil.copyfile(source, target)
+        return
+    marker = b"\n[middle game log output truncated by RiftLift]\n"
+    head_size = max_bytes // 4
+    tail_size = max_bytes - head_size - len(marker)
+    with source.open("rb") as incoming, target.open("wb") as outgoing:
+        outgoing.write(incoming.read(head_size))
+        outgoing.write(marker)
+        incoming.seek(-tail_size, os.SEEK_END)
+        tail = incoming.read(tail_size)
+        _partial, separator, tail = tail.partition(b"\n")
+        outgoing.write(tail if separator else tail[-tail_size:])
+
+
+def collect_game_logs(
+    paths: Paths, game: Game, launch_id: str, launched_at: float
+) -> None:
+    """Snapshot logs produced by this debug launch for later doctor reports."""
+    directory = _prepare_debug_log_directory(
+        paths,
+        "game",
+        keep=_MAX_GAME_LOGS,
+        max_bytes=_MAX_GAME_LOG_BYTES,
+    )
+    recent: list[tuple[float, Path]] = []
+    for candidate in _game_log_candidates(game):
+        try:
+            modified = candidate.stat().st_mtime
+        except OSError:
+            continue
+        if modified >= launched_at - 5:
+            recent.append((modified, candidate))
+    for index, (_modified, source) in enumerate(sorted(recent, reverse=True)[:3]):
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", source.name)[-100:]
+        target = directory / f"{launch_id}-{index}-{safe_name}"
+        try:
+            _copy_bounded_log(source, target, _MAX_GAME_LOG_BYTES)
+        except OSError:
+            target.unlink(missing_ok=True)
+    prune_diagnostic_logs(
+        directory, "*", keep=_MAX_GAME_LOGS, max_bytes=_MAX_GAME_LOG_BYTES
+    )
+
+
+def system_build_components() -> dict[str, str]:
+    """Compact host-version snapshot shared by launch history and doctor."""
+    distro = "unknown"
+    try:
+        for line in Path("/etc/os-release").read_text().splitlines():
+            key, separator, value = line.partition("=")
+            if separator and key == "PRETTY_NAME":
+                distro = value.strip().strip('"')
+                break
+    except OSError:
+        pass
+    libc_name, libc_version = platform.libc_ver()
+    vulkan = "unavailable"
+    try:
+        result = subprocess.run(
+            ["vulkaninfo", "--summary"],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=6,
+        )
+        details = []
+        for line in result.stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(("driverName", "driverInfo", "apiVersion")):
+                details.append(stripped)
+        if details:
+            vulkan = "; ".join(details[:6])[:600]
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return {
+        "system_os": distro,
+        "system_kernel": f"{platform.release()} {platform.machine()}",
+        "system_python": platform.python_version(),
+        "system_libc": f"{libc_name or 'unknown'} {libc_version or 'unknown'}",
+        "system_vulkan": vulkan,
+    }
+
+
+def runtime_trace_paths(paths: Paths) -> list[Path]:
+    users = paths.prefix / "pfx/drive_c/users"
+    result: list[Path] = []
+    for pattern in (
+        "*/Temp/riftlift-runtime-trace.log",
+        "*/AppData/Local/Temp/riftlift-runtime-trace.log",
+    ):
+        result.extend(item for item in users.glob(pattern) if item.is_file())
+    return list(dict.fromkeys(result))
+
+
+def clear_runtime_traces(paths: Paths) -> None:
+    for trace in runtime_trace_paths(paths):
+        trace.unlink(missing_ok=True)
+
+
+def trim_runtime_traces(paths: Paths) -> None:
+    for trace in runtime_trace_paths(paths):
+        trim_diagnostic_log(trace, _MAX_RUNTIME_TRACE_BYTES)
 
 
 def _append(paths: Paths, record: dict[str, Any]) -> None:

@@ -4,8 +4,17 @@ from pathlib import Path
 import pytest
 
 from riftlift.config import Game, Paths
-from riftlift.diagnostics import recent_launches
-from riftlift.launch import launch, oculus_launch_arguments, runtime_backend
+from riftlift.diagnostics import (
+    clear_runtime_traces,
+    recent_launches,
+    trim_runtime_traces,
+)
+from riftlift.launch import (
+    _clear_stale_openvr_registry,
+    launch,
+    oculus_launch_arguments,
+    runtime_backend,
+)
 from riftlift.playtime import playtime
 from riftlift.runtime import launch_environment, native_xr_bridge, setup
 from riftlift.util import RiftLiftError
@@ -35,6 +44,33 @@ def test_native_xr_bridge_requires_wine_unixlib_pair(tmp_path: Path) -> None:
 
     assert bridge.pe == pe
     assert bridge.unix == unix
+
+
+def test_runtime_trace_cleanup_covers_wines_local_temp_directory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    trace = (
+        paths.prefix
+        / "pfx/drive_c/users/steamuser/AppData/Local/Temp/riftlift-runtime-trace.log"
+    )
+    trace.parent.mkdir(parents=True)
+    trace.write_bytes(b"begin\n" + b"frame\n" * 200)
+    monkeypatch.setattr("riftlift.diagnostics._MAX_RUNTIME_TRACE_BYTES", 128)
+
+    trim_runtime_traces(paths)
+
+    assert trace.stat().st_size <= 128
+    assert trace.read_bytes().startswith(b"begin\n")
+    clear_runtime_traces(paths)
+    assert not trace.exists()
 
 
 def test_native_xr_bridge_rejects_missing_or_non_native_halves(tmp_path: Path) -> None:
@@ -122,6 +158,50 @@ def test_launcher_uses_existing_prefix_and_windows_game_path(
     assert playtime(paths, game.slug).launches == 1
 
 
+def test_meta_game_ignores_steam_shortcut_id_for_proton_identity(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "meta-game/Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    runtime = tmp_path / "runtime"
+    proton.mkdir()
+    runtime.mkdir()
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr("riftlift.launch.install_rift_runtime", lambda _paths: runtime)
+    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
+    captured = {}
+    monkeypatch.setattr(
+        "riftlift.launch.subprocess.call",
+        lambda _command, **kwargs: captured.update(**kwargs) or 0,
+    )
+    game = Game(
+        "meta-game",
+        "Meta Game",
+        "123",
+        "meta-game",
+        str(executable.parent),
+        executable.name,
+        [],
+        steam_app_id=2581534236,
+        source="meta",
+    )
+
+    assert launch(paths, game, []) == 0
+    assert captured["env"].get("SteamAppId") in {None, "0"}
+    assert captured["env"]["UMU_ID"] == "umu-default"
+    assert captured["env"]["UMU_USE_STEAM"] == "0"
+
+
 def test_cancelled_launch_records_named_error(tmp_path: Path, monkeypatch) -> None:
     paths = Paths(
         tmp_path / "data",
@@ -199,6 +279,43 @@ def test_openvr_bridge_uses_bundled_action_manifest(
     )
     assert launch(paths, game, []) == 0
     assert captured["env"]["RIFTLIFT_ACTION_MANIFEST"] == str(manifest)
+
+
+def test_openvr_launch_clears_only_protons_generated_runtime_cache(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    proton = tmp_path / "proton"
+    wine = proton / "files/bin/wine"
+    wine.parent.mkdir(parents=True)
+    wine.write_bytes(b"ELF")
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured.update(command=command, **kwargs)
+
+    monkeypatch.setattr("riftlift.launch.subprocess.run", fake_run)
+    monkeypatch.setenv("LD_PRELOAD", "/tmp/desktop-injector.so")
+
+    _clear_stale_openvr_registry(paths, proton)
+
+    assert captured["command"] == [
+        str(wine),
+        "reg.exe",
+        "delete",
+        r"HKCU\Software\Wine\VR",
+        "/f",
+    ]
+    assert captured["env"]["WINEPREFIX"] == str(paths.prefix / "pfx")
+    assert "LD_PRELOAD" not in captured["env"]
+    assert captured["check"] is False
 
 
 def test_platform_shim_does_not_redirect_oculus_vr_runtime(
@@ -728,6 +845,7 @@ def test_steam_game_keeps_steam_identity(tmp_path: Path, monkeypatch) -> None:
         executable.name,
         [],
         steam_app_id=732690,
+        source="steam",
     )
 
     assert launch(paths, game, []) == 0
