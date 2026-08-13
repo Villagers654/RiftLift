@@ -20,7 +20,7 @@ jobs:
         run: |
           python -m build --outdir release
           version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
-          tag=$(python -c 'import re,sys; value=sys.argv[1]; match=re.fullmatch(r"(\d+\.\d+\.\d+)a(\d+)", value); assert match; print(f"v{match.group(1)}-alpha.{match.group(2)}")' "$version")
+          tag=$(python -c 'import re,sys; value=sys.argv[1]; match=re.fullmatch(r"(\d+\.\d+\.\d+)(?:a(\d+))?", value); assert match; print(f"v{match.group(1)}" + (f"-alpha.{match.group(2)}" if match.group(2) else ""))' "$version")
           scripts/generate-release-installer.sh \
             "$tag" \
             "release/riftlift-${version}-py3-none-any.whl" \

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "riftlift"
-version = "0.9.0a9"
+version = "0.9.0"
 description = "Plug-and-play Meta Rift games for working Linux OpenXR runtimes"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ license = "GPL-3.0-or-later"
 authors = [{name = "Villagers654"}]
 keywords = ["linux", "meta", "monado", "oculus", "openxr", "rift", "vr"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Environment :: Console",
   "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3",
