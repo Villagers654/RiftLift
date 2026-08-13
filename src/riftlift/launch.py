@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import os
+import json
 import shlex
 import shutil
 import subprocess
+import threading
+from pathlib import Path
 
+from . import __version__
 from .config import Game, Paths
 from .diagnostics import (
     finish_launch_log,
     launch_finished,
     launch_started,
+    prepare_debug_logs,
     prepare_launch_log,
     prepare_proton_logs,
 )
@@ -22,6 +27,11 @@ from .detection import (
 )
 from .playtime import PlaytimeSession
 from .runtime import (
+    META_CLIENT_COMPAT_MARKER,
+    META_PACKAGES,
+    OPENVR_RUNTIME_VERSION,
+    PROTON_VERSION,
+    RUNTIME_VERSION,
     install_proton,
     install_openvr_runtime,
     install_rift_runtime,
@@ -29,6 +39,102 @@ from .runtime import (
     native_xr_bridge,
 )
 from .util import RiftLiftError, linux_to_windows
+
+_DEBUG_ENVIRONMENT_KEYS = (
+    "PROTON_LOG",
+    "WINEDEBUG",
+    "DXVK_LOG_LEVEL",
+    "VKD3D_DEBUG",
+    "VKD3D_SHADER_DEBUG",
+    "VK_LOADER_DEBUG",
+    "XR_LOADER_DEBUG",
+    "XR_RUNTIME_JSON",
+    "VR_OVERRIDE",
+    "DXVK_NO_VR",
+    "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES",
+    "OXR_ZERO_TIME_IS_NOW",
+    "WINEDLLOVERRIDES",
+    "SteamAppId",
+    "UMU_ID",
+    "UMU_USE_STEAM",
+)
+
+_EXPECTED_BUILD_COMPONENTS = {
+    "riftlift": __version__,
+    "compat_runtime": RUNTIME_VERSION,
+    "openvr_runtime": OPENVR_RUNTIME_VERSION,
+    "proton": PROTON_VERSION,
+    **{
+        f"meta_{package.name.replace('-', '_')}": f"205.0 sha256:{package.sha256[:12]}"
+        for package in META_PACKAGES
+    },
+    "meta_client_patch": META_CLIENT_COMPAT_MARKER,
+    "platform_bridge": f"compat-runtime:{RUNTIME_VERSION}",
+}
+
+
+def _installed_build(path: Path, marker: str = ".riftlift-version") -> str:
+    try:
+        value = (path / marker).read_text(errors="replace").strip()
+    except OSError:
+        return "missing"
+    return value[:160] or "unknown"
+
+
+def _installed_proton_build(path: Path) -> str:
+    if not (path / "proton").is_file():
+        return "missing"
+    for relative in ("version", "files/version"):
+        try:
+            value = (path / relative).read_text(errors="replace").strip()
+        except OSError:
+            continue
+        if value:
+            return value[:160]
+    return path.name
+
+
+def _installed_meta_builds(paths: Paths) -> dict[str, str]:
+    support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
+    result: dict[str, str] = {}
+    for package in META_PACKAGES:
+        marker = support / package.name / ".riftlift-package.json"
+        try:
+            sha256 = str(json.loads(marker.read_text()).get("sha256", ""))
+        except (OSError, json.JSONDecodeError):
+            sha256 = ""
+        result[f"meta_{package.name.replace('-', '_')}"] = (
+            f"205.0 sha256:{sha256[:12]}" if sha256 else "missing/unknown"
+        )
+    patch = support / "oculus-client" / META_CLIENT_COMPAT_MARKER
+    result["meta_client_patch"] = (
+        META_CLIENT_COMPAT_MARKER if patch.is_file() else "missing"
+    )
+    return result
+
+
+def _launch_build_components(
+    paths: Paths,
+    proton_root: Path,
+    rift_runtime: Path,
+    openvr_runtime: str,
+    backend: str,
+) -> dict[str, str]:
+    if backend == "openvr":
+        openvr_build = _installed_build(Path(openvr_runtime))
+        if openvr_build == "missing" and openvr_runtime:
+            openvr_build = f"external-unversioned:{Path(openvr_runtime).name}"
+    else:
+        openvr_build = "not-used(openxr)"
+    runtime_build = _installed_build(rift_runtime)
+    return {
+        "riftlift": __version__,
+        "compat_runtime": runtime_build,
+        "openvr_runtime": openvr_build,
+        "proton": _installed_proton_build(proton_root),
+        **_installed_meta_builds(paths),
+        "platform_bridge": f"compat-runtime:{runtime_build}",
+    }
 
 
 def runtime_backend(game: Game) -> str:
@@ -185,6 +291,15 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         wrapper=bool(wrapper),
         capabilities=capabilities,
         debug_logging=environment.get("PROTON_LOG", "0") != "0",
+        debug_settings={
+            key: environment[key]
+            for key in _DEBUG_ENVIRONMENT_KEYS
+            if key in environment and environment.get("PROTON_LOG", "0") != "0"
+        },
+        components=_launch_build_components(
+            paths, proton_root, rift_runtime, openvr_runtime, backend
+        ),
+        expected_components=_EXPECTED_BUILD_COMPONENTS,
     )
     print(
         "Native XR bridge: "
@@ -198,15 +313,43 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
             playtime_session = PlaytimeSession(paths, game.slug)
         except OSError as error:
             print(f"warning: local playtime tracking could not start: {error}")
-        descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        descriptor = os.open(
+            log_path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_APPEND,
+            0o600,
+        )
         with os.fdopen(descriptor, "wb") as launch_log:
-            exit_code = subprocess.call(
-                [*wrapper, *arguments],
-                cwd=game.game_dir,
-                env=environment,
-                stdout=launch_log,
-                stderr=subprocess.STDOUT,
-            )
+            stop_log_maintenance = threading.Event()
+
+            def maintain_log_limits() -> None:
+                while not stop_log_maintenance.wait(1):
+                    finish_launch_log(log_path)
+                    # These two streams are opened in append mode, so they can
+                    # be compacted safely while the game runs. DXVK and crash
+                    # writers may use positional writes; compact those only
+                    # after the child exits to avoid corrupting useful output.
+                    prepare_proton_logs(paths)
+
+            maintenance = None
+            if environment.get("PROTON_LOG", "0") != "0":
+                maintenance = threading.Thread(
+                    target=maintain_log_limits,
+                    daemon=True,
+                    name="riftlift-log-maintenance",
+                )
+                maintenance.start()
+            try:
+                exit_code = subprocess.call(
+                    [*wrapper, *arguments],
+                    cwd=game.game_dir,
+                    env=environment,
+                    stdout=launch_log,
+                    stderr=subprocess.STDOUT,
+                )
+            finally:
+                stop_log_maintenance.set()
+                if maintenance is not None:
+                    maintenance.join(timeout=2)
     except BaseException as error:
         launch_finished(
             paths,
@@ -218,7 +361,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
     finally:
         finish_launch_log(log_path)
         if environment.get("PROTON_LOG", "0") != "0":
-            prepare_proton_logs(paths)
+            prepare_debug_logs(paths)
         if playtime_session is not None:
             try:
                 playtime_session.close()

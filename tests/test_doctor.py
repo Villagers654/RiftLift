@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
+from riftlift import __version__
 from riftlift.config import Game, Paths
 from riftlift.diagnostics import (
     launch_log_path,
@@ -14,6 +18,17 @@ from riftlift.diagnostics import (
     trim_diagnostic_log,
 )
 from riftlift.doctor import build_report, upload_report
+
+
+@pytest.fixture(autouse=True)
+def isolate_host_diagnostic_sources(monkeypatch) -> None:
+    for name in (
+        "_recent_journal_errors",
+        "_recent_kernel_errors",
+        "_recent_coredumps",
+        "_recent_steam_log_errors",
+    ):
+        monkeypatch.setattr(f"riftlift.doctor.{name}", lambda *_args: [])
 
 
 def paths(tmp_path: Path) -> Paths:
@@ -65,7 +80,13 @@ def test_recent_launches_preserve_failure_and_interruption(tmp_path: Path) -> No
     test_paths = paths(tmp_path)
     sample = game(tmp_path)
     successful, started = launch_started(
-        test_paths, sample, "openxr", wrapper=False, capabilities=["unreal"]
+        test_paths,
+        sample,
+        "openxr",
+        wrapper=False,
+        capabilities=["unreal"],
+        components={"riftlift": __version__, "proton": "test-proton"},
+        expected_components={"riftlift": __version__, "proton": "test-proton"},
     )
     launch_finished(test_paths, successful, started, exit_code=0)
     failed, started = launch_started(
@@ -80,6 +101,15 @@ def test_recent_launches_preserve_failure_and_interruption(tmp_path: Path) -> No
     assert any(record.get("event") == "started" for record in records)
     assert any(record.get("exit_code") == 0 for record in records)
     assert all(record.get("started_at") for record in records)
+    assert all(record.get("riftlift_version") == __version__ for record in records)
+    assert any(
+        record.get("components", {}).get("proton") == "test-proton"
+        for record in records
+    )
+    assert any(
+        record.get("expected_components", {}).get("proton") == "test-proton"
+        for record in records
+    )
     assert all(
         record.get("finished_at")
         for record in records
@@ -114,7 +144,8 @@ def test_diagnostic_log_is_compacted_to_bounded_tail(tmp_path: Path) -> None:
 
     payload = target.read_bytes()
     assert len(payload) <= 64
-    assert payload.startswith(b"[older diagnostic output truncated]\n")
+    assert payload.startswith(b"discard me\n")
+    assert b"[middle diagnostic output truncated]" in payload
     assert payload.endswith(b"keep me\n")
 
 
@@ -153,7 +184,7 @@ def test_build_report_includes_recent_launch_evidence(
         "riftlift.doctor._recent_journal_errors",
         lambda since=None: journal_queries.append(since) or ["XR_ERROR failed"],
     )
-    monkeypatch.setattr("riftlift.doctor._recent_game_log_errors", lambda _paths: [])
+    monkeypatch.setattr("riftlift.doctor._recent_game_log_errors", lambda *_args: [])
     monkeypatch.setattr(
         "riftlift.doctor.recent_launches",
         lambda _paths: [
@@ -165,6 +196,19 @@ def test_build_report_includes_recent_launch_evidence(
                 "exit_code": 1,
                 "duration_seconds": 2.5,
                 "capabilities": ["openvr"],
+                "riftlift_version": "0.8.0",
+                "components": {
+                    "riftlift": "0.8.0",
+                    "compat_runtime": "old-compat",
+                    "openvr_runtime": "old-openvr",
+                    "proton": "old-proton",
+                    "meta_horizon_link": "204.0",
+                    "platform_bridge": "old-bridge",
+                },
+                "expected_components": {
+                    "riftlift": "0.8.0",
+                    "compat_runtime": "old-compat",
+                },
             }
         ],
     )
@@ -173,11 +217,15 @@ def test_build_report_includes_recent_launch_evidence(
 
     assert "[System]" in report
     assert "[Recent launches]" in report
+    assert f"Doctor build: RiftLift {__version__}" in report
+    assert "captured components: riftlift=0.8.0" in report
+    assert "CHANGED riftlift: launch=0.8.0; doctor=" in report
+    assert "Evidence launch RiftLift build: 0.8.0" in report
     assert "Sample  openvr  exit 1 after 2.5s" in report
     assert "XR_ERROR failed" in report
     assert journal_queries == ["2026-01-01T00:00:00+00:00"]
     assert "Test Controller" in report
-    assert "shown launches: 0 successful, 1 failed/interrupted" in report
+    assert "shown launches: 0 successful, 1 failed/incomplete" in report
     assert not healthy  # Missing components are correctly visible as failures.
 
 
@@ -198,7 +246,7 @@ def test_build_report_includes_saved_launch_log_errors(
     monkeypatch.setattr("riftlift.doctor._connected_inputs", lambda: "none")
     monkeypatch.setattr("riftlift.doctor._service_state", lambda _name: "inactive")
     monkeypatch.setattr("riftlift.doctor._recent_journal_errors", lambda _since: [])
-    monkeypatch.setattr("riftlift.doctor._recent_game_log_errors", lambda _paths: [])
+    monkeypatch.setattr("riftlift.doctor._recent_game_log_errors", lambda *_args: [])
     monkeypatch.setattr(
         "riftlift.doctor.recent_launches",
         lambda _paths: [
@@ -238,7 +286,7 @@ def test_build_report_ignores_known_xrizer_utility_probe(
     monkeypatch.setattr("riftlift.doctor._connected_inputs", lambda: "none")
     monkeypatch.setattr("riftlift.doctor._service_state", lambda _name: "inactive")
     monkeypatch.setattr("riftlift.doctor._recent_journal_errors", lambda _since: [])
-    monkeypatch.setattr("riftlift.doctor._recent_game_log_errors", lambda _paths: [])
+    monkeypatch.setattr("riftlift.doctor._recent_game_log_errors", lambda *_args: [])
     monkeypatch.setattr(
         "riftlift.doctor.recent_launches",
         lambda _paths: [
@@ -278,15 +326,65 @@ def test_build_report_includes_saved_proton_log_errors(
     monkeypatch.setattr("riftlift.doctor._vulkan_summary", lambda: "Test Vulkan")
     monkeypatch.setattr("riftlift.doctor._connected_inputs", lambda: "none")
     monkeypatch.setattr("riftlift.doctor._service_state", lambda _name: "inactive")
-    monkeypatch.setattr("riftlift.doctor.recent_launches", lambda _paths: [])
+    monkeypatch.setattr(
+        "riftlift.doctor.recent_launches",
+        lambda _paths: [
+            {
+                "event": "started",
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "game": "Sample",
+                "backend": "openxr",
+                "capabilities": [],
+                "debug_logging": True,
+            }
+        ],
+    )
     monkeypatch.setattr("riftlift.doctor._recent_journal_errors", lambda _since: [])
-    monkeypatch.setattr("riftlift.doctor._recent_game_log_errors", lambda _paths: [])
+    monkeypatch.setattr("riftlift.doctor._recent_game_log_errors", lambda *_args: [])
 
     report, _healthy = build_report(test_paths)
 
     assert "err:module:failed to load bridge" in report
     assert "ordinary output" not in report
-    assert "Debug logging: enabled (bounded Proton diagnostic logs)" in report
+    assert "Debug logging: enabled (expanded bounded capture)" in report
+    assert "required runtime module or game file failed to load" in report
+    assert report.index("[Likely cause]") < report.index("[Recent error evidence]")
+
+
+def test_build_report_ignores_proton_logs_older_than_launch_window(
+    tmp_path: Path, monkeypatch
+) -> None:
+    test_paths = paths(tmp_path)
+    target = test_paths.data / "diagnostics/proton/steam-old.log"
+    target.parent.mkdir(parents=True)
+    target.write_text("err: DxvkSubmissionQueue: VK_ERROR_DEVICE_LOST\n")
+    os.utime(target, (1, 1))
+    monkeypatch.setattr(
+        "riftlift.doctor._runtime_description", lambda: (True, "test runtime")
+    )
+    monkeypatch.setattr("riftlift.doctor.steam_root", lambda: tmp_path / "steam")
+    monkeypatch.setattr("riftlift.doctor._gpu_summary", lambda: "Test GPU")
+    monkeypatch.setattr("riftlift.doctor._vulkan_summary", lambda: "Test Vulkan")
+    monkeypatch.setattr("riftlift.doctor._connected_inputs", lambda: "none")
+    monkeypatch.setattr("riftlift.doctor._service_state", lambda _name: "inactive")
+    monkeypatch.setattr(
+        "riftlift.doctor.recent_launches",
+        lambda _paths: [
+            {
+                "event": "started",
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "game": "Sample",
+                "backend": "openxr",
+                "capabilities": [],
+            }
+        ],
+    )
+    monkeypatch.setattr("riftlift.doctor._recent_journal_errors", lambda _since: [])
+    monkeypatch.setattr("riftlift.doctor._recent_game_log_errors", lambda *_args: [])
+
+    report, _healthy = build_report(test_paths)
+
+    assert "VK_ERROR_DEVICE_LOST" not in report
 
 
 def test_build_report_does_not_attribute_unrelated_journal_errors_without_launch(
@@ -307,7 +405,7 @@ def test_build_report_does_not_attribute_unrelated_journal_errors_without_launch
         "riftlift.doctor._recent_journal_errors",
         lambda since=None: queries.append(since) or [],
     )
-    monkeypatch.setattr("riftlift.doctor._recent_game_log_errors", lambda _paths: [])
+    monkeypatch.setattr("riftlift.doctor._recent_game_log_errors", lambda *_args: [])
 
     report, _healthy = build_report(test_paths)
 

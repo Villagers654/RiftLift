@@ -92,6 +92,16 @@ jobs:
       - run: black --check src tests
       - run: python -m compileall -q src
       - run: bash -n install.sh scripts/*.sh
+      - name: Verify release installer generation
+        shell: bash
+        run: |
+          touch riftlift-0.0.0a0-py3-none-any.whl
+          scripts/generate-release-installer.sh \
+            v0.0.0-alpha.0 \
+            riftlift-0.0.0a0-py3-none-any.whl \
+            /tmp/riftlift-installer.sh
+          bash -n /tmp/riftlift-installer.sh
+          grep -F "wheel_sha256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'" /tmp/riftlift-installer.sh
 
   xrizer:
     needs: changes

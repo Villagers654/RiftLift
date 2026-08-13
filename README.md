@@ -34,16 +34,17 @@ drivers or Monado.
 
 ### 1. Install RiftLift
 
-Open a terminal and paste:
+Download `riftlift-installer.sh` from the latest GitHub release, then run:
 
 ```bash
-git clone https://github.com/Villagers654/RiftLift.git
-cd RiftLift
-./install.sh
+bash riftlift-installer.sh
 ```
 
-The first install can take a while while RiftLift downloads its shared
-compatibility files. It will add **RiftLift** to your application menu.
+This single file verifies and installs its matching RiftLift build, adds desktop
+integration, and downloads all pinned compatibility components. The first
+install can take a while. It will add **RiftLift** to your application menu.
+
+To install from a source checkout instead, run `./install.sh` in the repository.
 
 ### 2. Check your setup and sign in
 
@@ -118,8 +119,12 @@ Common fixes:
 - **A game is missing from Steam:** close Steam, run `riftlift steam-sync`, and
   reopen it.
 - **A game fails to launch:** enable **Debug logging** in the top bar, reproduce
-  the problem once, then click **System**. RiftLift retains a bounded set of
-  detailed Proton logs and includes relevant excerpts in the report.
+  the problem once, then click **System**. RiftLift captures Proton, targeted
+  Wine XR/Steam/Vulkan channels, DXVK, VKD3D, loader and crash diagnostics.
+  Doctor correlates those files with game, Steam/XR, journal, kernel GPU and
+  coredump evidence, then puts its likely cause and next steps before the raw
+  excerpts. Retention rotates with the five-launch history, preserves both log
+  headers and failure tails, and is capped at approximately 120 MiB.
 
 For a nonstandard Monado manifest, set
 `XR_RUNTIME_JSON=/path/to/openxr_monado.json` before opening RiftLift. If your
@@ -281,6 +286,10 @@ own the games you download. Its cached Meta runtime token is readable only by
 your user and is never included in diagnostic output. Downloads are pinned and
 verified before extraction, archive paths are validated, and Steam's shortcut
 file is backed up before an atomic replacement.
+
+Expanded debug logs are stored inside RiftLift's user-private diagnostics
+directory and may contain game or system details. Public doctor reports redact
+credentials, email addresses, and home paths and include only selected excerpts.
 
 RiftLift is GPL-3.0-or-later. Bundled and upstream components retain their own
 licenses and notices.

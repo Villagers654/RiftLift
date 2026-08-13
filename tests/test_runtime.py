@@ -112,7 +112,10 @@ def test_proton_debug_logs_use_diagnostics_directory(tmp_path, monkeypatch):
 
     assert environment["PROTON_LOG"] == "1"
     assert environment["PROTON_LOG_DIR"] == str(paths.data / "diagnostics/proton")
-    assert (paths.data / "diagnostics/proton").is_dir()
+    for name in ("proton", "graphics", "crashes"):
+        directory = paths.data / "diagnostics" / name
+        assert directory.is_dir()
+        assert directory.stat().st_mode & 0o777 == 0o700
 
 
 def test_gui_debug_setting_enables_bounded_proton_logging(tmp_path, monkeypatch):
@@ -133,7 +136,16 @@ def test_gui_debug_setting_enables_bounded_proton_logging(tmp_path, monkeypatch)
     environment = proton_environment(paths)
 
     assert environment["PROTON_LOG"] == "1"
-    assert environment["WINEDEBUG"] == "-all"
+    assert "+openxr" in environment["WINEDEBUG"]
+    assert "+vrclient" in environment["WINEDEBUG"]
+    assert "+steamclient" in environment["WINEDEBUG"]
+    assert "+vulkan" in environment["WINEDEBUG"]
+    assert environment["DXVK_LOG_LEVEL"] == "debug"
+    assert environment["VKD3D_DEBUG"] == "info"
+    assert environment["VK_LOADER_DEBUG"] == "error,warn,info"
+    assert environment["XR_LOADER_DEBUG"] == "all"
+    assert environment["DXVK_LOG_PATH"].endswith("diagnostics/graphics")
+    assert environment["PROTON_CRASH_REPORT_DIR"].endswith("diagnostics/crashes")
 
     monkeypatch.setenv("RIFTLIFT_PROTON_LOG", "0")
     environment = proton_environment(paths)

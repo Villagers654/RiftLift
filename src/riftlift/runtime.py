@@ -15,20 +15,40 @@ from pathlib import Path
 from .auth import complete_browser_login, sign_out
 from .auth_browser import default_browser, launch_browser_login, stop_browser
 from .config import Paths, debug_logging_enabled
-from .diagnostics import prepare_proton_logs
+from .diagnostics import prepare_debug_logs
 from .meta_auth import MetaAuthSession, install_protocol_handler, record_callback
 from .util import RiftLiftError, download, linux_to_windows, run
 
 PROTON_VERSION = "GE-Proton11-3"
 PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{PROTON_VERSION}/{PROTON_VERSION}.tar.gz"
 PROTON_SHA256 = "861c2edc8d40d051fb1e7a692deb953be52bd339c46d90f2b7dde50ddad91266"
-RUNTIME_VERSION = "riftlift-0.9.0-alpha.6"
-RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.6/riftlift-compat.zip"
+RUNTIME_VERSION = "riftlift-0.9.0-alpha.7"
+RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.7/riftlift-compat.zip"
 RUNTIME_SHA256 = "e8a784bad5f6b79c1e1ada8d2fe8849055c7f23708e6ece65fe29fa5dd38a78f"
-OPENVR_RUNTIME_VERSION = "riftlift-0.9.0-alpha.6"
-OPENVR_RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.6/riftlift-xrizer.tar.gz"
+OPENVR_RUNTIME_VERSION = "riftlift-0.9.0-alpha.7"
+OPENVR_RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.7/riftlift-xrizer.tar.gz"
 OPENVR_RUNTIME_SHA256 = (
     "fb59dc3750574fe08b607d60a9f1767b4f57f568a65f1973a778c2d092c7f145"
+)
+
+DEBUG_WINE_CHANNELS = ",".join(
+    (
+        "+timestamp",
+        "+pid",
+        "+tid",
+        "+seh",
+        "+unwind",
+        "+threadname",
+        "+debugstr",
+        "+loaddll",
+        "+mscoree",
+        "+process",
+        "+module",
+        "+openxr",
+        "+vrclient",
+        "+steamclient",
+        "+vulkan",
+    )
 )
 
 
@@ -369,7 +389,10 @@ def proton_environment(paths: Paths, game_dir: Path | None = None) -> dict[str, 
     environment = os.environ.copy()
     debug_logging = debug_logging_active(paths)
     proton_log = "1" if debug_logging else "0"
-    wine_debug = environment.get("RIFTLIFT_WINEDEBUG", "-all")
+    wine_debug_override = environment.get("RIFTLIFT_WINEDEBUG")
+    wine_debug = wine_debug_override or (
+        DEBUG_WINE_CHANNELS if debug_logging else "-all"
+    )
     for variable in (
         "VR_OVERRIDE",
         "XR_RUNTIME_JSON",
@@ -390,8 +413,21 @@ def proton_environment(paths: Paths, game_dir: Path | None = None) -> dict[str, 
         }
     )
     if environment["PROTON_LOG"] != "0":
-        proton_logs = prepare_proton_logs(paths)
-        environment["PROTON_LOG_DIR"] = str(proton_logs)
+        logs = prepare_debug_logs(paths)
+        environment.update(
+            {
+                "PROTON_LOG_DIR": str(logs["proton"]),
+                "PROTON_CRASH_REPORT_DIR": str(logs["crashes"]),
+                "DXVK_LOG_LEVEL": environment.get("DXVK_LOG_LEVEL", "debug"),
+                "DXVK_LOG_PATH": str(logs["graphics"]),
+                "VKD3D_DEBUG": environment.get("VKD3D_DEBUG", "info"),
+                "VKD3D_SHADER_DEBUG": environment.get("VKD3D_SHADER_DEBUG", "warn"),
+                "VK_LOADER_DEBUG": environment.get(
+                    "VK_LOADER_DEBUG", "error,warn,info"
+                ),
+                "XR_LOADER_DEBUG": environment.get("XR_LOADER_DEBUG", "all"),
+            }
+        )
     return environment
 
 

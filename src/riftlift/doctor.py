@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import __version__
@@ -30,7 +31,11 @@ from .diagnostics import (
 )
 from .launch import runtime_backend
 from .runtime import (
+    META_CLIENT_COMPAT_MARKER,
     META_PACKAGES,
+    OPENVR_RUNTIME_VERSION,
+    PROTON_VERSION,
+    RUNTIME_VERSION,
     active_runtime_json,
     debug_logging_active,
     native_xr_bridge,
@@ -41,7 +46,8 @@ from .steam import steam_root
 PASTE_URL = "https://paste.rs/"
 _ERROR_LINE = re.compile(
     r"(?i)\b(error|failed?|failure|fatal|panic|crash|exception|timed? out|"
-    r"unsupported|not found|device lost|segfault|denied)\b"
+    r"timeout|unsupported|not found|device lost|segfault|denied|gpu reset|"
+    r"vm fault|page fault|hung|oom|xid)\b"
 )
 _LOG_NAMES = {"player.log", "output_log.txt", "crash.log", "error.log"}
 _MAX_REPORT = 48 * 1024
@@ -174,6 +180,91 @@ def _proton_version(path: Path) -> str:
     return path.name
 
 
+def _installed_marker(path: Path) -> str:
+    try:
+        value = (path / ".riftlift-version").read_text(errors="replace").strip()
+    except OSError:
+        return "missing"
+    return value[:160] or "unknown"
+
+
+def _current_components(paths: Paths) -> dict[str, str]:
+    proton = proton_dir()
+    runtime_build = _installed_marker(paths.tools / "rift-runtime")
+    support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
+    meta_builds: dict[str, str] = {}
+    for package in META_PACKAGES:
+        marker = support / package.name / ".riftlift-package.json"
+        try:
+            sha256 = str(json.loads(marker.read_text()).get("sha256", ""))
+        except (OSError, json.JSONDecodeError):
+            sha256 = ""
+        meta_builds[f"meta_{package.name.replace('-', '_')}"] = (
+            f"205.0 sha256:{sha256[:12]}" if sha256 else "missing/unknown"
+        )
+    client_patch = support / "oculus-client" / META_CLIENT_COMPAT_MARKER
+    meta_builds["meta_client_patch"] = (
+        META_CLIENT_COMPAT_MARKER if client_patch.is_file() else "missing"
+    )
+    return {
+        "riftlift": __version__,
+        "compat_runtime": runtime_build,
+        "openvr_runtime": _installed_marker(paths.tools / "openvr-runtime"),
+        "proton": (
+            _proton_version(proton) if (proton / "proton").is_file() else "missing"
+        ),
+        **meta_builds,
+        "platform_bridge": f"compat-runtime:{runtime_build}",
+    }
+
+
+def _expected_components() -> dict[str, str]:
+    return {
+        "riftlift": __version__,
+        "compat_runtime": RUNTIME_VERSION,
+        "openvr_runtime": OPENVR_RUNTIME_VERSION,
+        "proton": PROTON_VERSION,
+        **{
+            f"meta_{package.name.replace('-', '_')}": f"205.0 sha256:{package.sha256[:12]}"
+            for package in META_PACKAGES
+        },
+        "meta_client_patch": META_CLIENT_COMPAT_MARKER,
+        "platform_bridge": f"compat-runtime:{RUNTIME_VERSION}",
+    }
+
+
+def _component_matches(name: str, installed: str, expected: str) -> bool:
+    if name == "proton":
+        return installed == expected or installed.endswith(f" {expected}")
+    return installed == expected
+
+
+def _component_comparison(
+    launches: list[dict[str, object]], current: dict[str, str]
+) -> list[str]:
+    if not launches:
+        return ["No launch snapshot is available for comparison."]
+    newest = launches[0]
+    captured = newest.get("components")
+    if not isinstance(captured, dict):
+        legacy = newest.get("riftlift_version", "unknown")
+        return [
+            "LEGACY/UNKNOWN: this launch predates the complete component snapshot "
+            f"(captured RiftLift={legacy}; doctor RiftLift={__version__}). Reproduce "
+            "with the current build for a reliable comparison."
+        ]
+    lines: list[str] = []
+    for name in _expected_components():
+        before = str(captured.get(name, "unknown"))
+        now = current.get(name, "unknown")
+        if before.startswith("not-used("):
+            state = "NOT USED"
+        else:
+            state = "SAME" if before == now else "CHANGED"
+        lines.append(f"{state:7} {name}: launch={before}; doctor={now}")
+    return lines
+
+
 def _connected_inputs() -> str:
     names = []
     try:
@@ -191,6 +282,22 @@ def _connected_inputs() -> str:
     return ", ".join(dict.fromkeys(names)) or "none detected"
 
 
+def _relevant_processes() -> list[str]:
+    output = _command(["ps", "-eo", "pid=,etimes=,comm="], timeout=3)
+    result = []
+    for line in output.splitlines():
+        fields = line.split(maxsplit=1)
+        if fields and fields[0] == str(os.getpid()):
+            continue
+        if re.search(
+            r"(?i)(riftlift|wine|wineserver|proton|openxr|xrizer|wivrn|monado|"
+            r"steamvr|vrserver|vrcompositor|gamescope)",
+            line,
+        ):
+            result.append(redact(line.strip())[:600])
+    return result[-12:]
+
+
 def _recent_journal_errors(since: str | None = None) -> list[str]:
     # Steam probes OpenXR on its own and emits the same loader messages as a
     # game.  Without a recorded RiftLift launch there is no sound way to
@@ -203,12 +310,14 @@ def _recent_journal_errors(since: str | None = None) -> list[str]:
             "journalctl",
             "--user",
             f"--since={since}",
+            f"--until={_capped_journal_until(since)}",
             "--no-pager",
             "-o",
             "short-iso",
             "-n",
             "300",
-            "--grep=(riftlift|xrizer|rift_runtime|openxr|wineopenxr|proton)",
+            "--grep=(riftlift|xrizer|rift_runtime|openxr|wineopenxr|proton|"
+            "wivrn|monado|steamvr|vrserver|vrcompositor|vulkan|dxvk|vkd3d)",
         ],
         timeout=5,
     )
@@ -216,7 +325,71 @@ def _recent_journal_errors(since: str | None = None) -> list[str]:
     for line in output.splitlines():
         if _ERROR_LINE.search(line) and not _noisy_evidence(line):
             result.append(redact(line.strip())[:600])
-    return result[-8:]
+    return (
+        (["User/XR journal:"] + [f"  {line}" for line in result[-10:]])
+        if result
+        else []
+    )
+
+
+def _recent_kernel_errors(since: str | None = None) -> list[str]:
+    if since is None:
+        return []
+    output = _command(
+        [
+            "journalctl",
+            "-k",
+            f"--since={since}",
+            f"--until={_capped_journal_until(since)}",
+            "--no-pager",
+            "-o",
+            "short-iso",
+            "-n",
+            "400",
+            "--grep=(amdgpu|drm|gpu|vulkan|xid|oom)",
+        ],
+        timeout=5,
+    )
+    matches = [
+        redact(line.strip())[:600]
+        for line in output.splitlines()
+        if _ERROR_LINE.search(line) and not _noisy_evidence(line)
+    ]
+    return (
+        (["Kernel/GPU journal:"] + [f"  {line}" for line in matches[-10:]])
+        if matches
+        else []
+    )
+
+
+def _recent_coredumps(since: str | None = None) -> list[str]:
+    if since is None or not shutil.which("coredumpctl"):
+        return []
+    output = _command(
+        [
+            "coredumpctl",
+            f"--since={since}",
+            f"--until={_capped_journal_until(since)}",
+            "--no-pager",
+            "--no-legend",
+            "list",
+        ],
+        timeout=5,
+    )
+    matches = [
+        redact(line.strip())[:600]
+        for line in output.splitlines()
+        if "steamwebhelper" not in line.casefold()
+        and re.search(
+            r"(?i)(riftlift|wine|proton|steam|openxr|xrizer|wivrn|monado|\.exe)",
+            line,
+        )
+    ]
+    return (
+        (["Recent relevant coredumps:"] + [f"  {line}" for line in matches[-6:]])
+        if matches
+        else []
+    )
 
 
 def _noisy_evidence(line: str) -> bool:
@@ -226,7 +399,20 @@ def _noisy_evidence(line: str) -> bool:
         or "Unsupported application type: Utility" in line
         or "riftlift-validate-" in line
         or "riftlift-probe-" in line
+        or ("Registered" in line and "drm panic" in line)
+        or "Listening on systemd-oomd" in line
     )
+
+
+def _capped_journal_until(since: str) -> str:
+    try:
+        start = datetime.fromisoformat(since)
+    except ValueError:
+        return "now"
+    now = datetime.now(timezone.utc)
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    return min(now, start + timedelta(hours=6)).isoformat()
 
 
 def _tail_lines(path: Path) -> list[str]:
@@ -242,7 +428,44 @@ def _tail_lines(path: Path) -> list[str]:
     return payload.decode(errors="replace").splitlines()
 
 
-def _recent_game_log_errors(paths: Paths) -> list[str]:
+def _launch_epoch(launches: list[dict[str, object]]) -> float | None:
+    values = []
+    for launch in launches:
+        value = launch.get("started_at", launch.get("at"))
+        if not isinstance(value, str):
+            continue
+        try:
+            values.append(datetime.fromisoformat(value).timestamp())
+        except ValueError:
+            pass
+    return max(values) - 5 if values else None
+
+
+def _launch_end_epoch(launches: list[dict[str, object]]) -> float | None:
+    starts = []
+    for launch in launches:
+        value = launch.get("started_at", launch.get("at"))
+        if not isinstance(value, str):
+            continue
+        try:
+            starts.append((datetime.fromisoformat(value).timestamp(), launch))
+        except ValueError:
+            pass
+    if not starts:
+        return None
+    started, latest = max(starts, key=lambda item: item[0])
+    finished = latest.get("finished_at")
+    if isinstance(finished, str):
+        try:
+            return datetime.fromisoformat(finished).timestamp() + 5
+        except ValueError:
+            pass
+    return min(datetime.now(timezone.utc).timestamp(), started + 6 * 60 * 60) + 5
+
+
+def _recent_game_log_errors(
+    paths: Paths, launches: list[dict[str, object]]
+) -> list[str]:
     users = paths.prefix / "pfx/drive_c/users"
     if not users.is_dir():
         return []
@@ -255,17 +478,28 @@ def _recent_game_log_errors(paths: Paths) -> list[str]:
                 if item.casefold() not in {"cache", "gpucache", "shadercache"}
             ]
             for name in files:
-                if name.casefold() in _LOG_NAMES:
+                if name.casefold() in _LOG_NAMES or (
+                    Path(root).name.casefold() == "logs"
+                    and name.casefold().endswith((".log", ".txt"))
+                ):
                     candidates.append(Path(root) / name)
             if len(candidates) > 200:
                 break
     except OSError:
         return []
 
+    earliest = _launch_epoch(launches)
+    latest = _launch_end_epoch(launches)
     recent: list[tuple[float, Path]] = []
     for candidate in candidates:
         try:
-            recent.append((candidate.stat().st_mtime, candidate))
+            modified = candidate.stat().st_mtime
+            if (
+                earliest is not None
+                and latest is not None
+                and earliest <= modified <= latest
+            ):
+                recent.append((modified, candidate))
         except OSError:
             pass
     result = []
@@ -318,11 +552,24 @@ def _recent_launch_log_errors(
     return result
 
 
-def _recent_proton_log_errors(paths: Paths) -> list[str]:
+def _recent_proton_log_errors(
+    paths: Paths, launches: list[dict[str, object]]
+) -> list[str]:
+    earliest = _launch_epoch(launches)
+    latest = _launch_end_epoch(launches)
+    if earliest is None or latest is None:
+        return []
+    # Proton logs are shared across launches and survive restarts. Only surface
+    # files touched during the launch window shown by this report, with a small
+    # tolerance for coarse filesystem timestamps.
     directory = prepare_proton_logs(paths)
     try:
         candidates = sorted(
-            (item for item in directory.glob("*.log") if item.is_file()),
+            (
+                item
+                for item in directory.glob("*.log")
+                if item.is_file() and earliest <= item.stat().st_mtime <= latest
+            ),
             key=lambda item: item.stat().st_mtime,
             reverse=True,
         )[:2]
@@ -345,10 +592,109 @@ def _recent_proton_log_errors(paths: Paths) -> list[str]:
     return result
 
 
+def _recent_debug_file_errors(
+    paths: Paths,
+    launches: list[dict[str, object]],
+    directory_name: str,
+    *,
+    include_tail: bool = False,
+) -> list[str]:
+    earliest = _launch_epoch(launches)
+    latest = _launch_end_epoch(launches)
+    if earliest is None or latest is None:
+        return []
+    directory = paths.data / "diagnostics" / directory_name
+    try:
+        candidates = sorted(
+            (
+                item
+                for item in directory.iterdir()
+                if item.is_file() and earliest <= item.stat().st_mtime <= latest
+            ),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )[:4]
+    except OSError:
+        return []
+    result = []
+    for target in candidates:
+        try:
+            lines = _tail_lines(target)[-1000:]
+        except OSError:
+            continue
+        matches = [
+            redact(line.strip())[:600]
+            for line in lines
+            if _ERROR_LINE.search(line) and not _noisy_evidence(line)
+        ]
+        selected = (
+            matches[-8:]
+            if matches
+            else (
+                [redact(line.strip())[:600] for line in lines[-8:] if line.strip()]
+                if include_tail
+                else []
+            )
+        )
+        if selected:
+            result.append(f"{redact(str(target))}:")
+            result.extend(f"  {line}" for line in selected)
+    return result
+
+
+def _recent_steam_log_errors(
+    paths: Paths, launches: list[dict[str, object]]
+) -> list[str]:
+    earliest = _launch_epoch(launches)
+    latest = _launch_end_epoch(launches)
+    if earliest is None or latest is None:
+        return []
+    try:
+        directory = steam_root() / "logs"
+    except Exception:
+        return []
+    try:
+        candidates = sorted(
+            (
+                item
+                for item in directory.iterdir()
+                if item.is_file()
+                and item.suffix.casefold() in {".txt", ".log"}
+                and earliest <= item.stat().st_mtime <= latest
+            ),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )[:8]
+    except OSError:
+        return []
+    result = []
+    for target in candidates:
+        if not re.search(
+            r"(?i)(vr|openxr|vulkan|shader|console|stderr|connection|webhelper)",
+            target.name,
+        ):
+            continue
+        try:
+            lines = _tail_lines(target)[-600:]
+        except OSError:
+            continue
+        matches = [
+            redact(line.strip())[:600]
+            for line in lines
+            if _ERROR_LINE.search(line) and not _noisy_evidence(line)
+        ]
+        if matches:
+            result.append(f"{redact(str(target))}:")
+            result.extend(f"  {line}" for line in matches[-5:])
+    return result
+
+
 def _recommendations(
     checks: list[tuple[str, bool, str]],
     launches: list[dict[str, object]],
     debug_logging: bool,
+    evidence: list[str],
+    current_components: dict[str, str],
 ) -> list[str]:
     failed_labels = {label for label, ok, _detail in checks if not ok}
     result: list[str] = []
@@ -384,6 +730,68 @@ def _recommendations(
         or item.get("error")
         or item.get("exit_code") != 0
     ]
+    expected = _expected_components()
+    stale_now = [
+        name
+        for name, version in expected.items()
+        if not _component_matches(
+            name, current_components.get(name, "unknown"), version
+        )
+    ]
+    if stale_now:
+        result.append(
+            "Run `riftlift setup` with this RiftLift build: currently installed "
+            "component versions do not match it (" + ", ".join(stale_now) + ")."
+        )
+    if unsuccessful:
+        captured = unsuccessful[0].get("components")
+        if not isinstance(captured, dict):
+            result.append(
+                "Reproduce with the current RiftLift build; this failed launch lacks "
+                "a complete build snapshot."
+            )
+        elif any(
+            not str(captured.get(name, "unknown")).startswith("not-used(")
+            and str(captured.get(name, "unknown")) != current_components.get(name)
+            for name in expected
+        ):
+            result.append(
+                "Reproduce once with the current installed builds; the newest failed "
+                "launch was captured with different component versions."
+            )
+    evidence_text = "\n".join(evidence).casefold()
+    if any(
+        signature in evidence_text
+        for signature in (
+            "vk_error_device_lost",
+            "gpu reset",
+            "ring timeout",
+            "vm fault",
+        )
+    ):
+        result.append(
+            "The Vulkan device was lost. Check `journalctl -k -b` for an amdgpu "
+            "reset, then retry after restarting the XR runtime and game; disable "
+            "GPU overlays or experimental upscaling if it repeats."
+        )
+    if "xr_error_form_factor_unavailable" in evidence_text:
+        result.append(
+            "Make sure the headset is connected and the selected OpenXR runtime has "
+            "an active HMD session before retrying."
+        )
+    if "xr_error_graphics_device_invalid" in evidence_text:
+        result.append(
+            "Ensure the game and OpenXR runtime select the same GPU; remove forced "
+            "DXVK/VKD3D device filters and retry."
+        )
+    if (
+        "out_of_device_memory" in evidence_text
+        or "out of device memory" in evidence_text
+    ):
+        result.append(
+            "Close GPU-heavy applications and overlays, reduce VR resolution, and "
+            "retry after restarting the XR runtime."
+        )
     if not launches:
         if not debug_logging:
             result.append(
@@ -408,8 +816,103 @@ def _recommendations(
     return result
 
 
+def _debug_capture_summary(paths: Paths, enabled: bool) -> list[str]:
+    lines = [
+        "Profile: "
+        + (
+            "Proton + Wine XR/Steam/Vulkan + DXVK debug + VKD3D info + "
+            "Vulkan/OpenXR loader + crash reports"
+            if enabled
+            else "disabled"
+        )
+    ]
+    for label, name in (
+        ("Proton", "proton"),
+        ("Graphics", "graphics"),
+        ("Crash", "crashes"),
+        ("Launch", "logs"),
+    ):
+        directory = paths.data / "diagnostics" / name
+        try:
+            files = [item for item in directory.iterdir() if item.is_file()]
+            size = sum(item.stat().st_size for item in files)
+            newest = max((item.stat().st_mtime for item in files), default=None)
+        except OSError:
+            files, size, newest = [], 0, None
+        newest_text = (
+            datetime.fromtimestamp(newest, timezone.utc).isoformat(timespec="seconds")
+            if newest is not None
+            else "none"
+        )
+        lines.append(
+            f"{label} files: {len(files)} retained, {size / 1024 / 1024:.1f} MiB; "
+            f"newest={newest_text}"
+        )
+    lines.append(
+        "Retention ceiling: approximately 120 MiB; oversized text keeps its header "
+        "and failure tail."
+    )
+    lines.append(
+        "Doctor also checks game and Steam/XR logs, user and kernel journals, "
+        "relevant processes, coredump metadata, runtime services, and graphics/XR "
+        "environment overrides."
+    )
+    return lines
+
+
+def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> list[str]:
+    joined = "\n".join(evidence).casefold()
+    if "gpu reset" in joined or "ring timeout" in joined or "vm fault" in joined:
+        return [
+            "High confidence: the kernel recorded an AMD GPU hang/reset or memory "
+            "fault during the launch window."
+        ]
+    if "vk_error_device_lost" in joined or "device lost" in joined:
+        return [
+            "Strong lead: DXVK/Vulkan lost the logical GPU device. Check the "
+            "Kernel/GPU journal evidence below to distinguish a driver reset from "
+            "a userspace graphics failure."
+        ]
+    if "xr_error_form_factor_unavailable" in joined:
+        return [
+            "High confidence: the OpenXR runtime did not have an available headset "
+            "for the game session."
+        ]
+    if "xr_error_graphics_device_invalid" in joined:
+        return [
+            "High confidence: the game and OpenXR runtime selected incompatible "
+            "graphics devices."
+        ]
+    if "out_of_device_memory" in joined or "out of device memory" in joined:
+        return ["Strong lead: the Vulkan graphics device exhausted available memory."]
+    if "coredump" in joined or "segfault" in joined or "fatal" in joined:
+        return ["Strong lead: a relevant process crashed during the launch window."]
+    if "xr_error" in joined or "openxr" in joined and "failed" in joined:
+        return ["Strong lead: OpenXR runtime or session initialization failed."]
+    if "not found" in joined or "failed to load" in joined:
+        return ["Strong lead: a required runtime module or game file failed to load."]
+    if any(
+        item.get("event") != "finished" or item.get("exit_code") is None
+        for item in launches
+    ):
+        return [
+            "Launch state is incomplete: RiftLift has no completion record yet. The "
+            "game may still be running, or RiftLift was terminated during the launch."
+        ]
+    if evidence:
+        return [
+            "No single signature is decisive; the most relevant correlated errors "
+            "are listed below."
+        ]
+    return ["No correlated failure signature was found in the retained sources."]
+
+
 def build_report(paths: Paths) -> tuple[str, bool]:
     checks: list[tuple[str, bool, str]] = []
+    installed = games(paths)
+    launches = recent_launches(paths)
+    current_components = _current_components(paths)
+    expected_components = _expected_components()
 
     def check(label: str, action: object) -> None:
         try:
@@ -438,7 +941,15 @@ def build_report(paths: Paths) -> tuple[str, bool]:
     ):
         identity = _file_identity(rift_runtime / relative)
         checks.append((label, not identity.startswith("missing"), identity))
+    required_backends: set[str] = set()
+    for game in installed:
+        try:
+            required_backends.add(runtime_backend(game))
+        except Exception:
+            pass
     for backend in ("openxr", "openvr"):
+        if backend == "openvr" and backend not in required_backends:
+            continue
         try:
             bridge = native_xr_bridge(proton_dir(), backend)
             checks.append(
@@ -450,14 +961,15 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             )
         except Exception as error:
             checks.append((f"Native {backend.upper()} unixlib", False, str(error)))
-    openvr_runtime = paths.tools / "openvr-runtime/libxrizer.so"
-    checks.append(
-        (
-            "RiftLift OpenVR translator",
-            openvr_runtime.is_file(),
-            _file_identity(openvr_runtime),
+    if "openvr" in required_backends:
+        openvr_runtime = paths.tools / "openvr-runtime/libxrizer.so"
+        checks.append(
+            (
+                "RiftLift OpenVR translator",
+                openvr_runtime.is_file(),
+                _file_identity(openvr_runtime),
+            )
         )
-    )
     meta_client = (
         paths.prefix
         / "pfx/drive_c/Program Files/Oculus/Support/oculus-client/Client.exe"
@@ -484,7 +996,6 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         )
     )
 
-    installed = games(paths)
     game_lines = []
     for game in installed:
         present = game.executable_path.is_file()
@@ -519,6 +1030,15 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         f"Generated: {utc_now()}",
         "Public report: credentials, email addresses, and home paths are redacted.",
         "",
+        "[Build identity at doctor run]",
+        f"Doctor build: RiftLift {__version__}",
+        f"Doctor module: {redact(str(Path(__file__).resolve()))}",
+        *[
+            f"{'OK' if _component_matches(name, current_components[name], expected) else 'MISMATCH':8} "
+            f"{name}: installed={current_components[name]}; expected={expected}"
+            for name, expected in expected_components.items()
+        ],
+        "",
         "[System]",
         f"OS: {_os_name()}",
         f"Kernel: {platform.release()} ({platform.machine()})",
@@ -533,10 +1053,38 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         f"psvr2-fossvr.service: {_service_state('psvr2-fossvr.service')}",
         f"psvr2-fossvr-wayvr.service: {_service_state('psvr2-fossvr-wayvr.service')}",
         f"monado.service: {_service_state('monado.service')}",
+        f"wivrn.service: {_service_state('wivrn.service')}",
+        f"wivrn-server.service: {_service_state('wivrn-server.service')}",
         f"XR_RUNTIME_JSON: {redact(os.environ.get('XR_RUNTIME_JSON', '<unset>'))}",
         f"VR_OVERRIDE: {redact(os.environ.get('VR_OVERRIDE', '<unset>'))}",
         "Debug logging: "
-        + ("enabled (bounded Proton diagnostic logs)" if debug_logging else "disabled"),
+        + ("enabled (expanded bounded capture)" if debug_logging else "disabled"),
+        "",
+        "[Debug capture]",
+        *_debug_capture_summary(paths, debug_logging),
+        "",
+        "[Relevant processes]",
+        *(_relevant_processes() or ["none detected"]),
+        "",
+        "[Graphics/XR environment]",
+        *[
+            f"{name}={redact(os.environ.get(name, '<unset>'))}"
+            for name in (
+                "MANGOHUD",
+                "DISABLE_MANGOHUD",
+                "ENABLE_VKBASALT",
+                "OBS_VKCAPTURE",
+                "LD_PRELOAD",
+                "DRI_PRIME",
+                "AMD_VULKAN_ICD",
+                "GAMESCOPE_WSI",
+                "VK_INSTANCE_LAYERS",
+                "VK_DRIVER_FILES",
+                "VK_ICD_FILENAMES",
+                "DXVK_FILTER_DEVICE_NAME",
+                "VKD3D_FILTER_DEVICE_NAME",
+            )
+        ],
         "",
         "[Core checks]",
     ]
@@ -555,14 +1103,13 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             "[Recent launches]",
         ]
     )
-    launches = recent_launches(paths)
     if not launches:
         lines.append(
             "No structured launch history yet (new launches will appear here)."
         )
     for item in launches:
         if item.get("event") != "finished":
-            outcome = "INTERRUPTED (no completion recorded)"
+            outcome = "INCOMPLETE (still running or no completion recorded)"
         elif item.get("error"):
             outcome = f"ERROR: {item['error']}"
         elif item.get("exit_code") is None:
@@ -574,8 +1121,47 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             f"{item.get('started_at', item.get('at', '?'))}  "
             f"{item.get('game', item.get('slug', '?'))}  "
             f"{item.get('backend', '?')}  {outcome}  caps={capabilities}  "
-            f"debug={'on' if item.get('debug_logging') else 'off'}"
+            f"debug={'on' if item.get('debug_logging') else 'off'}  "
+            f"build={item.get('riftlift_version', 'unknown')}"
         )
+        components = item.get("components")
+        expected_at_launch = item.get("expected_components")
+        if isinstance(components, dict):
+            lines.append(
+                "  captured components: "
+                + "; ".join(f"{key}={value}" for key, value in components.items())
+            )
+        if isinstance(expected_at_launch, dict) and expected_at_launch:
+            lines.append(
+                "  expected by launch build: "
+                + "; ".join(
+                    f"{key}={value}" for key, value in expected_at_launch.items()
+                )
+            )
+    lines.extend(
+        [
+            "",
+            "[Launch vs doctor build comparison]",
+            *_component_comparison(launches, current_components),
+        ]
+    )
+    debug_launch = next(
+        (
+            item
+            for item in launches
+            if item.get("debug_logging") and item.get("debug_settings")
+        ),
+        None,
+    )
+    if debug_launch:
+        lines.extend(["", "[Most recent debug launch settings]"])
+        settings = debug_launch.get("debug_settings", {})
+        if isinstance(settings, dict):
+            lines.extend(
+                f"{key}={value}"
+                for key, value in settings.items()
+                if isinstance(key, str) and isinstance(value, str)
+            )
 
     launch_times = [
         item.get("started_at", item.get("at"))
@@ -583,24 +1169,37 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         if isinstance(item.get("started_at", item.get("at")), str)
         and item.get("started_at", item.get("at"))
     ]
-    journal_since = min(launch_times) if launch_times else None
-    evidence = [
-        *_recent_launch_log_errors(paths, launches),
-        *_recent_proton_log_errors(paths),
-        *_recent_journal_errors(journal_since),
-        *_recent_game_log_errors(paths),
-    ]
-    lines.extend(["", "[Recent error evidence]"])
-    if evidence:
-        lines.extend(evidence)
-    elif launches:
-        lines.append("No matching errors found during the recorded launch window.")
-    else:
-        lines.append(
-            "Journal scan skipped: no RiftLift launch window exists to distinguish "
-            "game failures from unrelated Steam OpenXR probes."
+    journal_since = max(launch_times) if launch_times else None
+    evidence_launches = launches[:1]
+    if journal_since:
+        lines.extend(
+            [
+                "",
+                "[Evidence correlation]",
+                f"Newest launch window: {journal_since} to "
+                f"{_capped_journal_until(journal_since)}",
+                f"Evidence launch RiftLift build: "
+                f"{launches[0].get('riftlift_version', 'unknown')}",
+                f"Doctor RiftLift build: {__version__}",
+            ]
         )
-    recommendations = _recommendations(checks, launches, debug_logging)
+    evidence = [
+        *_recent_launch_log_errors(paths, evidence_launches),
+        *_recent_proton_log_errors(paths, evidence_launches),
+        *_recent_debug_file_errors(paths, evidence_launches, "graphics"),
+        *_recent_debug_file_errors(
+            paths, evidence_launches, "crashes", include_tail=True
+        ),
+        *_recent_journal_errors(journal_since),
+        *_recent_kernel_errors(journal_since),
+        *_recent_coredumps(journal_since),
+        *_recent_steam_log_errors(paths, evidence_launches),
+        *_recent_game_log_errors(paths, evidence_launches),
+    ]
+    lines.extend(["", "[Likely cause]", *_likely_cause(evidence, launches)])
+    recommendations = _recommendations(
+        checks, launches, debug_logging, evidence, current_components
+    )
     if recommendations:
         lines.extend(["", "[Recommended next steps]"])
         lines.extend(f"- {item}" for item in recommendations)
@@ -611,19 +1210,40 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         for item in launches
     )
     successful_launches = len(launches) - unsuccessful_launches
+    stale_components = [
+        name
+        for name, expected in expected_components.items()
+        if not _component_matches(name, current_components[name], expected)
+    ]
     lines.extend(
         [
             "",
             f"[Summary] checks: {passed} passed, {failed} failed; "
+            f"component builds: {len(stale_components)} mismatched; "
             f"shown launches: {successful_launches} successful, "
-            f"{unsuccessful_launches} failed/interrupted",
+            f"{unsuccessful_launches} failed/incomplete",
         ]
     )
+    lines.extend(["", "[Recent error evidence]"])
+    if evidence:
+        lines.extend(evidence)
+    elif launches:
+        lines.append("No matching errors found during the recorded launch window.")
+    else:
+        lines.append(
+            "Journal scan skipped: no RiftLift launch window exists to distinguish "
+            "game failures from unrelated Steam OpenXR probes."
+        )
     report = redact("\n".join(lines).strip() + "\n")
     if len(report.encode()) > _MAX_REPORT:
         encoded = report.encode()[: _MAX_REPORT - 100]
         report = encoded.decode(errors="ignore") + "\n[report truncated]\n"
-    return report, failed == 0
+    latest_failed = bool(launches) and (
+        launches[0].get("event") != "finished"
+        or bool(launches[0].get("error"))
+        or launches[0].get("exit_code") != 0
+    )
+    return report, failed == 0 and not stale_components and not latest_failed
 
 
 def upload_report(report: str) -> str:

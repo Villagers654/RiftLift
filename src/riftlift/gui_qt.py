@@ -177,8 +177,8 @@ class Window(QtWidgets.QMainWindow):
         self.debug_logging = QtWidgets.QCheckBox("Debug logging")
         self.debug_logging.setChecked(debug_logging_enabled(self.paths))
         self.debug_logging.setToolTip(
-            "Save detailed Proton logs for future System reports. "
-            "Storage is automatically limited."
+            "Capture Proton, Wine XR/Steam/Vulkan, DXVK, VKD3D, loader, and "
+            "crash diagnostics for future System reports. Storage is limited."
         )
         self.debug_logging.toggled.connect(self.set_debug_logging)
         head.addWidget(self.debug_logging)

@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+version='@VERSION@'
+release_tag='@RELEASE_TAG@'
+wheel_sha256='@WHEEL_SHA256@'
+release_base='https://github.com/Villagers654/RiftLift/releases/download'
+wheel_name="riftlift-${version}-py3-none-any.whl"
+wheel_url="${release_base}/${release_tag}/${wheel_name}"
+
+data_root=${XDG_DATA_HOME:-$HOME/.local/share}/riftlift
+bin_root=${XDG_BIN_HOME:-$HOME/.local/bin}
+applications_root=${XDG_DATA_HOME:-$HOME/.local/share}/applications
+icons_root=${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps
+venv="$data_root/venv"
+run_setup=true
+
+if [[ ${1:-} == --no-setup ]]; then
+  run_setup=false
+  shift
+fi
+if (( $# )); then
+  echo "usage: $0 [--no-setup]" >&2
+  exit 2
+fi
+
+command -v python3 >/dev/null || {
+  echo "Python 3.10 or newer is required." >&2
+  exit 1
+}
+python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))' || {
+  echo "Python 3.10 or newer is required." >&2
+  exit 1
+}
+command -v git >/dev/null || {
+  echo "Git is required to install RiftLift's pinned downloader dependency." >&2
+  exit 1
+}
+
+temporary=$(mktemp -d "${TMPDIR:-/tmp}/riftlift-installer.XXXXXX")
+trap 'rm -rf -- "$temporary"' EXIT
+wheel="$temporary/$wheel_name"
+
+echo "Downloading RiftLift $version..."
+if [[ -n ${RIFTLIFT_INSTALLER_WHEEL:-} ]]; then
+  cp -- "$RIFTLIFT_INSTALLER_WHEEL" "$wheel"
+elif command -v curl >/dev/null; then
+  curl --fail --location --retry 3 --output "$wheel" "$wheel_url"
+elif command -v wget >/dev/null; then
+  wget --tries=3 --output-document="$wheel" "$wheel_url"
+else
+  echo "curl or wget is required." >&2
+  exit 1
+fi
+
+actual_sha256=$(python3 - "$wheel" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+digest = hashlib.sha256()
+with pathlib.Path(sys.argv[1]).open("rb") as stream:
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        digest.update(chunk)
+print(digest.hexdigest())
+PY
+)
+if [[ $actual_sha256 != "$wheel_sha256" ]]; then
+  echo "RiftLift wheel checksum mismatch; refusing to install." >&2
+  exit 1
+fi
+
+mkdir -p "$data_root" "$bin_root" "$applications_root" "$icons_root"
+python3 -m venv "$venv"
+"$venv/bin/python" -m pip install --quiet --upgrade pip
+"$venv/bin/python" -m pip install --quiet --upgrade "$wheel"
+ln -sfn "$venv/bin/riftlift" "$bin_root/riftlift"
+ln -sfn "$venv/bin/riftlift-gui" "$bin_root/riftlift-gui"
+
+cat >"$applications_root/io.github.villagers654.RiftLift.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=RiftLift
+Comment=Run owned Meta Rift games on Linux OpenXR
+Exec=$bin_root/riftlift-gui
+Icon=io.github.villagers654.RiftLift
+Terminal=false
+Categories=Game;Utility;
+Keywords=VR;Rift;OpenXR;Meta;
+EOF
+
+cat >"$icons_root/io.github.villagers654.RiftLift.svg" <<'EOF'
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="g" x1="30" y1="226" x2="226" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6848ff"/><stop offset="1" stop-color="#9f8cff"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="#0b1020"/>
+  <path d="M53 93c3-22 16-34 38-38 24-4 50-4 74 0 22 4 35 16 38 38l6 50c3 27-10 46-33 49-15 2-28-6-37-22l-11-19-11 19c-9 16-22 24-37 22-23-3-36-22-33-49l6-50Z" fill="none" stroke="url(#g)" stroke-width="16" stroke-linejoin="round"/>
+  <path d="m103 128 25-31 25 31h-15v34h-20v-34h-15Z" fill="#43d9a3"/>
+</svg>
+EOF
+
+if command -v update-desktop-database >/dev/null; then
+  update-desktop-database "$applications_root" >/dev/null 2>&1 || true
+fi
+
+echo "Installed RiftLift $version at $bin_root/riftlift"
+if $run_setup; then
+  echo "Installing RiftLift's pinned Proton, Meta, OpenXR, and OpenVR components..."
+  "$bin_root/riftlift" setup
+fi
+
+cat <<EOF
+
+RiftLift is ready.
+
+Open RiftLift from your application menu, or run:
+  $bin_root/riftlift gui
+
+Then enable Debug logging, click System, sign in to Meta, and add a game.
+EOF

@@ -10,13 +10,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import __version__
 from .config import Game, Paths
 
 _MAX_HISTORY_BYTES = 256 * 1024
 _MAX_LAUNCH_LOGS = 10
-_MAX_LAUNCH_LOG_BYTES = 4 * 1024 * 1024
-_MAX_PROTON_LOGS = 3
+_MAX_LAUNCH_LOG_BYTES = 3 * 1024 * 1024
+_MAX_PROTON_LOGS = 5
 _MAX_PROTON_LOG_BYTES = 8 * 1024 * 1024
+_MAX_GRAPHICS_LOGS = 10
+_MAX_GRAPHICS_LOG_BYTES = 2 * 1024 * 1024
+_MAX_CRASH_LOGS = 5
+_MAX_CRASH_LOG_BYTES = 6 * 1024 * 1024
 _SECRET = re.compile(
     r"(?i)\b((?:"
     r"(?:(?:access|refresh|request|profile|client|native_sso)[_-]?)?token|"
@@ -62,15 +67,19 @@ def trim_diagnostic_log(path: Path, max_bytes: int) -> None:
         if size <= max_bytes:
             return
         with path.open("r+b") as stream:
-            stream.seek(-max_bytes, os.SEEK_END)
-            payload = stream.read()
-            _partial, separator, payload = payload.partition(b"\n")
+            marker = b"\n[middle diagnostic output truncated]\n"
+            head_size = max_bytes // 4
+            tail_size = max_bytes - head_size - len(marker)
+            head = stream.read(head_size)
+            stream.seek(-tail_size, os.SEEK_END)
+            tail = stream.read(tail_size)
+            _partial, separator, tail = tail.partition(b"\n")
             if not separator:
-                payload = payload[-max_bytes:]
-            marker = b"[older diagnostic output truncated]\n"
+                tail = tail[-tail_size:]
             stream.seek(0)
+            stream.write(head)
             stream.write(marker)
-            stream.write(payload[-(max_bytes - len(marker)) :])
+            stream.write(tail)
             stream.truncate()
     except OSError:
         pass
@@ -111,7 +120,8 @@ def finish_launch_log(path: Path) -> None:
 
 def prepare_proton_logs(paths: Paths) -> Path:
     directory = paths.data / "diagnostics" / "proton"
-    directory.mkdir(parents=True, exist_ok=True)
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    directory.chmod(0o700)
     prune_diagnostic_logs(
         directory,
         "*.log",
@@ -119,6 +129,42 @@ def prepare_proton_logs(paths: Paths) -> Path:
         max_bytes=_MAX_PROTON_LOG_BYTES,
     )
     return directory
+
+
+def _prepare_debug_log_directory(
+    paths: Paths, name: str, *, keep: int, max_bytes: int
+) -> Path:
+    directory = paths.data / "diagnostics" / name
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    directory.chmod(0o700)
+    prune_diagnostic_logs(directory, "*", keep=keep, max_bytes=max_bytes)
+    return directory
+
+
+def prepare_graphics_logs(paths: Paths) -> Path:
+    return _prepare_debug_log_directory(
+        paths,
+        "graphics",
+        keep=_MAX_GRAPHICS_LOGS,
+        max_bytes=_MAX_GRAPHICS_LOG_BYTES,
+    )
+
+
+def prepare_crash_logs(paths: Paths) -> Path:
+    return _prepare_debug_log_directory(
+        paths,
+        "crashes",
+        keep=_MAX_CRASH_LOGS,
+        max_bytes=_MAX_CRASH_LOG_BYTES,
+    )
+
+
+def prepare_debug_logs(paths: Paths) -> dict[str, Path]:
+    return {
+        "proton": prepare_proton_logs(paths),
+        "graphics": prepare_graphics_logs(paths),
+        "crashes": prepare_crash_logs(paths),
+    }
 
 
 def _append(paths: Paths, record: dict[str, Any]) -> None:
@@ -148,6 +194,9 @@ def launch_started(
     wrapper: bool,
     capabilities: list[str],
     debug_logging: bool = False,
+    debug_settings: dict[str, str] | None = None,
+    components: dict[str, str] | None = None,
+    expected_components: dict[str, str] | None = None,
 ) -> tuple[str, float]:
     launch_id = uuid.uuid4().hex[:12]
     started = time.monotonic()
@@ -167,6 +216,10 @@ def launch_started(
             "capabilities": capabilities,
             "wrapper": wrapper,
             "debug_logging": debug_logging,
+            "debug_settings": debug_settings or {},
+            "riftlift_version": __version__,
+            "components": components or {"riftlift": __version__},
+            "expected_components": expected_components or {},
         },
     )
     return launch_id, started
