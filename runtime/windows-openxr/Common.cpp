@@ -60,6 +60,29 @@ void TraceOculusValue(const char* name, long long value)
 	}
 }
 
+void TraceXrResult(const char* expression, XrResult result)
+{
+	if (XR_SUCCEEDED(result) || std::getenv("RIFTLIFT_RUNTIME_TRACE") == nullptr)
+		return;
+
+	char message[512];
+	sprintf_s(message, sizeof(message), "RiftLift: %s failed with OpenXR result %d\n",
+		expression, static_cast<int>(result));
+	OutputDebugStringA(message);
+
+	char temp[MAX_PATH];
+	char path[MAX_PATH];
+	if (!GetTempPathA(static_cast<DWORD>(sizeof(temp)), temp) ||
+		sprintf_s(path, sizeof(path), "%sriftlift-runtime-trace.log", temp) < 0)
+		return;
+	FILE* stream = nullptr;
+	if (fopen_s(&stream, path, "a") == 0 && stream)
+	{
+		fputs(message, stream);
+		fclose(stream);
+	}
+}
+
 ovrResult ResultToOvrResult(XrResult error)
 {
 	switch (error)

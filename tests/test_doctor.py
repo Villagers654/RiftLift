@@ -216,6 +216,9 @@ def test_build_report_includes_recent_launch_evidence(
     report, healthy = build_report(test_paths)
 
     assert "[System]" in report
+    assert "psvr2-fossvr.service" not in report
+    assert "psvr2-fossvr-wayvr.service" not in report
+    assert "wivrn-server.service" not in report
     assert "[Recent launches]" in report
     assert f"Doctor build: RiftLift {__version__}" in report
     assert "captured components: riftlift=0.8.0" in report
@@ -227,6 +230,36 @@ def test_build_report_includes_recent_launch_evidence(
     assert "Test Controller" in report
     assert "shown launches: 0 successful, 1 failed/incomplete" in report
     assert not healthy  # Missing components are correctly visible as failures.
+
+
+def test_runtime_description_reports_selected_envision_profile(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manifest = tmp_path / "openxr_monado.json"
+    manifest.write_text(
+        '{"runtime":{"name":"Monado","library_path":"libopenxr_monado.so"}}'
+    )
+    profile = type(
+        "Profile",
+        (),
+        {
+            "manifest": manifest.resolve(),
+            "name": "Clean Profile",
+            "uuid": "clean-id",
+            "environment": {"DRI_PRIME": "1", "XRT_COMPOSITOR_COMPUTE": "1"},
+        },
+    )()
+    monkeypatch.setattr(
+        "riftlift.doctor.active_runtime_json", lambda: manifest.resolve()
+    )
+    monkeypatch.setattr("riftlift.doctor.envision_profile", lambda: profile)
+
+    from riftlift.doctor import _runtime_description
+
+    ok, detail = _runtime_description()
+    assert ok
+    assert "Envision profile Clean Profile [clean-id]" in detail
+    assert "environment=DRI_PRIME,XRT_COMPOSITOR_COMPUTE" in detail
 
 
 def test_build_report_includes_saved_launch_log_errors(

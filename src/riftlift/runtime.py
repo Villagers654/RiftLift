@@ -72,6 +72,17 @@ class MetaPackage:
         return f"https://securecdn-atl3-3.oculus.com/binaries/download/?id={self.binary_id}"
 
 
+@dataclass(frozen=True, slots=True)
+class EnvisionProfile:
+    """The Envision profile whose Monado build is selected by the user."""
+
+    uuid: str
+    name: str
+    prefix: Path
+    manifest: Path
+    environment: dict[str, str]
+
+
 META_PACKAGES = (
     MetaPackage(
         "oculus-runtime",
@@ -443,7 +454,10 @@ def proton(
 def initialize_prefix(paths: Paths) -> Path:
     paths.create()
     if not (paths.prefix / "pfx/drive_c").is_dir():
-        proton(paths, "run", "cmd.exe", "/c", "exit")
+        # Prefix maintenance must bypass Proton's Steam/UMU game launcher.
+        # Using the game verb on a clean prefix can leave steam.exe helpers
+        # alive and make setup wait forever after Wine has already initialized.
+        proton(paths, "runinprefix", "cmd.exe", "/c", "exit")
     prefix = paths.prefix / "pfx"
     (
         prefix
@@ -814,11 +828,110 @@ def login(paths: Paths) -> int:
     raise RiftLiftError("the browser closed before Meta sign-in finished")
 
 
+def envision_profile() -> EnvisionProfile | None:
+    """Read Envision's selection without requiring RiftLift to be its child."""
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+    config_path = config_home / "envision/envision.json"
+    try:
+        payload = json.loads(config_path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    uuid = payload.get("selected_profile_uuid")
+    if not isinstance(uuid, str) or not uuid.strip():
+        return None
+    uuid = uuid.strip()
+    selected: dict[object, object] = {}
+    profiles = payload.get("user_profiles", [])
+    if isinstance(profiles, list):
+        selected = next(
+            (
+                profile
+                for profile in profiles
+                if isinstance(profile, dict) and profile.get("uuid") == uuid
+            ),
+            {},
+        )
+
+    configured_prefix = selected.get("prefix")
+    prefixes = []
+    if isinstance(configured_prefix, str) and configured_prefix.strip():
+        prefixes.append(Path(configured_prefix).expanduser())
+    # Envision's built-in UUIDs use a dash while their on-disk prefix names
+    # historically used an underscore. Support both forms across releases.
+    prefix_root = data_home / "envision/prefixes"
+    prefixes.extend((prefix_root / uuid, prefix_root / uuid.replace("-", "_")))
+    prefix = next((item for item in prefixes if item.is_dir()), prefixes[0])
+
+    manifests = [prefix / "share/openxr/1/openxr_monado.json"]
+    manifest = next((item for item in manifests if item.is_file()), manifests[0])
+    raw_environment = selected.get("environment", {})
+    environment = (
+        {
+            key: value
+            for key, value in raw_environment.items()
+            if isinstance(key, str) and isinstance(value, str)
+        }
+        if isinstance(raw_environment, dict)
+        else {}
+    )
+    library_dirs = [prefix / "lib", prefix / "lib64"]
+    library_path = ":".join(str(item) for item in library_dirs if item.is_dir())
+    if library_path and "LD_LIBRARY_PATH" not in environment:
+        environment["LD_LIBRARY_PATH"] = library_path
+    name = selected.get("name")
+    return EnvisionProfile(
+        uuid=uuid,
+        name=name if isinstance(name, str) and name else uuid,
+        prefix=prefix.resolve(),
+        manifest=manifest.resolve(),
+        environment=environment,
+    )
+
+
+def _runtime_manifest(candidate: Path, *, explicit: bool = False) -> Path | None:
+    try:
+        manifest = json.loads(candidate.read_text())
+        runtime = manifest["runtime"]
+        library = runtime["library_path"]
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+        if explicit:
+            raise RiftLiftError(
+                f"XR_RUNTIME_JSON is not a valid OpenXR runtime manifest: {candidate}"
+            ) from error
+        return None
+    if not isinstance(library, str) or not library:
+        return None
+    library_path = Path(library).expanduser()
+    if library_path.is_absolute() or library_path.parent != Path("."):
+        resolved_library = (
+            library_path
+            if library_path.is_absolute()
+            else candidate.parent / library_path
+        ).resolve()
+        if not resolved_library.is_file():
+            message = (
+                f"OpenXR runtime manifest points to a missing library: "
+                f"{resolved_library}"
+            )
+            if explicit:
+                raise RiftLiftError(message)
+            return None
+    return candidate.resolve()
+
+
 def active_runtime_json() -> Path:
     explicit = os.environ.get("XR_RUNTIME_JSON")
     candidates = [Path(explicit)] if explicit else []
+    envision = envision_profile()
+    if not explicit and envision is not None:
+        candidates.append(envision.manifest)
     config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    candidates.append(config_home / "openxr/1/active_runtime.json")
+    if envision is None:
+        candidates.append(config_home / "openxr/1/active_runtime.json")
 
     data_dirs = [Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))]
     data_dirs.extend(
@@ -828,10 +941,11 @@ def active_runtime_json() -> Path:
         ).split(":")
         if item
     )
-    candidates.extend(
-        directory / "openxr/1/openxr_monado.json" for directory in data_dirs
-    )
-    candidates.append(Path("/etc/openxr/1/active_runtime.json"))
+    if envision is None:
+        candidates.extend(
+            directory / "openxr/1/openxr_monado.json" for directory in data_dirs
+        )
+        candidates.append(Path("/etc/openxr/1/active_runtime.json"))
 
     seen: set[Path] = set()
     for candidate in candidates:
@@ -841,22 +955,105 @@ def active_runtime_json() -> Path:
         seen.add(candidate)
         if not candidate.is_file():
             continue
+        resolved = _runtime_manifest(
+            candidate,
+            explicit=bool(explicit and candidate == Path(explicit).expanduser()),
+        )
+        if resolved is not None:
+            return resolved
+    if envision is not None:
+        if not envision.manifest.is_file():
+            raise RiftLiftError(
+                f"Envision selected profile {envision.name!r} [{envision.uuid}], but "
+                f"its Monado runtime is not built at {envision.manifest}; build that "
+                "profile in Envision, select it, and retry"
+            )
         try:
-            manifest = json.loads(candidate.read_text())
-            library = manifest["runtime"]["library_path"]
-        except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
-            if explicit and candidate == Path(explicit).expanduser():
-                raise RiftLiftError(
-                    f"XR_RUNTIME_JSON is not a valid OpenXR runtime manifest: {candidate}"
-                ) from error
-            continue
-        if not isinstance(library, str) or not library:
-            continue
-        return candidate.resolve()
+            payload = json.loads(envision.manifest.read_text())
+            library_value = payload["runtime"]["library_path"]
+            library = Path(library_value).expanduser()
+            if not library.is_absolute():
+                library = envision.manifest.parent / library
+            detail = f"missing runtime library {library.resolve()}"
+        except (OSError, KeyError, TypeError, json.JSONDecodeError):
+            detail = f"invalid runtime manifest {envision.manifest}"
+        raise RiftLiftError(
+            f"Envision selected profile {envision.name!r} [{envision.uuid}], but it "
+            f"has an unusable Monado build ({detail}); rebuild the profile in Envision"
+        )
     raise RiftLiftError(
-        "no active OpenXR runtime was found; select your working Monado manifest with "
-        "~/.config/openxr/1/active_runtime.json or XR_RUNTIME_JSON"
+        "no usable OpenXR runtime was found; build and select a Monado profile in "
+        "Envision, or select a manifest with ~/.config/openxr/1/active_runtime.json "
+        "or XR_RUNTIME_JSON"
     )
+
+
+def _envision_environment(runtime: Path) -> dict[str, str]:
+    profile = envision_profile()
+    if profile is None or profile.manifest != runtime.resolve():
+        return {}
+    return profile.environment.copy()
+
+
+def xr_build_components() -> dict[str, str]:
+    """Return external XR identities suitable for launch-time snapshots."""
+    try:
+        runtime = active_runtime_json()
+        payload = json.loads(runtime.read_text())
+        library_value = payload["runtime"]["library_path"]
+        library = Path(library_value).expanduser()
+        if not library.is_absolute() and library.parent != Path("."):
+            library = (runtime.parent / library).resolve()
+        profile = envision_profile()
+        if (
+            not library.is_absolute()
+            and library.parent == Path(".")
+            and profile is not None
+            and profile.manifest == runtime
+        ):
+            library = next(
+                (
+                    candidate
+                    for candidate in (
+                        profile.prefix / "lib" / library,
+                        profile.prefix / "lib64" / library,
+                    )
+                    if candidate.is_file()
+                ),
+                library,
+            )
+        manifest_hash = hashlib.sha256(runtime.read_bytes()).hexdigest()[:12]
+        library_identity = library.name
+        if library.is_file():
+            library_identity += (
+                f" sha256:{hashlib.sha256(library.read_bytes()).hexdigest()[:12]}"
+            )
+        result = {
+            "openxr_manifest": f"{runtime} sha256:{manifest_hash}",
+            "monado_runtime": library_identity,
+        }
+    except Exception as error:
+        result = {
+            "openxr_manifest": f"unavailable: {error}",
+            "monado_runtime": "unavailable",
+        }
+    profile = envision_profile()
+    result["envision_profile"] = (
+        f"{profile.name} [{profile.uuid}]" if profile is not None else "not selected"
+    )
+    try:
+        completed = subprocess.run(
+            ["envision", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+        version = (completed.stdout or completed.stderr).strip().splitlines()[0]
+    except (OSError, subprocess.SubprocessError, IndexError):
+        version = "not installed/unknown"
+    result["envision"] = version or "not installed/unknown"
+    return result
 
 
 def platform_user_id(paths: Paths) -> str:
@@ -892,8 +1089,14 @@ def platform_user_id(paths: Paths) -> str:
 def launch_environment(
     paths: Paths, game_dir: Path, platform_shim: bool, platform_offline: bool = False
 ) -> dict[str, str]:
-    environment = proton_environment(paths, game_dir)
     runtime = active_runtime_json()
+    environment = proton_environment(paths, game_dir)
+    for key, value in _envision_environment(runtime).items():
+        if key == "LD_LIBRARY_PATH" and environment.get(key):
+            values = [*value.split(":"), *environment[key].split(":")]
+            environment[key] = ":".join(dict.fromkeys(item for item in values if item))
+        else:
+            environment.setdefault(key, value)
     existing_overrides = environment.get("WINEDLLOVERRIDES", "").strip(";")
     environment.update(
         {

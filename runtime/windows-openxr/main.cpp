@@ -4,6 +4,7 @@
 #include <d3d11.h>
 #include <Shlwapi.h>
 #include <string>
+#include <vector>
 #include <detours/detours.h>
 
 #include "OVR_CAPI.h"
@@ -24,6 +25,93 @@ CHAR revModuleNameA[MAX_PATH];
 CHAR ovrModuleNameA[MAX_PATH];
 WCHAR revModuleName[MAX_PATH];
 WCHAR ovrModuleName[MAX_PATH];
+
+HANDLE WINAPI HookOpenEvent(DWORD, BOOL, LPCWSTR);
+HMODULE WINAPI HookLoadLibraryA(LPCSTR);
+HMODULE WINAPI HookLoadLibraryExA(LPCSTR, HANDLE, DWORD);
+HMODULE WINAPI HookLoadLibraryW(LPCWSTR);
+HMODULE WINAPI HookLoadLibraryExW(LPCWSTR, HANDLE, DWORD);
+HMODULE WINAPI HookGetModuleHandleA(LPCSTR);
+HMODULE WINAPI HookGetModuleHandleW(LPCWSTR);
+BOOL WINAPI HookGetModuleHandleExA(DWORD, LPCSTR, HMODULE*);
+BOOL WINAPI HookGetModuleHandleExW(DWORD, LPCWSTR, HMODULE*);
+
+struct ImportPatch
+{
+	PVOID* slot;
+	PVOID original;
+};
+
+std::vector<ImportPatch> importPatches;
+
+void PatchMainImport(const char* target, PVOID replacement)
+{
+	PBYTE image = reinterpret_cast<PBYTE>(GetModuleHandleW(NULL));
+	auto dos = reinterpret_cast<PIMAGE_DOS_HEADER>(image);
+	if (!dos || dos->e_magic != IMAGE_DOS_SIGNATURE)
+		return;
+	auto nt = reinterpret_cast<PIMAGE_NT_HEADERS>(image + dos->e_lfanew);
+	if (nt->Signature != IMAGE_NT_SIGNATURE)
+		return;
+	DWORD importsRva = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
+	if (!importsRva)
+		return;
+	for (auto descriptor = reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(image + importsRva);
+		descriptor->Name; ++descriptor)
+	{
+		if (!descriptor->OriginalFirstThunk)
+			continue;
+		auto names = reinterpret_cast<PIMAGE_THUNK_DATA>(image + descriptor->OriginalFirstThunk);
+		auto addresses = reinterpret_cast<PIMAGE_THUNK_DATA>(image + descriptor->FirstThunk);
+		for (; names->u1.AddressOfData; ++names, ++addresses)
+		{
+			if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal))
+				continue;
+			auto import = reinterpret_cast<PIMAGE_IMPORT_BY_NAME>(image + names->u1.AddressOfData);
+			if (strcmp(reinterpret_cast<const char*>(import->Name), target) != 0)
+				continue;
+			PVOID* slot = reinterpret_cast<PVOID*>(&addresses->u1.Function);
+			DWORD protection;
+			if (VirtualProtect(slot, sizeof(*slot), PAGE_READWRITE, &protection))
+			{
+				importPatches.push_back({ slot, *slot });
+				*slot = replacement;
+				VirtualProtect(slot, sizeof(*slot), protection, &protection);
+				FlushInstructionCache(GetCurrentProcess(), slot, sizeof(*slot));
+			}
+		}
+	}
+}
+
+void PatchMainExecutableImports()
+{
+	PatchMainImport("LoadLibraryA", reinterpret_cast<PVOID>(HookLoadLibraryA));
+	PatchMainImport("LoadLibraryExA", reinterpret_cast<PVOID>(HookLoadLibraryExA));
+	PatchMainImport("LoadLibraryW", reinterpret_cast<PVOID>(HookLoadLibraryW));
+	PatchMainImport("LoadLibraryExW", reinterpret_cast<PVOID>(HookLoadLibraryExW));
+	PatchMainImport("GetModuleHandleA", reinterpret_cast<PVOID>(HookGetModuleHandleA));
+	PatchMainImport("GetModuleHandleW", reinterpret_cast<PVOID>(HookGetModuleHandleW));
+	PatchMainImport("GetModuleHandleExA", reinterpret_cast<PVOID>(HookGetModuleHandleExA));
+	PatchMainImport("GetModuleHandleExW", reinterpret_cast<PVOID>(HookGetModuleHandleExW));
+	PatchMainImport("OpenEventW", reinterpret_cast<PVOID>(HookOpenEvent));
+	char message[96];
+	sprintf_s(message, "RiftLift: patched %zu executable runtime imports\n", importPatches.size());
+	OutputDebugStringA(message);
+}
+
+void RestoreMainExecutableImports()
+{
+	for (auto patch = importPatches.rbegin(); patch != importPatches.rend(); ++patch)
+	{
+		DWORD protection;
+		if (VirtualProtect(patch->slot, sizeof(*patch->slot), PAGE_READWRITE, &protection))
+		{
+			*patch->slot = patch->original;
+			VirtualProtect(patch->slot, sizeof(*patch->slot), protection, &protection);
+		}
+	}
+	importPatches.clear();
+}
 
 bool IsOvrRuntimeName(LPCSTR lpModuleName)
 {
@@ -182,8 +270,10 @@ BOOL APIENTRY DllMain(HANDLE hModule, DWORD ul_reason_for_call, LPVOID lpReserve
 
 			DetourRestoreAfterWith();
 			AttachDetours();
+			PatchMainExecutableImports();
 			break;
 		case DLL_PROCESS_DETACH:
+			RestoreMainExecutableImports();
 			DetachDetours();
 			break;
 		default:

@@ -37,6 +37,7 @@ from .runtime import (
     install_rift_runtime,
     launch_environment,
     native_xr_bridge,
+    xr_build_components,
 )
 from .util import RiftLiftError, linux_to_windows
 
@@ -57,6 +58,7 @@ _DEBUG_ENVIRONMENT_KEYS = (
     "SteamAppId",
     "UMU_ID",
     "UMU_USE_STEAM",
+    "RIFTLIFT_RUNTIME_TRACE",
 )
 
 _EXPECTED_BUILD_COMPONENTS = {
@@ -134,6 +136,7 @@ def _launch_build_components(
         "proton": _installed_proton_build(proton_root),
         **_installed_meta_builds(paths),
         "platform_bridge": f"compat-runtime:{runtime_build}",
+        **xr_build_components(),
     }
 
 
@@ -225,6 +228,15 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         game.platform_shim,
         game.platform_offline or verified_rift_download,
     )
+    if environment.get("PROTON_LOG") == "1":
+        environment["RIFTLIFT_RUNTIME_TRACE"] = "1"
+        # The bridge writes a compact first-call trace in Wine's temp folder.
+        # Keep only the current reproduction so this cannot grow indefinitely
+        # or make doctor correlate an old game's calls with a new failure.
+        for trace in (paths.prefix / "pfx/drive_c/users").glob(
+            "*/Temp/riftlift-runtime-trace.log"
+        ):
+            trace.unlink(missing_ok=True)
     if game.steam_app_id:
         # Steam-distributed Oculus builds may still use Steamworks for DRM,
         # ownership, saves, or startup. Rift-store games deliberately keep the

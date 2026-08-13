@@ -9,6 +9,7 @@ from riftlift.runtime import (
     RUNTIME_VERSION,
     install_openvr_runtime,
     install_rift_runtime,
+    initialize_prefix,
     proton_environment,
 )
 
@@ -61,6 +62,28 @@ def test_runtime_payload_is_reused_only_for_current_version(tmp_path, monkeypatc
 
     archive.unlink()
     assert install_rift_runtime(paths) == destination
+
+
+def test_clean_prefix_initialization_bypasses_game_launcher(tmp_path, monkeypatch):
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    captured: list[tuple[str, ...]] = []
+
+    def fake_proton(_paths, *arguments, **_kwargs):
+        captured.append(arguments)
+        (paths.prefix / "pfx/drive_c").mkdir(parents=True)
+
+    monkeypatch.setattr("riftlift.runtime.proton", fake_proton)
+
+    initialize_prefix(paths)
+
+    assert captured == [("runinprefix", "cmd.exe", "/c", "exit")]
 
 
 def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):

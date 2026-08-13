@@ -10,9 +10,7 @@ headset works with Monado, SteamVR is not required.
 
 ![RiftLift showing an installed Meta Rift library](docs/images/riftlift-library.png)
 
-> **Experimental software:** RiftLift is under active development and is not
-> expected to work reliably on every system or with every game yet. Expect
-> bugs, incomplete compatibility, and occasional setup or troubleshooting work.
+> **Alpha software:** game compatibility is still expanding.
 
 The 0.9 alpha moves RiftLift's Rift API translation layer into this repository
 and sends XR calls through Proton's in-process native Linux runtime boundary.
@@ -41,26 +39,19 @@ Download `riftlift-installer.sh` from the latest GitHub release, then run:
 bash riftlift-installer.sh
 ```
 
-This single file verifies and installs its matching RiftLift build, adds desktop
-integration, and downloads all pinned compatibility components. The first
-install can take a while. It will add **RiftLift** to your application menu.
+The installer verifies its matching build, adds desktop integration, and
+downloads the pinned compatibility components.
 
 To install from a source checkout instead, run `./install.sh` in the repository.
 
 ### 2. Check your setup and sign in
 
-Open **RiftLift** from your application menu and click **System**. If something
-is not ready, open **View Activity** for the details.
+Open **RiftLift** and click **System** to verify the setup.
 
-Click **Sign In** and complete Meta's hosted sign-in page in the dedicated
-default-browser window. RiftLift supports Firefox and Chromium-based browsers,
-detects completion, and returns to the app automatically. Passwords and
-security codes go only to Meta. Use **Account** to sign out or start over with
-a clean browser session.
+Click **Sign In** and complete Meta's hosted sign-in page. Passwords and
+security codes go only to Meta.
 
 ![RiftLift Meta account screen after browser sign-in](docs/images/riftlift-account.png)
-
-RiftLift follows the browser configured by your Linux desktop.
 
 ### 3. Add a game
 
@@ -69,8 +60,7 @@ Copy the URL of a game you own from the Meta **Rift / PC VR** store. Click
 
 ![RiftLift Add Game window](docs/images/riftlift-add-game.png)
 
-Leave **Add to Steam when finished** checked and click **Install**. Use
-**View Activity** if you want to watch the download.
+Leave **Add to Steam when finished** checked and click **Install**.
 
 > A Quest-only purchase is not a Windows PC game. The store page must offer a
 > Rift or PC VR build. Cross-buy titles work when the PC version is present on
@@ -78,11 +68,8 @@ Leave **Add to Steam when finished** checked and click **Install**. Use
 
 ### 4. Play
 
-Select the game in RiftLift and click **Launch in VR**. You can also launch its
-new shortcut from Steam or from a headset dashboard that reads your Steam VR
-library, such as WayVR. RiftLift tracks the time spent in each game and shows
-the total beside its details. Playtime stays on your computer and is counted
-whenever the game is launched through RiftLift, including its Steam shortcut.
+Select the game and click **Launch in VR**, or use its Steam shortcut. RiftLift
+tracks playtime locally.
 
 ## Everyday use
 
@@ -106,11 +93,9 @@ Steam may restart once when RiftLift adds or updates shortcuts.
 
 Start with **System** in the desktop app, or run `riftlift doctor`.
 
-Doctor checks the Linux graphics/XR stack, RiftLift components, installed
-games, and a small amount of recent launch/error evidence. It prints the
-report and creates a shareable public paste automatically. Credentials, email
-addresses, and home-directory paths are redacted; use `riftlift doctor
---no-paste` when you only want a local copy.
+Doctor checks the graphics/XR stack, RiftLift components, games, and recent
+launch evidence. It creates a redacted public paste; use `riftlift doctor
+--no-paste` for local output only.
 
 Common fixes:
 
@@ -127,10 +112,10 @@ Common fixes:
   excerpts. Retention rotates with the five-launch history, preserves both log
   headers and failure tails, and is capped at approximately 120 MiB.
 
-For a nonstandard Monado manifest, set
-`XR_RUNTIME_JSON=/path/to/openxr_monado.json` before opening RiftLift. If your
-headset setup needs a special start command, set
-`RIFTLIFT_LAUNCH_WRAPPER='your-runtime-start-wrapper'`.
+RiftLift uses Envision's selected profile, including its Monado manifest and
+environment. Build and select the profile, then start its XR service before
+launching a game. Non-Envision runtimes can set `XR_RUNTIME_JSON`; custom
+service startup can set `RIFTLIFT_LAUNCH_WRAPPER`.
 
 ## Updating RiftLift
 

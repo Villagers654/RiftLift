@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -7,7 +8,7 @@ from riftlift.diagnostics import recent_launches
 from riftlift.launch import launch, oculus_launch_arguments, runtime_backend
 from riftlift.playtime import playtime
 from riftlift.runtime import launch_environment, native_xr_bridge, setup
-from riftlift.util import RiftLiftError, linux_to_windows
+from riftlift.util import RiftLiftError
 
 
 @pytest.fixture(autouse=True)
@@ -264,6 +265,152 @@ def test_active_runtime_uses_explicit_standard_manifest(
     from riftlift.runtime import active_runtime_json
 
     assert active_runtime_json() == runtime.resolve()
+
+
+def test_active_runtime_uses_selected_envision_profile_without_shell_exports(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config_home = tmp_path / "config"
+    data_home = tmp_path / "data"
+    prefix = data_home / "envision/prefixes/clean_profile"
+    manifest = prefix / "share/openxr/1/openxr_monado.json"
+    library = prefix / "lib64/libopenxr_monado.so"
+    manifest.parent.mkdir(parents=True)
+    library.parent.mkdir(parents=True)
+    library.write_bytes(b"\x7fELF")
+    manifest.write_text(
+        '{"file_format_version":"1.0.0","runtime":{'
+        '"name":"Monado","library_path":"../../../lib64/libopenxr_monado.so"}}'
+    )
+    envision = config_home / "envision/envision.json"
+    envision.parent.mkdir(parents=True)
+    envision.write_text(
+        json.dumps(
+            {
+                "selected_profile_uuid": "clean-profile",
+                "user_profiles": [
+                    {
+                        "uuid": "clean-profile",
+                        "name": "Clean Monado",
+                        "prefix": str(prefix),
+                        "environment": {"DRI_PRIME": "1", "XRT_TEST": "selected"},
+                    }
+                ],
+            }
+        )
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
+    monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
+
+    from riftlift.runtime import active_runtime_json
+
+    assert active_runtime_json() == manifest.resolve()
+
+
+def test_launch_environment_imports_selected_envision_profile(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "rift-data",
+        tmp_path / "rift-cache",
+        tmp_path / "rift-config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    config_home = tmp_path / "config"
+    data_home = tmp_path / "data"
+    prefix = data_home / "envision/prefixes/profile-id"
+    manifest = prefix / "share/openxr/1/openxr_monado.json"
+    library = prefix / "lib64/libopenxr_monado.so"
+    manifest.parent.mkdir(parents=True)
+    library.parent.mkdir(parents=True)
+    library.write_bytes(b"\x7fELF")
+    manifest.write_text(
+        '{"file_format_version":"1.0.0","runtime":{'
+        '"name":"Monado","library_path":"../../../lib64/libopenxr_monado.so"}}'
+    )
+    envision = config_home / "envision/envision.json"
+    envision.parent.mkdir(parents=True)
+    envision.write_text(
+        json.dumps(
+            {
+                "selected_profile_uuid": "profile-id",
+                "user_profiles": [
+                    {
+                        "uuid": "profile-id",
+                        "prefix": str(prefix),
+                        "environment": {
+                            "DRI_PRIME": "pci-0000_03_00_0",
+                            "XRT_COMPOSITOR_COMPUTE": "1",
+                        },
+                    }
+                ],
+            }
+        )
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
+    monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
+    monkeypatch.delenv("DRI_PRIME", raising=False)
+    monkeypatch.setattr("riftlift.runtime.steam_root", lambda: tmp_path / "steam")
+
+    environment = launch_environment(paths, paths.games / "sample", False)
+
+    assert environment["XR_RUNTIME_JSON"] == str(manifest.resolve())
+    assert environment["DRI_PRIME"] == "pci-0000_03_00_0"
+    assert environment["XRT_COMPOSITOR_COMPUTE"] == "1"
+    assert str(prefix / "lib64") in environment["LD_LIBRARY_PATH"].split(":")
+
+
+def test_explicit_runtime_rejects_missing_relative_library(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = tmp_path / "broken-monado.json"
+    runtime.write_text(
+        '{"file_format_version":"1.0.0","runtime":{'
+        '"library_path":"../missing/libopenxr_monado.so"}}'
+    )
+    monkeypatch.setenv("XR_RUNTIME_JSON", str(runtime))
+
+    from riftlift.runtime import active_runtime_json
+
+    with pytest.raises(RiftLiftError, match="points to a missing library"):
+        active_runtime_json()
+
+
+def test_unbuilt_selected_envision_profile_has_actionable_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config_home = tmp_path / "config"
+    data_home = tmp_path / "data"
+    envision = config_home / "envision/envision.json"
+    envision.parent.mkdir(parents=True)
+    envision.write_text(
+        json.dumps(
+            {
+                "selected_profile_uuid": "clean-profile",
+                "user_profiles": [
+                    {
+                        "uuid": "clean-profile",
+                        "name": "Clean Monado",
+                        "prefix": str(data_home / "envision/prefixes/clean-profile"),
+                    }
+                ],
+            }
+        )
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
+    monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
+
+    from riftlift.runtime import active_runtime_json
+
+    with pytest.raises(
+        RiftLiftError, match="selected profile 'Clean Monado'.*not built"
+    ):
+        active_runtime_json()
 
 
 def test_setup_checks_openxr_before_installing_components(

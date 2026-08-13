@@ -37,9 +37,11 @@ from .runtime import (
     PROTON_VERSION,
     RUNTIME_VERSION,
     active_runtime_json,
+    envision_profile,
     debug_logging_active,
     native_xr_bridge,
     proton_dir,
+    xr_build_components,
 )
 from .steam import steam_root
 
@@ -49,7 +51,14 @@ _ERROR_LINE = re.compile(
     r"timeout|unsupported|not found|device lost|segfault|denied|gpu reset|"
     r"vm fault|page fault|hung|oom|xid)\b"
 )
-_LOG_NAMES = {"player.log", "output_log.txt", "crash.log", "error.log"}
+_LOG_NAMES = {
+    "player.log",
+    "output_log.txt",
+    "crash.log",
+    "error.log",
+    "riftliftlauncher.txt",
+    "riftlift-runtime-trace.log",
+}
 _MAX_REPORT = 48 * 1024
 _MAX_LOG_TAIL = 512 * 1024
 
@@ -150,7 +159,14 @@ def _runtime_description() -> tuple[bool, str]:
         runtime = payload.get("runtime", {})
         name = runtime.get("name", "unnamed")
         library = Path(str(runtime.get("library_path", "unknown"))).name
-        return True, f"{redact(str(target))} ({name}; {library})"
+        envision = envision_profile()
+        source = ""
+        if envision is not None and envision.manifest == target:
+            source = (
+                f"; Envision profile {envision.name} [{envision.uuid}], "
+                f"environment={','.join(sorted(envision.environment)) or 'none'}"
+            )
+        return True, f"{redact(str(target))} ({name}; {library}{source})"
     except Exception as error:
         return False, redact(str(error))
 
@@ -222,6 +238,7 @@ def _current_components(paths: Paths) -> dict[str, str]:
         "proton": proton_build,
         **meta_builds,
         "platform_bridge": f"compat-runtime:{runtime_build}",
+        **xr_build_components(),
     }
 
 
@@ -261,7 +278,20 @@ def _component_comparison(
             "with the current build for a reliable comparison."
         ]
     lines: list[str] = []
-    for name in _expected_components():
+    names = [
+        *_expected_components(),
+        *(
+            name
+            for name in (
+                "envision",
+                "envision_profile",
+                "openxr_manifest",
+                "monado_runtime",
+            )
+            if name in captured or name in current
+        ),
+    ]
+    for name in names:
         before = str(captured.get(name, "unknown"))
         now = current.get(name, "unknown")
         if before.startswith("not-used("):
@@ -523,6 +553,14 @@ def _recent_game_log_errors(
         if matches:
             result.append(f"{redact(str(candidate))}:")
             result.extend(f"  {line}" for line in matches[-6:])
+        elif candidate.name.casefold() in {
+            "riftliftlauncher.txt",
+            "riftlift-runtime-trace.log",
+        }:
+            tail = [redact(line.strip())[:600] for line in lines[-12:] if line.strip()]
+            if tail:
+                result.append(f"{redact(str(candidate))}:")
+                result.extend(f"  {line}" for line in tail)
     return result
 
 
@@ -542,7 +580,8 @@ def _recent_launch_log_errors(
         matches = [
             redact(line.strip())[:600]
             for line in lines
-            if _ERROR_LINE.search(line) and not _noisy_evidence(line)
+            if (_ERROR_LINE.search(line) or "RiftLift: patched" in line)
+            and not _noisy_evidence(line)
         ]
         if matches:
             result.append(f"{redact(str(target))}:")
@@ -591,7 +630,8 @@ def _recent_proton_log_errors(
         matches = [
             redact(line.strip())[:600]
             for line in lines
-            if _ERROR_LINE.search(line) and not _noisy_evidence(line)
+            if (_ERROR_LINE.search(line) or "RiftLift: patched" in line)
+            and not _noisy_evidence(line)
         ]
         if matches:
             result.append(f"{redact(str(target))}:")
@@ -869,6 +909,17 @@ def _debug_capture_summary(paths: Paths, enabled: bool) -> list[str]:
 
 def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> list[str]:
     joined = "\n".join(evidence).casefold()
+    if "riftlift: patched 0 executable runtime imports" in joined:
+        return [
+            "High confidence: RiftLift loaded, but could not intercept the game's "
+            "Oculus runtime imports. This compatibility runtime build does not "
+            "support the executable's loader layout."
+        ]
+    if "failed to inject" in joined or "failed to create process" in joined:
+        return [
+            "High confidence: the RiftLift launcher could not start or inject the "
+            "Oculus compatibility bridge into the game process."
+        ]
     if "gpu reset" in joined or "ring timeout" in joined or "vm fault" in joined:
         return [
             "High confidence: the kernel recorded an AMD GPU hang/reset or memory "
@@ -1057,11 +1108,8 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         f"Input devices: {_connected_inputs()}",
         "",
         "[XR services]",
-        f"psvr2-fossvr.service: {_service_state('psvr2-fossvr.service')}",
-        f"psvr2-fossvr-wayvr.service: {_service_state('psvr2-fossvr-wayvr.service')}",
         f"monado.service: {_service_state('monado.service')}",
         f"wivrn.service: {_service_state('wivrn.service')}",
-        f"wivrn-server.service: {_service_state('wivrn-server.service')}",
         f"XR_RUNTIME_JSON: {redact(os.environ.get('XR_RUNTIME_JSON', '<unset>'))}",
         f"VR_OVERRIDE: {redact(os.environ.get('VR_OVERRIDE', '<unset>'))}",
         "Debug logging: "

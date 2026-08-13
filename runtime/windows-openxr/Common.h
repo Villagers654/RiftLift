@@ -13,6 +13,7 @@
 // adding per-frame I/O or changing normal runtime behavior.
 void TraceOculusCall(const char* name);
 void TraceOculusValue(const char* name, long long value);
+void TraceXrResult(const char* expression, XrResult result);
 #define REV_TRACE(x) MICROPROFILE_SCOPEI("RiftLift", #x, 0xff0000); TraceOculusCall(#x);
 
 #define XR_ENUM_CASE_STR(name, val) case name: return L#name;
@@ -39,6 +40,7 @@ extern XrResult g_LastResult;
 #define CHK_XR(x) \
 	{ \
 		g_LastResult = (x); \
+		TraceXrResult(#x, g_LastResult); \
 		assertmsg(XR_SUCCEEDED(g_LastResult), ResultToString(g_LastResult)); \
 		if (XR_FAILED(g_LastResult)) return ResultToOvrResult(g_LastResult); \
 	}

@@ -8,7 +8,6 @@
 #include <Shlobj.h>
 #include <Shlwapi.h>
 #include <openvr.h>
-#include <detours/detours.h>
 
 extern FILE* g_LogFile;
 #define LOG(x, ...) if (g_LogFile) fprintf(g_LogFile, x, __VA_ARGS__); \
@@ -144,18 +143,16 @@ public:
 	void add(const std::string& str)
 	{
 		strings.push_back(str);
-		ptrs.push_back(strings.back().c_str());
 	}
 
 	void clear()
 	{
 		strings.clear();
-		ptrs.clear();
 	}
 
-	const char** c_str()
+	const std::string& at(size_t index) const
 	{
-		return ptrs.data();
+		return strings.at(index);
 	}
 
 	bool empty()
@@ -170,8 +167,30 @@ public:
 
 private:
 	std::vector<std::string> strings;
-	std::vector<const char*> ptrs;
 };
+
+bool InjectLibrary(HANDLE process, const std::string& path)
+{
+	SIZE_T size = path.size() + 1;
+	PVOID remotePath = VirtualAllocEx(process, NULL, size,
+		MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	if (!remotePath || !WriteProcessMemory(process, remotePath, path.c_str(), size, NULL))
+		return false;
+	auto loadLibrary = reinterpret_cast<LPTHREAD_START_ROUTINE>(
+		GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryA"));
+	HANDLE thread = CreateRemoteThread(process, NULL, 0, loadLibrary, remotePath, 0, NULL);
+	if (!thread)
+	{
+		VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+		return false;
+	}
+	WaitForSingleObject(thread, INFINITE);
+	DWORD module = 0;
+	GetExitCodeThread(thread, &module);
+	CloseHandle(thread);
+	VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+	return module != 0;
+}
 
 int wmain(int argc, wchar_t *argv[]) {
 	if (argc < 2) {
@@ -313,28 +332,43 @@ int wmain(int argc, wchar_t *argv[]) {
 			*file = L'\0';
 	}
 
-	if (!DetourCreateProcessWithDlls(NULL, path, NULL, NULL, FALSE,
-		debug ? CREATE_SUSPENDED | DEBUG_ONLY_THIS_PROCESS : 0,
-		NULL, (!workingDirOverride.empty() || (file && ext)) ? workingDir : NULL, &si, &pi,
-		(DWORD)dlls.size(), dlls.c_str(), NULL))
+	HANDLE connectedEvent = CreateEventW(NULL, TRUE, TRUE, L"OculusHMDConnected");
+	if (!connectedEvent)
 	{
-		LOG("Failed to create process\n");
+		LOG("Failed to create Oculus compatibility event (%lu)\n", GetLastError());
+		return -1;
+	}
+	SetEvent(connectedEvent);
+
+	if (!CreateProcessW(NULL, path, NULL, NULL, FALSE, CREATE_SUSPENDED,
+		NULL, (!workingDirOverride.empty() || (file && ext)) ? workingDir : NULL, &si, &pi))
+	{
+		LOG("Failed to create process (%lu)\n", GetLastError());
+		CloseHandle(connectedEvent);
 		return -1;
 	}
 
-	if (debug)
+	for (size_t index = 0; index < dlls.size(); ++index)
 	{
-		if (!DebugActiveProcessStop(pi.dwProcessId))
+		if (!InjectLibrary(pi.hProcess, dlls.at(index)))
 		{
-			LOG("Failed to stop debugging\n");
+			LOG("Failed to inject %s (%lu)\n", dlls.at(index).c_str(), GetLastError());
+			TerminateProcess(pi.hProcess, static_cast<UINT>(-1));
+			CloseHandle(pi.hThread);
+			CloseHandle(pi.hProcess);
+			CloseHandle(connectedEvent);
 			return -1;
 		}
+	}
 
-		if (ResumeThread(pi.hThread) == -1)
-		{
-			LOG("Failed to resume process\n");
-			return -1;
-		}
+	if (ResumeThread(pi.hThread) == static_cast<DWORD>(-1))
+	{
+		LOG("Failed to resume process (%lu)\n", GetLastError());
+		TerminateProcess(pi.hProcess, static_cast<UINT>(-1));
+		CloseHandle(pi.hThread);
+		CloseHandle(pi.hProcess);
+		CloseHandle(connectedEvent);
+		return -1;
 	}
 
 	LOG("Succesfully injected!\n");
@@ -359,5 +393,6 @@ int wmain(int argc, wchar_t *argv[]) {
 	}
 	CloseHandle(pi.hThread);
 	CloseHandle(pi.hProcess);
+	CloseHandle(connectedEvent);
 	return static_cast<int>(exitCode);
 }
