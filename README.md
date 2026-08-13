@@ -10,8 +10,9 @@ headset works with Monado, SteamVR is not required.
 
 ![RiftLift showing an installed Meta Rift library](docs/images/riftlift-library.png)
 
-> RiftLift is an early release. Many games work, but some titles may still need
-> compatibility fixes.
+> **Experimental software:** RiftLift is under active development and is not
+> expected to work reliably on every system or with every game yet. Expect
+> bugs, incomplete compatibility, and occasional setup or troubleshooting work.
 
 The 0.9 alpha moves RiftLift's Rift API translation layer into this repository
 and sends XR calls through Proton's in-process native Linux runtime boundary.
