@@ -800,6 +800,16 @@ def _recommendations(
                 "launch was captured with different component versions."
             )
     evidence_text = "\n".join(evidence).casefold()
+    if (
+        "xr_error_runtime_unavailable" in evidence_text
+        or "openxr result -51" in evidence_text
+        or "xrcreateinstance failed: -51" in evidence_text
+    ):
+        result.append(
+            "Start the XR service in Envision, confirm Monado remains running, "
+            "then retry. The selected runtime manifest exists, but its service "
+            "was unavailable when the game initialized OpenXR."
+        )
     if any(
         signature in evidence_text
         for signature in (
@@ -921,6 +931,16 @@ def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> lis
             "High confidence: RiftLift loaded, but could not intercept the game's "
             "Oculus runtime imports. This compatibility runtime build does not "
             "support the executable's loader layout."
+        ]
+    if (
+        "xr_error_runtime_unavailable" in joined
+        or "openxr result -51" in joined
+        or "xrcreateinstance failed: -51" in joined
+    ):
+        return [
+            "High confidence: the selected OpenXR manifest was found, but its "
+            "runtime service was unavailable when the game initialized XR. Start "
+            "the XR service in Envision and confirm Monado stays running."
         ]
     if "failed to inject" in joined or "failed to create process" in joined:
         return [

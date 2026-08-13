@@ -18,7 +18,7 @@ from riftlift.diagnostics import (
     redact,
     trim_diagnostic_log,
 )
-from riftlift.doctor import build_report, upload_report
+from riftlift.doctor import _likely_cause, build_report, upload_report
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +42,19 @@ def paths(tmp_path: Path) -> Paths:
         data / "compatdata",
         data / "tools",
     )
+
+
+def test_likely_cause_identifies_unavailable_monado_service() -> None:
+    cause = _likely_cause(
+        [
+            "RiftLift: xrEnumerateInstanceExtensionProperties failed with "
+            "OpenXR result -51"
+        ],
+        [],
+    )
+
+    assert "runtime service was unavailable" in cause[0]
+    assert "Start the XR service in Envision" in cause[0]
 
 
 def game(tmp_path: Path, name: str = "Sample") -> Game:
