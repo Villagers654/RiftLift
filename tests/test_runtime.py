@@ -11,6 +11,7 @@ from riftlift.runtime import (
     install_rift_runtime,
     initialize_prefix,
     proton_environment,
+    shutdown_compat_prefix,
 )
 
 REQUIRED_RUNTIME_FILES = (
@@ -84,6 +85,39 @@ def test_clean_prefix_initialization_bypasses_game_launcher(tmp_path, monkeypatc
     initialize_prefix(paths)
 
     assert captured == [("runinprefix", "cmd.exe", "/c", "exit")]
+
+
+def test_setup_shutdown_stops_only_the_shared_compat_prefix(tmp_path, monkeypatch):
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    proton = tmp_path / "proton"
+    wineserver = proton / "files/bin/wineserver"
+    wineserver.parent.mkdir(parents=True)
+    wineserver.write_bytes(b"ELF")
+    monkeypatch.setenv("LD_PRELOAD", "/host/injector.so")
+    captured = {}
+
+    class Result:
+        returncode = 0
+
+    def fake_run(command, **kwargs):
+        captured.update(command=command, **kwargs)
+        return Result()
+
+    monkeypatch.setattr("riftlift.runtime.subprocess.run", fake_run)
+
+    shutdown_compat_prefix(paths, proton)
+
+    assert captured["command"] == [str(wineserver), "-k", "-w"]
+    assert captured["env"]["WINEPREFIX"] == str(paths.prefix / "pfx")
+    assert "LD_PRELOAD" not in captured["env"]
+    assert captured["timeout"] == 20
 
 
 def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):

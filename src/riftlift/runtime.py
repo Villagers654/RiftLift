@@ -790,14 +790,54 @@ def install_platform_compat(paths: Paths) -> Path:
     return destination
 
 
+def shutdown_compat_prefix(paths: Paths, proton_root: Path) -> None:
+    """Leave setup's shared prefix idle for the first game launch.
+
+    Wine's desktop and service processes deliberately persist after registry and
+    package installation.  Proton's first ``run`` can otherwise attach while
+    that bootstrap server is still active and stall in ``umu.exe`` before the
+    requested executable is created.
+    """
+    wineserver = proton_root / "files/bin/wineserver"
+    if not wineserver.is_file():
+        raise RiftLiftError("GE-Proton is missing wineserver after installation")
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "WINEPREFIX": str(paths.prefix / "pfx"),
+            "WINEDEBUG": "-all",
+        }
+    )
+    environment.pop("LD_PRELOAD", None)
+    try:
+        result = subprocess.run(
+            [str(wineserver), "-k", "-w"],
+            env=environment,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RiftLiftError(
+            f"could not stop the compatibility prefix after setup: {error}"
+        ) from error
+    if result.returncode != 0:
+        raise RiftLiftError(
+            "could not stop the compatibility prefix after setup "
+            f"(wineserver exit {result.returncode})"
+        )
+
+
 def setup(paths: Paths) -> None:
     active_runtime_json()
     paths.create()
-    install_proton(paths)
+    proton_root = install_proton(paths)
     install_meta_runtime(paths)
     install_rift_runtime(paths)
     install_openvr_runtime(paths)
     install_platform_compat(paths)
+    shutdown_compat_prefix(paths, proton_root)
 
 
 def install_login_protocol_handler() -> Path:
