@@ -157,12 +157,12 @@ public:
 
 	bool empty()
 	{
-		return ptrs.empty();
+		return strings.empty();
 	}
 
 	size_t size()
 	{
-		return ptrs.size();
+		return strings.size();
 	}
 
 private:
