@@ -22,13 +22,13 @@ from .util import RiftLiftError, download, linux_to_windows, run
 PROTON_VERSION = "GE-Proton11-3"
 PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{PROTON_VERSION}/{PROTON_VERSION}.tar.gz"
 PROTON_SHA256 = "861c2edc8d40d051fb1e7a692deb953be52bd339c46d90f2b7dde50ddad91266"
-RUNTIME_VERSION = "riftlift-0.9.0-alpha.7"
-RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.7/riftlift-compat.zip"
-RUNTIME_SHA256 = "e8a784bad5f6b79c1e1ada8d2fe8849055c7f23708e6ece65fe29fa5dd38a78f"
-OPENVR_RUNTIME_VERSION = "riftlift-0.9.0-alpha.7"
-OPENVR_RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.7/riftlift-xrizer.tar.gz"
+RUNTIME_VERSION = "riftlift-0.9.0-alpha.8"
+RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.8/riftlift-compat.zip"
+RUNTIME_SHA256 = "51138cd34939c302c831bdc8e61a2e52deb77cc8c88b00f7834293155c67b454"
+OPENVR_RUNTIME_VERSION = "riftlift-0.9.0-alpha.8"
+OPENVR_RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.8/riftlift-xrizer.tar.gz"
 OPENVR_RUNTIME_SHA256 = (
-    "fb59dc3750574fe08b607d60a9f1767b4f57f568a65f1973a778c2d092c7f145"
+    "0d5268a216bf6cf408c999bf2f03a2c39de669432f8c5f0ca3d82e921f73e2ba"
 )
 
 DEBUG_WINE_CHANNELS = ",".join(
