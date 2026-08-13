@@ -121,6 +121,30 @@ def test_setup_shutdown_stops_only_the_shared_compat_prefix(tmp_path, monkeypatc
     assert captured["timeout"] == 20
 
 
+def test_setup_shutdown_accepts_an_already_idle_prefix(tmp_path, monkeypatch):
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    proton = tmp_path / "proton"
+    wineserver = proton / "files/bin/wineserver"
+    wineserver.parent.mkdir(parents=True)
+    wineserver.write_bytes(b"ELF")
+
+    class Result:
+        returncode = 1
+
+    monkeypatch.setattr(
+        "riftlift.runtime.subprocess.run", lambda _command, **_kwargs: Result()
+    )
+
+    shutdown_compat_prefix(paths, proton)
+
+
 def test_meta_runtime_disables_vendor_vr_service(tmp_path, monkeypatch):
     paths = Paths(
         tmp_path / "data",

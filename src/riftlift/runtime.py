@@ -825,7 +825,9 @@ def shutdown_compat_prefix(paths: Paths, proton_root: Path) -> None:
         raise RiftLiftError(
             f"could not stop the compatibility prefix after setup: {error}"
         ) from error
-    if result.returncode != 0:
+    # Wine returns 1 when no server exists for this prefix.  That is already
+    # the desired post-setup state, not a cleanup failure.
+    if result.returncode not in (0, 1):
         raise RiftLiftError(
             "could not stop the compatibility prefix after setup "
             f"(wineserver exit {result.returncode})"
