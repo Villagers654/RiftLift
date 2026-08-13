@@ -189,7 +189,16 @@ def _installed_marker(path: Path) -> str:
 
 
 def _current_components(paths: Paths) -> dict[str, str]:
-    proton = proton_dir()
+    try:
+        proton = proton_dir()
+        proton_build = (
+            _proton_version(proton) if (proton / "proton").is_file() else "missing"
+        )
+    except Exception:
+        # Build identity is diagnostic metadata, not a prerequisite for the
+        # report. A clean host must say Proton is missing instead of aborting
+        # before the guarded core checks can explain that Steam is absent.
+        proton_build = "missing"
     runtime_build = _installed_marker(paths.tools / "rift-runtime")
     support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
     meta_builds: dict[str, str] = {}
@@ -210,9 +219,7 @@ def _current_components(paths: Paths) -> dict[str, str]:
         "riftlift": __version__,
         "compat_runtime": runtime_build,
         "openvr_runtime": _installed_marker(paths.tools / "openvr-runtime"),
-        "proton": (
-            _proton_version(proton) if (proton / "proton").is_file() else "missing"
-        ),
+        "proton": proton_build,
         **meta_builds,
         "platform_bridge": f"compat-runtime:{runtime_build}",
     }

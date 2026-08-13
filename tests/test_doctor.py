@@ -396,6 +396,10 @@ def test_build_report_does_not_attribute_unrelated_journal_errors_without_launch
         "riftlift.doctor._runtime_description", lambda: (True, "test runtime")
     )
     monkeypatch.setattr("riftlift.doctor.steam_root", lambda: tmp_path / "steam")
+    monkeypatch.setattr(
+        "riftlift.doctor.proton_dir",
+        lambda: (_ for _ in ()).throw(RuntimeError("Steam is unavailable")),
+    )
     monkeypatch.setattr("riftlift.doctor._gpu_summary", lambda: "Test GPU")
     monkeypatch.setattr("riftlift.doctor._vulkan_summary", lambda: "Test Vulkan")
     monkeypatch.setattr("riftlift.doctor._connected_inputs", lambda: "none")
@@ -411,6 +415,7 @@ def test_build_report_does_not_attribute_unrelated_journal_errors_without_launch
 
     assert queries == [None]
     assert "No structured launch history yet" in report
+    assert "proton: installed=missing; expected=" in report
     assert "Journal scan skipped: no RiftLift launch window exists" in report
     assert "Launch the affected game through RiftLift" in report
 
