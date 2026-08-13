@@ -502,7 +502,7 @@ def install_meta_runtime(paths: Paths) -> Path:
 
     patch_meta_runtime(support / "oculus-runtime")
 
-    registration = support / ".riftlift-registry-v3"
+    registration = support / ".riftlift-registry-v4"
     if not registration.is_file():
         base = r"C:\Program Files\Oculus"
         for key in (
@@ -636,7 +636,10 @@ def install_meta_runtime(paths: Paths) -> Path:
             ),
             ("ObjectName", "REG_SZ", "LocalSystem"),
             ("Type", "REG_DWORD", "16"),
-            ("Start", "REG_DWORD", "2"),
+            # RiftLift supplies the VR runtime.  Letting Wine auto-start Meta's
+            # OVRService races the injected launcher on the first Proton run
+            # and can leave the game stuck in umu.exe before its process exists.
+            ("Start", "REG_DWORD", "4"),
             ("ErrorControl", "REG_DWORD", "1"),
         )
         for name, kind, value in values:

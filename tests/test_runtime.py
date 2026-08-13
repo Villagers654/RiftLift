@@ -8,6 +8,7 @@ from riftlift.runtime import (
     OPENVR_RUNTIME_VERSION,
     RUNTIME_VERSION,
     install_openvr_runtime,
+    install_meta_runtime,
     install_rift_runtime,
     initialize_prefix,
     proton_environment,
@@ -118,6 +119,46 @@ def test_setup_shutdown_stops_only_the_shared_compat_prefix(tmp_path, monkeypatc
     assert captured["env"]["WINEPREFIX"] == str(paths.prefix / "pfx")
     assert "LD_PRELOAD" not in captured["env"]
     assert captured["timeout"] == 20
+
+
+def test_meta_runtime_disables_vendor_vr_service(tmp_path, monkeypatch):
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
+    support.mkdir(parents=True)
+    captured: list[tuple[str, ...]] = []
+
+    monkeypatch.setattr("riftlift.runtime.META_PACKAGES", ())
+    monkeypatch.setattr("riftlift.runtime.patch_meta_client", lambda _path: None)
+    monkeypatch.setattr("riftlift.runtime.patch_meta_runtime", lambda _path: None)
+    monkeypatch.setattr(
+        "riftlift.runtime.proton",
+        lambda _paths, *arguments, **_kwargs: captured.append(arguments),
+    )
+
+    install_meta_runtime(paths)
+
+    service = r"HKLM\System\CurrentControlSet\Services\OVRService"
+    assert (
+        "runinprefix",
+        "reg.exe",
+        "add",
+        service,
+        "/v",
+        "Start",
+        "/t",
+        "REG_DWORD",
+        "/d",
+        "4",
+        "/f",
+    ) in captured
+    assert (support / ".riftlift-registry-v4").read_text() == "1\n"
 
 
 def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):
