@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.request
 from pathlib import Path
 from typing import Iterable
@@ -44,12 +45,20 @@ def download(url: str, target: Path, expected_sha256: str = "") -> Path:
     with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as stream:
         temporary = Path(stream.name)
         request = urllib.request.Request(url, headers={"User-Agent": "RiftLift/0.1"})
-        try:
-            with urllib.request.urlopen(request) as response:
-                shutil.copyfileobj(response, stream)
-        except Exception:
-            temporary.unlink(missing_ok=True)
-            raise
+        for attempt in range(4):
+            stream.seek(0)
+            stream.truncate()
+            try:
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    shutil.copyfileobj(response, stream)
+                break
+            except Exception as error:
+                if attempt == 3:
+                    temporary.unlink(missing_ok=True)
+                    raise RiftLiftError(
+                        f"could not download {target.name} after 4 attempts: {error}"
+                    ) from error
+                time.sleep(2**attempt)
     actual = sha256(temporary)
     if expected_sha256 and actual != expected_sha256:
         temporary.unlink(missing_ok=True)
