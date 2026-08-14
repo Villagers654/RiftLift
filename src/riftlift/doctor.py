@@ -7,6 +7,7 @@ import platform
 import re
 import shutil
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -129,19 +130,6 @@ def _gpu_summary() -> str:
     return " | ".join(devices[:3]) or "not detected"
 
 
-def _vulkan_summary() -> str:
-    output = _command(["vulkaninfo", "--summary"], timeout=6)
-    details = []
-    for line in output.splitlines():
-        stripped = line.strip()
-        if any(
-            stripped.startswith(field)
-            for field in ("deviceName", "driverName", "driverInfo", "apiVersion")
-        ):
-            details.append(stripped)
-    return "; ".join(details[:8]) or "vulkaninfo unavailable"
-
-
 def _service_state(name: str) -> str:
     load_state = _command(
         ["systemctl", "--user", "show", name, "-p", "LoadState", "--value"],
@@ -239,7 +227,10 @@ def _current_components(paths: Paths) -> dict[str, str]:
         "proton": proton_build,
         **meta_builds,
         "platform_bridge": f"compat-runtime:{runtime_build}",
-        **system_build_components(),
+        # Doctor must remain passive while an XR compositor is live. Starting a
+        # second Vulkan client (vulkaninfo) or Envision process just to obtain a
+        # version can disturb runtimes and single-instance GUI builds.
+        **system_build_components(probe_vulkan=False),
         **xr_build_components(),
     }
 
@@ -321,11 +312,20 @@ def _relevant_processes() -> list[str]:
             continue
         if re.search(
             r"(?i)(riftlift|wine|wineserver|proton|openxr|xrizer|wivrn|monado|"
-            r"steamvr|vrserver|vrcompositor|gamescope)",
+            r"steamvr|vrserver|vrcompositor|gamescope|envision)",
             line,
         ):
             result.append(redact(line.strip())[:600])
     return result[-12:]
+
+
+def _process_names(processes: list[str]) -> set[str]:
+    names: set[str] = set()
+    for line in processes:
+        fields = line.split(maxsplit=2)
+        if len(fields) == 3:
+            names.add(fields[2].casefold())
+    return names
 
 
 def _recent_journal_errors(since: str | None = None) -> list[str]:
@@ -347,7 +347,7 @@ def _recent_journal_errors(since: str | None = None) -> list[str]:
             "-n",
             "300",
             "--grep=(riftlift|xrizer|rift_runtime|openxr|wineopenxr|proton|"
-            "wivrn|monado|steamvr|vrserver|vrcompositor|vulkan|dxvk|vkd3d)",
+            "wivrn|monado|envision|steamvr|vrserver|vrcompositor|vulkan|dxvk|vkd3d)",
         ],
         timeout=5,
     )
@@ -411,7 +411,7 @@ def _recent_coredumps(since: str | None = None) -> list[str]:
         for line in output.splitlines()
         if "steamwebhelper" not in line.casefold()
         and re.search(
-            r"(?i)(riftlift|wine|proton|steam|openxr|xrizer|wivrn|monado|\.exe)",
+            r"(?i)(riftlift|wine|proton|steam|openxr|xrizer|wivrn|monado|envision|\.exe)",
             line,
         )
     ]
@@ -729,6 +729,85 @@ def _recent_steam_log_errors(
     return result
 
 
+def _envision_log_directories() -> list[Path]:
+    """Return known Envision log locations without invoking Envision."""
+    cache_home = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    candidates = [cache_home / "envision/logs"]
+    try:
+        candidates.extend((Path.home() / ".var/app").glob("*/cache/envision/logs"))
+    except OSError:
+        pass
+    return list(dict.fromkeys(candidates))
+
+
+def _recent_envision_log_errors(
+    launches: list[dict[str, object]], doctor_started: float
+) -> list[str]:
+    """Surface Envision evidence from the launch and current doctor windows."""
+    earliest = _launch_epoch(launches)
+    latest = _launch_end_epoch(launches)
+    candidates: list[tuple[float, Path, bool]] = []
+    for directory in _envision_log_directories():
+        try:
+            files = [item for item in directory.iterdir() if item.is_file()]
+        except OSError:
+            continue
+        for item in files:
+            try:
+                modified = item.stat().st_mtime
+            except OSError:
+                continue
+            during_launch = (
+                earliest is not None
+                and latest is not None
+                and earliest <= modified <= latest
+            )
+            during_doctor = modified >= doctor_started - 5
+            if during_launch or during_doctor:
+                candidates.append((modified, item, during_doctor))
+
+    result: list[str] = []
+    for _modified, target, during_doctor in sorted(candidates, reverse=True)[:2]:
+        try:
+            lines = _tail_lines(target)[-1000:]
+        except OSError:
+            continue
+        correlated: list[str] = []
+        for line in lines:
+            timestamp = None
+            try:
+                value = json.loads(line).get("timestamp")
+                if isinstance(value, str):
+                    timestamp = datetime.fromisoformat(value).timestamp()
+            except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+                pass
+            if (
+                timestamp is None
+                or (
+                    earliest is not None
+                    and latest is not None
+                    and earliest <= timestamp <= latest
+                )
+                or doctor_started - 5 <= timestamp <= time.time() + 5
+            ):
+                correlated.append(line)
+        matches = [
+            redact(line.strip())[:600]
+            for line in correlated
+            if _ERROR_LINE.search(line) and not _noisy_evidence(line)
+        ]
+        selected = matches[-10:]
+        if during_doctor and not selected:
+            selected = [
+                redact(line.strip())[:600] for line in correlated[-12:] if line.strip()
+            ]
+        if selected:
+            window = "doctor run" if during_doctor else "launch window"
+            result.append(f"Envision log ({window}) {redact(str(target))}:")
+            result.extend(f"  {line}" for line in selected)
+    return result
+
+
 def _recommendations(
     checks: list[tuple[str, bool, str]],
     launches: list[dict[str, object]],
@@ -919,6 +998,12 @@ def _debug_capture_summary(paths: Paths, enabled: bool) -> list[str]:
 
 def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> list[str]:
     joined = "\n".join(evidence).casefold()
+    if "doctor safety observation" in joined:
+        return [
+            "High confidence: one or more XR processes disappeared while doctor "
+            "was inspecting the system. The before/after process evidence and "
+            "Envision log below identify the affected process."
+        ]
     if "please authorize this new location" in joined:
         return [
             "High confidence: Echo VR reached the community service, but that "
@@ -993,11 +1078,30 @@ def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> lis
 
 
 def build_report(paths: Paths) -> tuple[str, bool]:
+    # Take this before any component or system inspection. If a live runtime
+    # disappears while doctor runs, the report must retain proof that it was
+    # present when the user pressed System.
+    doctor_started = time.time()
+    processes_at_start = _relevant_processes()
     checks: list[tuple[str, bool, str]] = []
     installed = games(paths)
     launches = recent_launches(paths)
     current_components = _current_components(paths)
     expected_components = _expected_components()
+    captured_components = launches[0].get("components") if launches else None
+    cached_vulkan = None
+    if isinstance(captured_components, dict):
+        value = captured_components.get("system_vulkan")
+        if isinstance(value, str) and value not in {"", "unavailable"}:
+            cached_vulkan = value
+            current_components["system_vulkan"] = value
+        value = captured_components.get("envision")
+        if (
+            current_components.get("envision") == "not installed/unknown"
+            and isinstance(value, str)
+            and value
+        ):
+            current_components["envision"] = value
 
     def check(label: str, action: object) -> None:
         try:
@@ -1131,7 +1235,12 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         f"CPU: {_cpu_name()}",
         f"Memory: {_memory()}",
         f"GPU: {_gpu_summary()}",
-        f"Vulkan: {_vulkan_summary()}",
+        "Vulkan: "
+        + (
+            f"{cached_vulkan} (latest launch snapshot; active probe skipped)"
+            if cached_vulkan
+            else "active probe skipped; no launch snapshot available"
+        ),
         f"Input devices: {_connected_inputs()}",
         "",
         "[XR services]",
@@ -1145,8 +1254,8 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         "[Debug capture]",
         *_debug_capture_summary(paths, debug_logging),
         "",
-        "[Relevant processes]",
-        *(_relevant_processes() or ["none detected"]),
+        "[Relevant processes at doctor start]",
+        *(processes_at_start or ["none detected"]),
         "",
         "[Graphics/XR environment]",
         *[
@@ -1278,7 +1387,25 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         *_recent_coredumps(journal_since),
         *_recent_steam_log_errors(paths, evidence_launches),
         *_recent_game_log_errors(paths, evidence_launches),
+        *_recent_envision_log_errors(evidence_launches, doctor_started),
     ]
+    processes_at_end = _relevant_processes()
+    disappeared = _process_names(processes_at_start) - _process_names(processes_at_end)
+    if disappeared:
+        evidence.extend(
+            [
+                "Doctor safety observation:",
+                "  Processes present when System was pressed but absent after "
+                "inspection: " + ", ".join(sorted(disappeared)),
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "[Relevant processes after inspection]",
+            *(processes_at_end or ["none detected"]),
+        ]
+    )
     lines.extend(["", "[Likely cause]", *_likely_cause(evidence, launches)])
     recommendations = _recommendations(
         checks, launches, debug_logging, evidence, current_components

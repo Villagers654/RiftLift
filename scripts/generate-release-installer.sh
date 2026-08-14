@@ -13,13 +13,13 @@ repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 template="$repo_root/scripts/riftlift-installer.sh.in"
 
 [[ -f $wheel ]] || { echo "wheel not found: $wheel" >&2; exit 1; }
-[[ $release_tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-alpha\.[0-9]+)?$ ]] || {
+[[ $release_tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(-alpha\.[0-9]+)?$ ]] || {
   echo "invalid release tag: $release_tag" >&2
   exit 1
 }
 
 wheel_name=$(basename -- "$wheel")
-if [[ ! $wheel_name =~ ^riftlift-([0-9]+\.[0-9]+\.[0-9]+(a[0-9]+)?)-py3-none-any\.whl$ ]]; then
+if [[ ! $wheel_name =~ ^riftlift-([0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(a[0-9]+)?)-py3-none-any\.whl$ ]]; then
   echo "unexpected RiftLift wheel name: $wheel_name" >&2
   exit 1
 fi

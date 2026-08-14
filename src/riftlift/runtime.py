@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tarfile
 import time
+import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -1040,6 +1041,38 @@ def _envision_environment(runtime: Path) -> dict[str, str]:
     return profile.environment.copy()
 
 
+def _envision_version() -> str:
+    """Read Envision's installed metadata without starting the application."""
+    data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+    directories = [
+        data_home / "metainfo",
+        data_home / "appdata",
+        Path("/usr/local/share/metainfo"),
+        Path("/usr/local/share/appdata"),
+        Path("/usr/share/metainfo"),
+        Path("/usr/share/appdata"),
+    ]
+    for root in (data_home / "flatpak/app", Path("/var/lib/flatpak/app")):
+        try:
+            directories.extend(root.glob("*nvision*/*/*/active/files/share/metainfo"))
+        except OSError:
+            pass
+    for directory in directories:
+        try:
+            candidates = list(directory.glob("*nvision*.xml"))
+        except OSError:
+            continue
+        for candidate in candidates:
+            try:
+                release = ET.parse(candidate).find(".//releases/release")
+            except (OSError, ET.ParseError):
+                continue
+            version = release.get("version", "").strip() if release is not None else ""
+            if version:
+                return f"Envision {version}"
+    return "not installed/unknown"
+
+
 def xr_build_components() -> dict[str, str]:
     """Return external XR identities suitable for launch-time snapshots."""
     try:
@@ -1086,18 +1119,7 @@ def xr_build_components() -> dict[str, str]:
     result["envision_profile"] = (
         f"{profile.name} [{profile.uuid}]" if profile is not None else "not selected"
     )
-    try:
-        completed = subprocess.run(
-            ["envision", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=3,
-            check=False,
-        )
-        version = (completed.stdout or completed.stderr).strip().splitlines()[0]
-    except (OSError, subprocess.SubprocessError, IndexError):
-        version = "not installed/unknown"
-    result["envision"] = version or "not installed/unknown"
+    result["envision"] = _envision_version()
     return result
 
 

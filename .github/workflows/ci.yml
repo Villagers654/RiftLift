@@ -108,6 +108,12 @@ jobs:
             riftlift-0.0.0-py3-none-any.whl \
             /tmp/riftlift-stable-installer.sh
           bash -n /tmp/riftlift-stable-installer.sh
+          touch riftlift-0.0.0.1-py3-none-any.whl
+          scripts/generate-release-installer.sh \
+            v0.0.0.1 \
+            riftlift-0.0.0.1-py3-none-any.whl \
+            /tmp/riftlift-patch-installer.sh
+          bash -n /tmp/riftlift-patch-installer.sh
 
   xrizer:
     needs: changes

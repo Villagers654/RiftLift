@@ -269,7 +269,7 @@ def collect_game_logs(
     )
 
 
-def system_build_components() -> dict[str, str]:
+def system_build_components(*, probe_vulkan: bool = True) -> dict[str, str]:
     """Compact host-version snapshot shared by launch history and doctor."""
     distro = "unknown"
     try:
@@ -282,24 +282,25 @@ def system_build_components() -> dict[str, str]:
         pass
     libc_name, libc_version = platform.libc_ver()
     vulkan = "unavailable"
-    try:
-        result = subprocess.run(
-            ["vulkaninfo", "--summary"],
-            check=False,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=6,
-        )
-        details = []
-        for line in result.stdout.splitlines():
-            stripped = line.strip()
-            if stripped.startswith(("driverName", "driverInfo", "apiVersion")):
-                details.append(stripped)
-        if details:
-            vulkan = "; ".join(details[:6])[:600]
-    except (OSError, subprocess.TimeoutExpired):
-        pass
+    if probe_vulkan:
+        try:
+            result = subprocess.run(
+                ["vulkaninfo", "--summary"],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=6,
+            )
+            details = []
+            for line in result.stdout.splitlines():
+                stripped = line.strip()
+                if stripped.startswith(("driverName", "driverInfo", "apiVersion")):
+                    details.append(stripped)
+            if details:
+                vulkan = "; ".join(details[:6])[:600]
+        except (OSError, subprocess.TimeoutExpired):
+            pass
     return {
         "system_os": distro,
         "system_kernel": f"{platform.release()} {platform.machine()}",

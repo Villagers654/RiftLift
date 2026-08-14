@@ -18,7 +18,12 @@ from riftlift.diagnostics import (
     redact,
     trim_diagnostic_log,
 )
-from riftlift.doctor import _likely_cause, build_report, upload_report
+from riftlift.doctor import (
+    _likely_cause,
+    _recent_envision_log_errors,
+    build_report,
+    upload_report,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -28,8 +33,72 @@ def isolate_host_diagnostic_sources(monkeypatch) -> None:
         "_recent_kernel_errors",
         "_recent_coredumps",
         "_recent_steam_log_errors",
+        "_recent_envision_log_errors",
     ):
         monkeypatch.setattr(f"riftlift.doctor.{name}", lambda *_args: [])
+    monkeypatch.setattr("riftlift.doctor._relevant_processes", lambda: [])
+
+
+def test_doctor_component_snapshot_skips_active_vulkan_probe(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls = {}
+
+    def system_components(*, probe_vulkan=True):
+        calls["vulkan"] = probe_vulkan
+        return {
+            "system_os": "Test OS",
+            "system_kernel": "test kernel",
+            "system_python": "3",
+            "system_libc": "test libc",
+            "system_vulkan": "unavailable",
+        }
+
+    def xr_components():
+        calls["xr"] = True
+        return {
+            "openxr_manifest": "test manifest",
+            "monado_runtime": "test runtime",
+            "envision_profile": "test profile",
+            "envision": "not installed/unknown",
+        }
+
+    monkeypatch.setattr("riftlift.doctor.system_build_components", system_components)
+    monkeypatch.setattr("riftlift.doctor.xr_build_components", xr_components)
+
+    from riftlift.doctor import _current_components
+
+    _current_components(paths(tmp_path))
+
+    assert calls == {"vulkan": False, "xr": True}
+
+
+def test_envision_log_errors_include_doctor_window(tmp_path: Path, monkeypatch) -> None:
+    cache = tmp_path / "cache"
+    log = cache / "envision/logs/log.today"
+    log.parent.mkdir(parents=True)
+    log.write_text('{"level":"ERROR","message":"monado process exited"}\n')
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
+
+    evidence = _recent_envision_log_errors([], datetime.now().timestamp() - 1)
+
+    assert any("Envision log (doctor run)" in line for line in evidence)
+    assert any("monado process exited" in line for line in evidence)
+
+
+def test_envision_version_is_read_from_metadata_without_starting_it(
+    tmp_path: Path, monkeypatch
+) -> None:
+    metadata = tmp_path / "share/metainfo/org.example.envision.xml"
+    metadata.parent.mkdir(parents=True)
+    metadata.write_text(
+        '<component><releases><release version="4.2.1"/></releases></component>'
+    )
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))
+
+    from riftlift.runtime import _envision_version
+
+    assert _envision_version() == "Envision 4.2.1"
 
 
 def paths(tmp_path: Path) -> Paths:
@@ -55,6 +124,19 @@ def test_likely_cause_identifies_unavailable_monado_service() -> None:
 
     assert "runtime service was unavailable" in cause[0]
     assert "Start the XR service in Envision" in cause[0]
+
+
+def test_likely_cause_identifies_process_lost_during_doctor() -> None:
+    cause = _likely_cause(
+        [
+            "Doctor safety observation:",
+            "Processes present when System was pressed but absent after inspection: "
+            "monado-service",
+        ],
+        [],
+    )
+
+    assert "XR processes disappeared while doctor was inspecting" in cause[0]
 
 
 def game(tmp_path: Path, name: str = "Sample") -> Game:
@@ -211,7 +293,6 @@ def test_build_report_includes_recent_launch_evidence(
     )
     monkeypatch.setattr("riftlift.doctor.steam_root", lambda: tmp_path / "steam")
     monkeypatch.setattr("riftlift.doctor._gpu_summary", lambda: "Test GPU; amdgpu")
-    monkeypatch.setattr("riftlift.doctor._vulkan_summary", lambda: "driverName = RADV")
     monkeypatch.setattr("riftlift.doctor._connected_inputs", lambda: "Test Controller")
     monkeypatch.setattr("riftlift.doctor._service_state", lambda _name: "active")
     journal_queries = []
@@ -310,7 +391,6 @@ def test_build_report_includes_saved_launch_log_errors(
     )
     monkeypatch.setattr("riftlift.doctor.steam_root", lambda: tmp_path / "steam")
     monkeypatch.setattr("riftlift.doctor._gpu_summary", lambda: "Test GPU")
-    monkeypatch.setattr("riftlift.doctor._vulkan_summary", lambda: "Test Vulkan")
     monkeypatch.setattr("riftlift.doctor._connected_inputs", lambda: "none")
     monkeypatch.setattr("riftlift.doctor._service_state", lambda _name: "inactive")
     monkeypatch.setattr("riftlift.doctor._recent_journal_errors", lambda _since: [])
@@ -350,7 +430,6 @@ def test_build_report_ignores_known_xrizer_utility_probe(
     )
     monkeypatch.setattr("riftlift.doctor.steam_root", lambda: tmp_path / "steam")
     monkeypatch.setattr("riftlift.doctor._gpu_summary", lambda: "Test GPU")
-    monkeypatch.setattr("riftlift.doctor._vulkan_summary", lambda: "Test Vulkan")
     monkeypatch.setattr("riftlift.doctor._connected_inputs", lambda: "none")
     monkeypatch.setattr("riftlift.doctor._service_state", lambda _name: "inactive")
     monkeypatch.setattr("riftlift.doctor._recent_journal_errors", lambda _since: [])
@@ -391,7 +470,6 @@ def test_build_report_includes_saved_proton_log_errors(
     )
     monkeypatch.setattr("riftlift.doctor.steam_root", lambda: tmp_path / "steam")
     monkeypatch.setattr("riftlift.doctor._gpu_summary", lambda: "Test GPU")
-    monkeypatch.setattr("riftlift.doctor._vulkan_summary", lambda: "Test Vulkan")
     monkeypatch.setattr("riftlift.doctor._connected_inputs", lambda: "none")
     monkeypatch.setattr("riftlift.doctor._service_state", lambda _name: "inactive")
     monkeypatch.setattr(
@@ -432,7 +510,6 @@ def test_build_report_ignores_proton_logs_older_than_launch_window(
     )
     monkeypatch.setattr("riftlift.doctor.steam_root", lambda: tmp_path / "steam")
     monkeypatch.setattr("riftlift.doctor._gpu_summary", lambda: "Test GPU")
-    monkeypatch.setattr("riftlift.doctor._vulkan_summary", lambda: "Test Vulkan")
     monkeypatch.setattr("riftlift.doctor._connected_inputs", lambda: "none")
     monkeypatch.setattr("riftlift.doctor._service_state", lambda _name: "inactive")
     monkeypatch.setattr(
@@ -469,7 +546,6 @@ def test_build_report_does_not_attribute_unrelated_journal_errors_without_launch
         lambda: (_ for _ in ()).throw(RuntimeError("Steam is unavailable")),
     )
     monkeypatch.setattr("riftlift.doctor._gpu_summary", lambda: "Test GPU")
-    monkeypatch.setattr("riftlift.doctor._vulkan_summary", lambda: "Test Vulkan")
     monkeypatch.setattr("riftlift.doctor._connected_inputs", lambda: "none")
     monkeypatch.setattr("riftlift.doctor._service_state", lambda _name: "inactive")
     monkeypatch.setattr("riftlift.doctor.recent_launches", lambda _paths: [])
