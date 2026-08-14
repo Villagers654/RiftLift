@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
 import secrets
 import shutil
+import struct
 import subprocess
 import tarfile
 import time
@@ -45,6 +47,9 @@ DEBUG_WINE_CHANNELS = ",".join(
         "+mscoree",
         "+process",
         "+module",
+        "+wintrust",
+        "+crypt",
+        "+chain",
         "+openxr",
         "+vrclient",
         "+steamclient",
@@ -109,6 +114,11 @@ META_RUNTIME_SIGNED_FILES = {
     "LibOVRRT64_1.dll": "f6941275692026b18666bb856d71fe1b19462017b2b2e556fe8df82461f493f5",
 }
 META_SIGNING_ROOT_THUMBPRINT = "0563B8630D62D75ABBC8AB1E4BDFB5A899B24D43"
+META_SIGNING_ROOT_SUBJECT_KEY_ID = "45EBA2AFF492CB82312D518BA7A7219DF36DC80F"
+META_SIGNING_ROOT_REGISTRY_KEY = (
+    "HKLM\\Software\\Microsoft\\SystemCertificates\\Root\\Certificates\\"
+    + META_SIGNING_ROOT_THUMBPRINT
+)
 META_SIGNING_ROOT_PEM = """-----BEGIN CERTIFICATE-----
 MIIDtzCCAp+gAwIBAgIQDOfg5RfYRv6P5WD8G/AwOTANBgkqhkiG9w0BAQUFADBl
 MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
@@ -220,22 +230,82 @@ def _signed_meta_runtime_current(runtime: Path) -> bool:
     return True
 
 
+def _meta_signing_root_der() -> bytes:
+    payload = "".join(
+        line
+        for line in META_SIGNING_ROOT_PEM.splitlines()
+        if not line.startswith("-----")
+    )
+    return base64.b64decode(payload)
+
+
+def _meta_signing_root_registry_blob() -> bytes:
+    """Serialize the certificate properties used by Wine's registry store."""
+    thumbprint = bytes.fromhex(META_SIGNING_ROOT_THUMBPRINT)
+    subject_key_id = bytes.fromhex(META_SIGNING_ROOT_SUBJECT_KEY_ID)
+    certificate = _meta_signing_root_der()
+
+    def property_blob(identifier: int, value: bytes) -> bytes:
+        return struct.pack("<III", identifier, 1, len(value)) + value
+
+    return b"".join(
+        (
+            property_blob(3, thumbprint),
+            property_blob(20, subject_key_id),
+            property_blob(32, certificate),
+        )
+    )
+
+
+def meta_signing_root_installed(paths: Paths) -> bool:
+    """Check Wine's actual machine root store without starting Wine."""
+    registry = paths.prefix / "pfx/system.reg"
+    key = (
+        r"[Software\\Microsoft\\SystemCertificates\\Root\\Certificates\\"
+        + META_SIGNING_ROOT_THUMBPRINT
+        + "]"
+    )
+    try:
+        return key in registry.read_text(errors="replace")
+    except OSError:
+        return False
+
+
 def _install_meta_signing_root(paths: Paths, support: Path) -> None:
     """Make Meta's LibOVR shim trust independent of the host distro CA set."""
-    marker = support / ".riftlift-meta-signing-root-v1"
+    marker = support / ".riftlift-meta-signing-root-v2"
     runtime = support / "oculus-runtime"
-    if marker.is_file() or not _signed_meta_runtime_current(runtime):
+    if marker.is_file() and meta_signing_root_installed(paths):
         return
-    certificate = support / ".riftlift-digicert-assured-id-root.pem"
-    certificate.write_text(META_SIGNING_ROOT_PEM)
+    if not _signed_meta_runtime_current(runtime):
+        return
+    marker.unlink(missing_ok=True)
+    # Wine's certutil accepts -addstore but can silently leave the store
+    # unchanged on hosts that do not already trust this legacy root. Write the
+    # certificate's serialized properties through Wine's registry API instead.
     proton(
         paths,
         "runinprefix",
-        "certutil.exe",
-        "-addstore",
-        "-f",
-        "Root",
-        linux_to_windows(certificate),
+        "reg.exe",
+        "add",
+        META_SIGNING_ROOT_REGISTRY_KEY,
+        "/v",
+        "Blob",
+        "/t",
+        "REG_BINARY",
+        "/d",
+        _meta_signing_root_registry_blob().hex(),
+        "/f",
+    )
+    # Do not recreate the marker unless Wine can immediately read the entry.
+    proton(
+        paths,
+        "runinprefix",
+        "reg.exe",
+        "query",
+        META_SIGNING_ROOT_REGISTRY_KEY,
+        "/v",
+        "Blob",
     )
     marker.write_text(f"{META_SIGNING_ROOT_THUMBPRINT}\n")
 

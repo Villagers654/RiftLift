@@ -10,16 +10,20 @@ from cryptography.hazmat.primitives import hashes
 
 from riftlift.config import Paths
 from riftlift.runtime import (
+    META_SIGNING_ROOT_REGISTRY_KEY,
     META_SIGNING_ROOT_THUMBPRINT,
     META_SIGNING_ROOT_PEM,
     MetaPackage,
     OPENVR_RUNTIME_VERSION,
     RUNTIME_VERSION,
     _install_meta_signing_root,
+    _meta_signing_root_der,
+    _meta_signing_root_registry_blob,
     install_openvr_runtime,
     install_meta_runtime,
     install_rift_runtime,
     initialize_prefix,
+    meta_signing_root_installed,
     proton_environment,
     shutdown_compat_prefix,
 )
@@ -174,7 +178,6 @@ def test_meta_runtime_disables_vendor_vr_service(tmp_path, monkeypatch):
         "riftlift.runtime.proton",
         lambda _paths, *arguments, **_kwargs: captured.append(arguments),
     )
-
     install_meta_runtime(paths)
 
     service = r"HKLM\System\CurrentControlSet\Services\OVRService"
@@ -253,19 +256,35 @@ def test_meta_runtime_installs_required_signing_root(tmp_path, monkeypatch):
         "riftlift.runtime.proton",
         lambda _paths, *arguments, **_kwargs: captured.append(arguments),
     )
+    # A stale marker must not hide a missing Wine certificate-store entry.
+    (support / ".riftlift-meta-signing-root-v2").write_text(
+        f"{META_SIGNING_ROOT_THUMBPRINT}\n"
+    )
 
     _install_meta_signing_root(paths, support)
 
     assert captured[0][:5] == (
         "runinprefix",
-        "certutil.exe",
-        "-addstore",
-        "-f",
-        "Root",
+        "reg.exe",
+        "add",
+        META_SIGNING_ROOT_REGISTRY_KEY,
+        "/v",
     )
-    assert captured[0][5].startswith("Z:\\")
+    assert captured[0][5] == "Blob"
+    assert captured[0][6:9] == ("/t", "REG_BINARY", "/d")
+    blob = bytes.fromhex(captured[0][9])
+    assert blob == _meta_signing_root_registry_blob()
+    assert blob.endswith(_meta_signing_root_der())
+    assert captured[1] == (
+        "runinprefix",
+        "reg.exe",
+        "query",
+        META_SIGNING_ROOT_REGISTRY_KEY,
+        "/v",
+        "Blob",
+    )
     assert (
-        support / ".riftlift-meta-signing-root-v1"
+        support / ".riftlift-meta-signing-root-v2"
     ).read_text().strip() == META_SIGNING_ROOT_THUMBPRINT
 
 
@@ -276,6 +295,31 @@ def test_meta_signing_root_matches_pinned_thumbprint() -> None:
         certificate.fingerprint(hashes.SHA1()).hex().upper()
         == META_SIGNING_ROOT_THUMBPRINT
     )
+
+
+def test_meta_signing_root_check_reads_actual_wine_store(tmp_path: Path) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    registry = paths.prefix / "pfx/system.reg"
+    registry.parent.mkdir(parents=True)
+    registry.write_text("Wine Registry Version 2\n")
+
+    assert not meta_signing_root_installed(paths)
+
+    registry.write_text(
+        r"[Software\\Microsoft\\SystemCertificates\\Root\\Certificates\\"
+        + META_SIGNING_ROOT_THUMBPRINT
+        + "]\n"
+        + '"Blob"=hex:03,00,00,00\n'
+    )
+
+    assert meta_signing_root_installed(paths)
 
 
 def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):
@@ -359,6 +403,9 @@ def test_gui_debug_setting_enables_bounded_proton_logging(tmp_path, monkeypatch)
     assert "+vrclient" in environment["WINEDEBUG"]
     assert "+steamclient" in environment["WINEDEBUG"]
     assert "+vulkan" in environment["WINEDEBUG"]
+    assert "+wintrust" in environment["WINEDEBUG"]
+    assert "+crypt" in environment["WINEDEBUG"]
+    assert "+chain" in environment["WINEDEBUG"]
     assert environment["DXVK_LOG_LEVEL"] == "debug"
     assert environment["VKD3D_DEBUG"] == "info"
     assert environment["VK_LOADER_DEBUG"] == "error,warn,info"

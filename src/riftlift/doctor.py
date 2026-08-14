@@ -41,8 +41,9 @@ from .runtime import (
     PROTON_VERSION,
     RUNTIME_VERSION,
     active_runtime_json,
-    envision_profile,
     debug_logging_active,
+    envision_profile,
+    meta_signing_root_installed,
     native_xr_bridge,
     proton_dir,
     xr_build_components,
@@ -1315,16 +1316,13 @@ def build_report(paths: Paths) -> tuple[str, bool]:
                 f"{identity}; expected sha256 {expected[:12]}",
             )
         )
-    trust_marker = meta_support / ".riftlift-meta-signing-root-v1"
-    try:
-        trust_value = trust_marker.read_text(errors="replace").strip()
-    except OSError:
-        trust_value = "missing"
+    trust_present = meta_signing_root_installed(paths)
     checks.append(
         (
             "Meta signing root",
-            trust_value == META_SIGNING_ROOT_THUMBPRINT,
-            f"installed={trust_value}; expected={META_SIGNING_ROOT_THUMBPRINT}",
+            trust_present,
+            f"Wine root store={'present' if trust_present else 'missing'}; "
+            f"expected={META_SIGNING_ROOT_THUMBPRINT}",
         )
     )
     platform_files = (
