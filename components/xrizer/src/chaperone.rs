@@ -37,6 +37,7 @@ fn play_area_quad(width: f32, height: f32) -> vr::HmdQuad_t {
 pub struct Chaperone {
     vtables: Vtables,
     openxr: Arc<RealOpenXrData>,
+    play_area: OnceLock<Option<(f32, f32)>>,
 }
 
 impl Chaperone {
@@ -44,7 +45,16 @@ impl Chaperone {
         Self {
             vtables: Default::default(),
             openxr,
+            play_area: OnceLock::new(),
         }
+    }
+
+    fn play_area(&self) -> Option<(f32, f32)> {
+        *self.play_area.get_or_init(|| {
+            self.openxr
+                .play_area_bounds()
+                .map(|bounds| (bounds.width, bounds.height))
+        })
     }
 }
 
@@ -83,25 +93,25 @@ impl vr::IVRChaperone004_Interface for Chaperone {
         crate::warn_unimplemented!("ReloadInfo");
     }
     fn GetPlayAreaRect(&self, rect: *mut vr::HmdQuad_t) -> bool {
-        let Some(bounds) = self.openxr.play_area_bounds() else {
+        let Some((width, height)) = self.play_area() else {
             return false;
         };
         if rect.is_null() {
             return false;
         }
-        unsafe { rect.write(play_area_quad(bounds.width, bounds.height)) };
+        unsafe { rect.write(play_area_quad(width, height)) };
         true
     }
     fn GetPlayAreaSize(&self, size_x: *mut f32, size_z: *mut f32) -> bool {
-        let Some(bounds) = self.openxr.play_area_bounds() else {
+        let Some((width, height)) = self.play_area() else {
             return false;
         };
         if size_x.is_null() || size_z.is_null() {
             return false;
         }
         unsafe {
-            size_x.write(bounds.width);
-            size_z.write(bounds.height);
+            size_x.write(width);
+            size_z.write(height);
         }
         true
     }

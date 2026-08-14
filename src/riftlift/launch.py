@@ -54,6 +54,8 @@ _DEBUG_ENVIRONMENT_KEYS = (
     "VKD3D_SHADER_DEBUG",
     "VK_LOADER_DEBUG",
     "XR_LOADER_DEBUG",
+    "RUST_LOG",
+    "XRIZER_LOG_DIR",
     "XR_RUNTIME_JSON",
     "VR_OVERRIDE",
     "VR_PATHREG_OVERRIDE",
@@ -156,14 +158,20 @@ def runtime_backend(game: Game) -> str:
         return override
 
     # Games shipping both Oculus and OpenVR integrations generally depend on
-    # the mature OpenVR compositor behavior. D3D12 Oculus clients also need
-    # that path because the direct OpenXR bridge cannot currently
-    # establish their graphics session reliably. Other Oculus-only installs
-    # take the shorter OpenXR path. These are capability probes, not titles.
+    # the mature OpenVR compositor behavior. D3D12 Oculus clients and engines
+    # explicitly requesting their legacy OVR presentation mode also need that
+    # path because the direct OpenXR bridge does not implement every legacy
+    # compositor behavior. Other Oculus-only installs take the shorter OpenXR
+    # path. These are capability probes, not titles.
+    legacy_ovr_presentation = any(
+        argument.casefold() in {"-ovr", "-vr_presentation"}
+        for argument in game.arguments
+    )
     needs_openvr = (
         uses_openvr_runtime(game.game_dir)
         or uses_oculus_xr_plugin(game.game_dir)
         or uses_d3d12_runtime(game.executable_path)
+        or legacy_ovr_presentation
     )
     return "openvr" if needs_openvr else "openxr"
 

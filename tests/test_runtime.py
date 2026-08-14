@@ -402,7 +402,8 @@ def test_gui_debug_setting_enables_bounded_proton_logging(tmp_path, monkeypatch)
     assert "+openxr" in environment["WINEDEBUG"]
     assert "+vrclient" in environment["WINEDEBUG"]
     assert "+steamclient" in environment["WINEDEBUG"]
-    assert "+vulkan" in environment["WINEDEBUG"]
+    assert "+vulkan" not in environment["WINEDEBUG"]
+    assert "+module" not in environment["WINEDEBUG"]
     assert "+wintrust" in environment["WINEDEBUG"]
     assert "+crypt" in environment["WINEDEBUG"]
     assert "+chain" in environment["WINEDEBUG"]
@@ -410,8 +411,13 @@ def test_gui_debug_setting_enables_bounded_proton_logging(tmp_path, monkeypatch)
     assert environment["VKD3D_DEBUG"] == "info"
     assert environment["VK_LOADER_DEBUG"] == "error,warn,info"
     assert environment["XR_LOADER_DEBUG"] == "all"
+    assert environment["RUST_LOG"] == "info,xrizer_tracking=debug"
+    assert environment["XRIZER_LOG_DIR"].endswith("diagnostics/openvr")
     assert environment["DXVK_LOG_PATH"].endswith("diagnostics/graphics")
     assert environment["PROTON_CRASH_REPORT_DIR"].endswith("diagnostics/crashes")
+
+    monkeypatch.setenv("RIFTLIFT_RUST_LOG", "xrizer=trace")
+    assert proton_environment(paths)["RUST_LOG"] == "xrizer=trace"
 
     monkeypatch.setenv("RIFTLIFT_PROTON_LOG", "0")
     environment = proton_environment(paths)

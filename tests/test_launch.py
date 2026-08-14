@@ -700,6 +700,27 @@ def test_oculus_only_game_uses_openxr_bridge(tmp_path: Path, monkeypatch) -> Non
     assert runtime_backend(game) == "openxr"
 
 
+def test_legacy_ovr_presentation_uses_openvr_bridge_without_title_rules(
+    tmp_path: Path, monkeypatch
+) -> None:
+    game_dir = tmp_path / "generic-game"
+    executable = game_dir / "Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    game = Game(
+        "generic",
+        "Generic",
+        "1",
+        "generic-key",
+        str(game_dir),
+        executable.name,
+        ["-archive", "assets/toc", "-ovr", "-vr_presentation"],
+    )
+    monkeypatch.delenv("RIFTLIFT_RUNTIME_BACKEND", raising=False)
+
+    assert runtime_backend(game) == "openvr"
+
+
 def test_d3d12_oculus_game_uses_openvr_bridge_without_title_rules(
     tmp_path: Path, monkeypatch
 ) -> None:

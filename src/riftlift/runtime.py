@@ -28,10 +28,10 @@ PROTON_SHA256 = "861c2edc8d40d051fb1e7a692deb953be52bd339c46d90f2b7dde50ddad9126
 RUNTIME_VERSION = "riftlift-0.9.0-alpha.8"
 RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.8/riftlift-compat.zip"
 RUNTIME_SHA256 = "51138cd34939c302c831bdc8e61a2e52deb77cc8c88b00f7834293155c67b454"
-OPENVR_RUNTIME_VERSION = "riftlift-0.9.0-alpha.8"
-OPENVR_RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.0-alpha.8/riftlift-xrizer.tar.gz"
+OPENVR_RUNTIME_VERSION = "riftlift-0.9.2"
+OPENVR_RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.9.2/riftlift-xrizer.tar.gz"
 OPENVR_RUNTIME_SHA256 = (
-    "0d5268a216bf6cf408c999bf2f03a2c39de669432f8c5f0ca3d82e921f73e2ba"
+    "be7205a2c49cc5d16a5e6563460e5a7e0a694095e24b39887caef9f1f2bb3d2b"
 )
 
 DEBUG_WINE_CHANNELS = ",".join(
@@ -46,14 +46,12 @@ DEBUG_WINE_CHANNELS = ",".join(
         "+loaddll",
         "+mscoree",
         "+process",
-        "+module",
         "+wintrust",
         "+crypt",
         "+chain",
         "+openxr",
         "+vrclient",
         "+steamclient",
-        "+vulkan",
     )
 )
 
@@ -569,6 +567,10 @@ def proton_environment(paths: Paths, game_dir: Path | None = None) -> dict[str, 
                     "VK_LOADER_DEBUG", "error,warn,info"
                 ),
                 "XR_LOADER_DEBUG": environment.get("XR_LOADER_DEBUG", "all"),
+                "RUST_LOG": environment.get(
+                    "RIFTLIFT_RUST_LOG", "info,xrizer_tracking=debug"
+                ),
+                "XRIZER_LOG_DIR": str(logs["openvr"]),
             }
         )
     return environment

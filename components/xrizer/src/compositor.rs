@@ -39,6 +39,7 @@ pub struct Compositor {
     metrics: FrameMetrics,
     timing_mode: Mutex<vr::EVRCompositorTimingMode>,
     frame_state: Mutex<FrameState>,
+    pose_snapshot_frame: Mutex<Option<u32>>,
     focused: Once,
 }
 
@@ -95,8 +96,35 @@ impl Compositor {
             },
             timing_mode: vr::EVRCompositorTimingMode::Implicit.into(),
             frame_state: FrameState::Submitted.into(),
+            pose_snapshot_frame: Mutex::default(),
             focused: Once::new(),
         }
+    }
+
+    fn refresh_pose_snapshot(&self, prediction_id: u32) {
+        let frame_index = self.metrics.index.load(Ordering::Relaxed);
+        let mut snapshot_frame = self.pose_snapshot_frame.lock().unwrap();
+        if *snapshot_frame == Some(frame_index) {
+            return;
+        }
+        if frame_index.is_multiple_of(300) {
+            debug!(
+                target: "xrizer_tracking",
+                "tracking snapshot advanced to compositor frame {frame_index} (prediction {prediction_id})"
+            );
+        }
+
+        // Some explicit-timing engines use GetPosesForFrame as their frame
+        // boundary and never call WaitGetPoses. Invalidate both caches here as
+        // well, otherwise the game and the OpenXR projection layer keep using
+        // the first HMD pose even while textures and input continue updating.
+        self.system
+            .force(|injector| System::new(self.openxr.clone(), injector))
+            .reset_views();
+        self.input
+            .force(|_| Input::new(self.openxr.clone()))
+            .frame_start_update();
+        *snapshot_frame = Some(frame_index);
     }
 
     fn maybe_wait_frame(&self, session_data: &SessionData) {
@@ -318,10 +346,13 @@ impl openxr_data::Compositor for Compositor {
 impl vr::IVRCompositor029_Interface for Compositor {
     fn GetPosesForFrame(
         &self,
-        _unPosePredictionID: u32,
+        unPosePredictionID: u32,
         pPoseArray: *mut vr::TrackedDevicePose_t,
         unPoseArrayCount: u32,
     ) -> vr::EVRCompositorError {
+        // Treat the call itself as the frame boundary even when the caller
+        // only wants to advance tracking and supplies no output array.
+        self.refresh_pose_snapshot(unPosePredictionID);
         if unPoseArrayCount == 0 {
             return vr::EVRCompositorError::None;
         }
@@ -1361,7 +1392,9 @@ impl<G: GraphicsBackend> FrameController<G> {
         trace!("submitted {eye:?}");
         if self.eyes_submitted.iter().all(|eye| eye.is_some()) {
             let mut swapchain_data = self.swapchain_data.as_mut();
-            if let Some(data) = &mut swapchain_data {
+            if self.image_acquired
+                && let Some(data) = &mut swapchain_data
+            {
                 trace!("releasing image");
                 data.swapchain.release_image().unwrap();
             }
@@ -1893,6 +1926,43 @@ mod tests {
             ),
             None
         );
+        assert_eq!(*f.comp.pose_snapshot_frame.lock().unwrap(), Some(0));
+
+        // OpenVR can request separate render and game prediction IDs during
+        // one frame. They share the same current OpenXR tracking snapshot.
+        let next_id = render_id.wrapping_add(1);
+        assert_eq!(
+            vr::IVRCompositor029_Interface::GetPosesForFrame(
+                &*f.comp,
+                next_id,
+                std::ptr::null_mut(),
+                0,
+            ),
+            None
+        );
+        assert_eq!(*f.comp.pose_snapshot_frame.lock().unwrap(), Some(0));
+
+        f.comp.metrics.index.fetch_add(1, Ordering::Relaxed);
+        assert_eq!(
+            vr::IVRCompositor029_Interface::GetPosesForFrame(
+                &*f.comp,
+                next_id.wrapping_add(1),
+                std::ptr::null_mut(),
+                0,
+            ),
+            None
+        );
+        assert_eq!(*f.comp.pose_snapshot_frame.lock().unwrap(), Some(1));
+
+        assert_eq!(
+            vr::IVRCompositor029_Interface::GetPosesForFrame(
+                &*f.comp,
+                render_id,
+                std::ptr::null_mut(),
+                0,
+            ),
+            None
+        );
         assert_eq!(
             vr::IVRCompositor029_Interface::GetPosesForFrame(
                 &*f.comp,
@@ -2144,6 +2214,33 @@ mod tests {
         assert_eq!(f.submit(vr::EVREye::Right), None);
         f.comp.PostPresentHandoff();
         f.check_frame_state(fakexr::FrameState::Ended);
+    }
+
+    #[test]
+    fn submissions_without_an_acquired_image_do_not_release_one() {
+        let f = Fixture::new();
+        f.comp.SetExplicitTimingMode(
+            vr::EVRCompositorTimingMode::Explicit_ApplicationPerformsPostPresentHandoff,
+        );
+        f.ensure_real_session(true);
+
+        // Some Oculus compatibility clients can submit an unrenderable frame
+        // while the compositor is between frame boundaries. There is a valid
+        // swapchain at this point, but no image has been acquired from it.
+        {
+            let data = f.comp.openxr.session_data.get();
+            let mut lock = data.comp_data.0.lock().unwrap();
+            let DynFrameController::Fake(ctrl) = lock.as_mut().unwrap() else {
+                panic!("Frame controller was not set up or not faked!");
+            };
+            assert!(ctrl.swapchain_data.is_some());
+            assert!(!ctrl.image_acquired);
+            ctrl.should_render = false;
+            ctrl.eyes_submitted = [Option::None; 2];
+        }
+
+        assert_eq!(f.submit(vr::EVREye::Left), None);
+        assert_eq!(f.submit(vr::EVREye::Right), None);
     }
 
     #[test]

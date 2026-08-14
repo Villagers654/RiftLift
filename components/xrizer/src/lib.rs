@@ -125,13 +125,22 @@ fn init_logging() {
                 }
             }
 
-            let state_dir = std::env::var("XDG_STATE_HOME")
-                .or_else(|_| std::env::var("HOME").map(|h| h + "/.local/state"));
+            let custom_log_dir = std::env::var("XRIZER_LOG_DIR").ok();
+            let state_dir = custom_log_dir.clone().map(Ok).unwrap_or_else(|| {
+                std::env::var("XDG_STATE_HOME")
+                    .map(|state| state + "/xrizer")
+                    .or_else(|_| std::env::var("HOME").map(|home| home + "/.local/state/xrizer"))
+            });
 
             if let Ok(state) = state_dir {
-                let path = Path::new(&state).join("xrizer");
+                let path = Path::new(&state);
                 let mut setup = || {
-                    let path = path.join("xrizer.txt");
+                    let file_name = if custom_log_dir.is_some() {
+                        format!("xrizer-{}.log", std::process::id())
+                    } else {
+                        "xrizer.txt".to_owned()
+                    };
+                    let path = path.join(file_name);
                     match std::fs::File::create(path) {
                         Ok(file) => {
                             let writer = ComboWriter(file, std::io::stderr());
@@ -141,7 +150,7 @@ fn init_logging() {
                     }
                 };
 
-                match std::fs::create_dir_all(&path) {
+                match std::fs::create_dir_all(path) {
                     Ok(_) => setup(),
                     Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => setup(),
                     err => {

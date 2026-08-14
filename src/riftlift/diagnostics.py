@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import time
 import uuid
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,11 @@ _SECRET = re.compile(
 )
 _EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
 _WINDOWS_USER = re.compile(r"(?i)([A-Z]:\\users\\)[^\\\s]+")
+_DIAGNOSTIC_EVIDENCE = re.compile(
+    rb"(?i)(?:riftlift|xrizer|debugstr:|:err:|:warn:|fatal|panic|exception|"
+    rb"failed|failure|\berror\b|xr_error|vk_error|device[_ ]lost|"
+    rb"ntcreateuserprocess)"
+)
 
 
 def utc_now() -> str:
@@ -74,10 +80,52 @@ def trim_diagnostic_log(path: Path, max_bytes: int) -> None:
         size = path.stat().st_size
         if size <= max_bytes:
             return
+        evidence = b""
+        if max_bytes >= 4096:
+            first: list[bytes] = []
+            last: deque[bytes] = deque(maxlen=160)
+            recent: deque[bytes] = deque()
+            recent_set: set[bytes] = set()
+            with path.open("rb") as source:
+                for line in source:
+                    if not _DIAGNOSTIC_EVIDENCE.search(line):
+                        continue
+                    clipped = line[:2000].rstrip(b"\r\n") + b"\n"
+                    # A failed capability query can be repeated every frame.
+                    # Keep one copy while still allowing the same message to
+                    # reappear much later, where it may describe a new event.
+                    if clipped in recent_set:
+                        continue
+                    recent.append(clipped)
+                    recent_set.add(clipped)
+                    if len(recent) > 512:
+                        recent_set.remove(recent.popleft())
+                    if len(first) < 48:
+                        first.append(clipped)
+                    else:
+                        last.append(clipped)
+            selected = b"".join([*first, *last])
+            evidence_budget = min(max_bytes // 4, 512 * 1024)
+            if len(selected) > evidence_budget:
+                first_size = evidence_budget // 3
+                evidence = (
+                    selected[:first_size]
+                    + b"\n[selected evidence abbreviated]\n"
+                    + selected[-(evidence_budget - first_size - 34) :]
+                )
+            else:
+                evidence = selected
         with path.open("r+b") as stream:
             marker = b"\n[middle diagnostic output truncated]\n"
-            head_size = max_bytes // 4
-            tail_size = max_bytes - head_size - len(marker)
+            evidence_block = (
+                b"\n[selected diagnostic evidence preserved]\n"
+                + evidence
+                + b"[end selected diagnostic evidence]\n"
+                if evidence
+                else b""
+            )
+            head_size = max_bytes // 5 if evidence_block else max_bytes // 4
+            tail_size = max_bytes - head_size - len(marker) - len(evidence_block)
             head = stream.read(head_size)
             stream.seek(-tail_size, os.SEEK_END)
             tail = stream.read(tail_size)
@@ -87,6 +135,7 @@ def trim_diagnostic_log(path: Path, max_bytes: int) -> None:
             stream.seek(0)
             stream.write(head)
             stream.write(marker)
+            stream.write(evidence_block)
             stream.write(tail)
             stream.truncate()
     except OSError:

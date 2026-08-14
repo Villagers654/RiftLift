@@ -21,6 +21,7 @@ from riftlift.diagnostics import (
 from riftlift.doctor import (
     _likely_cause,
     _prioritized_proton_lines,
+    _recent_debug_file_errors,
     _recent_envision_log_errors,
     _recent_game_log_errors,
     build_report,
@@ -179,6 +180,26 @@ def test_successful_launcher_tail_is_not_reported_as_error_evidence(
     )
 
 
+def test_openvr_debug_tail_can_report_tracking_progress(
+    tmp_path: Path, monkeypatch
+) -> None:
+    test_paths = paths(tmp_path)
+    log = test_paths.data / "diagnostics/openvr/xrizer-123.log"
+    log.parent.mkdir(parents=True)
+    log.write_text(
+        "INFO xrizer initialized\n"
+        "DEBUG xrizer_tracking: tracking snapshot advanced to compositor frame 300\n"
+    )
+    monkeypatch.setattr("riftlift.doctor._launch_epoch", lambda _launches: 0)
+    monkeypatch.setattr("riftlift.doctor._launch_end_epoch", lambda _launches: 10**12)
+
+    evidence = _recent_debug_file_errors(
+        test_paths, [{"event": "finished"}], "openvr", include_tail=True
+    )
+
+    assert any("tracking snapshot advanced" in line for line in evidence)
+
+
 def game(tmp_path: Path, name: str = "Sample") -> Game:
     directory = tmp_path / "games" / name
     directory.mkdir(parents=True, exist_ok=True)
@@ -283,6 +304,48 @@ def test_diagnostic_log_is_compacted_to_bounded_tail(tmp_path: Path) -> None:
     assert payload.startswith(b"discard me\n")
     assert b"[middle diagnostic output truncated]" in payload
     assert payload.endswith(b"keep me\n")
+
+
+def test_diagnostic_log_preserves_high_signal_middle_evidence(tmp_path: Path) -> None:
+    target = tmp_path / "large.log"
+    target.write_bytes(
+        b"header\n"
+        + b"routine startup noise\n" * 400
+        + b"RiftLift: xrCreateSession failed with XR_ERROR_RUNTIME_FAILURE\n"
+        + b"high-volume API trace\n" * 400
+        + b"shutdown tail\n"
+    )
+
+    trim_diagnostic_log(target, 4096)
+
+    payload = target.read_bytes()
+    assert len(payload) <= 4096
+    assert b"[selected diagnostic evidence preserved]" in payload
+    assert b"xrCreateSession failed with XR_ERROR_RUNTIME_FAILURE" in payload
+    assert payload.endswith(b"shutdown tail\n")
+
+
+def test_repeated_errors_do_not_displace_distinct_middle_evidence(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "large.log"
+    repeated = b"ERROR reference bounds unavailable\n"
+    target.write_bytes(
+        b"header\n"
+        + repeated * 400
+        + b"RiftLift: distinct startup failure XR_ERROR_INITIALIZATION_FAILED\n"
+        + repeated * 400
+        + b"shutdown tail\n"
+    )
+
+    trim_diagnostic_log(target, 4096)
+
+    payload = target.read_bytes()
+    evidence = payload.split(b"[selected diagnostic evidence preserved]", 1)[1].split(
+        b"[end selected diagnostic evidence]", 1
+    )[0]
+    assert evidence.count(repeated) == 1
+    assert b"distinct startup failure XR_ERROR_INITIALIZATION_FAILED" in evidence
 
 
 def test_diagnostic_logs_are_count_and_size_bounded(tmp_path: Path) -> None:

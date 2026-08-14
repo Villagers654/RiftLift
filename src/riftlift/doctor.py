@@ -1051,8 +1051,8 @@ def _debug_capture_summary(paths: Paths, enabled: bool) -> list[str]:
     lines = [
         "Profile: "
         + (
-            "Proton + Wine XR/Steam/Vulkan + DXVK debug + VKD3D info + "
-            "Vulkan/OpenXR loader + crash reports"
+            "Proton + Wine XR/Steam/Vulkan + XRizer tracking + DXVK debug + "
+            "VKD3D info + Vulkan/OpenXR loader + crash reports"
             if enabled
             else "disabled"
         )
@@ -1061,6 +1061,7 @@ def _debug_capture_summary(paths: Paths, enabled: bool) -> list[str]:
         ("Proton", "proton"),
         ("Graphics", "graphics"),
         ("Crash", "crashes"),
+        ("OpenVR/XRizer", "openvr"),
         ("Game", "game"),
         ("Launch", "logs"),
     ):
@@ -1539,7 +1540,9 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         *_recent_launch_log_errors(paths, evidence_launches),
         *_recent_proton_log_errors(paths, evidence_launches),
         *_recent_debug_file_errors(paths, evidence_launches, "graphics"),
-        *_recent_debug_file_errors(paths, evidence_launches, "openvr"),
+        *_recent_debug_file_errors(
+            paths, evidence_launches, "openvr", include_tail=True
+        ),
         *_recent_debug_file_errors(paths, evidence_launches, "game"),
         *_recent_debug_file_errors(
             paths, evidence_launches, "crashes", include_tail=True
