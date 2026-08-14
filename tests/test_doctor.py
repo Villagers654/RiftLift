@@ -20,7 +20,9 @@ from riftlift.diagnostics import (
 )
 from riftlift.doctor import (
     _likely_cause,
+    _prioritized_proton_lines,
     _recent_envision_log_errors,
+    _recent_game_log_errors,
     build_report,
     upload_report,
 )
@@ -137,6 +139,44 @@ def test_likely_cause_identifies_process_lost_during_doctor() -> None:
     )
 
     assert "XR processes disappeared while doctor was inspecting" in cause[0]
+
+
+def test_likely_cause_treats_vr_initialization_error_as_primary() -> None:
+    cause = _likely_cause(
+        [
+            "RiftLift: patched 7 executable runtime imports",
+            "Failed to initialize OVR library",
+            "EXCEPTION_ACCESS_VIOLATION",
+            "Crash detected while running the game",
+        ],
+        [],
+    )
+
+    assert "RiftLift loaded and intercepted" in cause[0]
+    assert "initialization error as primary" in cause[0]
+
+
+def test_successful_launcher_tail_is_not_reported_as_error_evidence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    test_paths = paths(tmp_path)
+    log = (
+        test_paths.prefix
+        / "pfx/drive_c/users/steamuser/AppData/Local/RiftLift/RiftLiftLauncher.txt"
+    )
+    log.parent.mkdir(parents=True)
+    log.write_text("Successfully injected!\n")
+    monkeypatch.setattr("riftlift.doctor._launch_epoch", lambda _launches: 0)
+    monkeypatch.setattr("riftlift.doctor._launch_end_epoch", lambda _launches: 10**12)
+
+    successful = [{"event": "finished", "exit_code": 0}]
+    failed = [{"event": "finished", "exit_code": 1}]
+
+    assert _recent_game_log_errors(test_paths, successful) == []
+    assert any(
+        "Successfully injected" in line
+        for line in _recent_game_log_errors(test_paths, failed)
+    )
 
 
 def game(tmp_path: Path, name: str = "Sample") -> Game:
@@ -495,6 +535,30 @@ def test_build_report_includes_saved_proton_log_errors(
     assert "Debug logging: enabled (expanded bounded capture)" in report
     assert "required runtime module or game file failed to load" in report
     assert report.index("[Likely cause]") < report.index("[Recent error evidence]")
+
+
+def test_proton_evidence_finds_application_error_before_noisy_teardown(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "steam-0.log"
+    target.write_text(
+        "Proton: test\n"
+        '1.0:0010:0020:warn:debugstr:OutputDebugStringA "RiftLift: patched 7 executable runtime imports\\n"\n'
+        '1.1:0010:0020:warn:debugstr:OutputDebugStringA "Failed to initialize VR runtime (-42)"\n'
+        "1.2:0010:0020:trace:seh:dispatch_exception "
+        "code=c0000005 (EXCEPTION_ACCESS_VIOLATION)\n"
+        + "".join(
+            f"2.{index}:0030:0040:err:rpc: teardown failure {index}\n"
+            for index in range(1000)
+        )
+    )
+
+    evidence = _prioritized_proton_lines(target)
+
+    assert any("patched 7 executable" in line for line in evidence)
+    assert any("Failed to initialize VR runtime (-42)" in line for line in evidence)
+    assert any("EXCEPTION_ACCESS_VIOLATION" in line for line in evidence)
+    assert sum("teardown failure" in line for line in evidence) < 3
 
 
 def test_build_report_ignores_proton_logs_older_than_launch_window(

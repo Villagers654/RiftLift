@@ -25,6 +25,8 @@ _MAX_GRAPHICS_LOGS = 10
 _MAX_GRAPHICS_LOG_BYTES = 2 * 1024 * 1024
 _MAX_CRASH_LOGS = 5
 _MAX_CRASH_LOG_BYTES = 6 * 1024 * 1024
+_MAX_OPENVR_LOGS = 8
+_MAX_OPENVR_LOG_BYTES = 4 * 1024 * 1024
 _MAX_RUNTIME_TRACE_BYTES = 12 * 1024 * 1024
 _MAX_GAME_LOGS = 8
 _MAX_GAME_LOG_BYTES = 4 * 1024 * 1024
@@ -170,6 +172,12 @@ def prepare_debug_logs(paths: Paths) -> dict[str, Path]:
         "proton": prepare_proton_logs(paths),
         "graphics": prepare_graphics_logs(paths),
         "crashes": prepare_crash_logs(paths),
+        "openvr": _prepare_debug_log_directory(
+            paths,
+            "openvr",
+            keep=_MAX_OPENVR_LOGS,
+            max_bytes=_MAX_OPENVR_LOG_BYTES,
+        ),
         "game": _prepare_debug_log_directory(
             paths,
             "game",

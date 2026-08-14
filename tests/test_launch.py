@@ -650,6 +650,9 @@ def test_openvr_backend_uses_packaged_translator_by_default(
     assert command[1] == "run"
     assert captured["env"]["DXVK_NO_VR"] == "1"
     assert captured["env"]["VR_OVERRIDE"] == str(packaged_openvr)
+    assert captured["env"]["VR_PATHREG_OVERRIDE"] == str(
+        paths.config / "openvr/openvrpaths.vrpath"
+    )
     assert captured["env"]["UMU_ID"] == "umu-default"
     assert captured["env"]["UMU_USE_STEAM"] == "0"
     assert "PROTON_VR_RUNTIME" not in captured["env"]

@@ -1,12 +1,21 @@
 from pathlib import Path
+import hashlib
+import json
 import zipfile
 import tarfile
 import io
 
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+
 from riftlift.config import Paths
 from riftlift.runtime import (
+    META_SIGNING_ROOT_THUMBPRINT,
+    META_SIGNING_ROOT_PEM,
+    MetaPackage,
     OPENVR_RUNTIME_VERSION,
     RUNTIME_VERSION,
+    _install_meta_signing_root,
     install_openvr_runtime,
     install_meta_runtime,
     install_rift_runtime,
@@ -185,6 +194,90 @@ def test_meta_runtime_disables_vendor_vr_service(tmp_path, monkeypatch):
     assert (support / ".riftlift-registry-v4").read_text() == "1\n"
 
 
+def test_meta_runtime_repairs_a_corrupt_signed_loader(tmp_path, monkeypatch):
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
+    runtime = support / "oculus-runtime"
+    runtime.mkdir(parents=True)
+    expected = b"signed LibOVR loader"
+    archive = tmp_path / "oculus-runtime.pkg"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("LibOVRRT64_1.dll", expected)
+    package_hash = hashlib.sha256(archive.read_bytes()).hexdigest()
+    (runtime / ".riftlift-package.json").write_text(
+        '{"sha256": "' + package_hash + '"}\n'
+    )
+    (runtime / "LibOVRRT64_1.dll").write_bytes(b"corrupt")
+
+    monkeypatch.setattr(
+        "riftlift.runtime.META_PACKAGES",
+        (MetaPackage("oculus-runtime", "test", package_hash),),
+    )
+    monkeypatch.setattr(
+        "riftlift.runtime.META_RUNTIME_SIGNED_FILES",
+        {"LibOVRRT64_1.dll": hashlib.sha256(expected).hexdigest()},
+    )
+    monkeypatch.setattr("riftlift.runtime.download", lambda *_args: archive)
+    monkeypatch.setattr("riftlift.runtime.patch_meta_client", lambda _path: None)
+    monkeypatch.setattr("riftlift.runtime.patch_meta_runtime", lambda _path: None)
+    monkeypatch.setattr("riftlift.runtime._install_meta_signing_root", lambda *_: None)
+    monkeypatch.setattr("riftlift.runtime.proton", lambda *_args, **_kwargs: None)
+
+    install_meta_runtime(paths)
+
+    assert (runtime / "LibOVRRT64_1.dll").read_bytes() == expected
+
+
+def test_meta_runtime_installs_required_signing_root(tmp_path, monkeypatch):
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
+    runtime = support / "oculus-runtime"
+    runtime.mkdir(parents=True)
+    captured: list[tuple[str, ...]] = []
+    monkeypatch.setattr("riftlift.runtime._signed_meta_runtime_current", lambda _: True)
+    monkeypatch.setattr(
+        "riftlift.runtime.proton",
+        lambda _paths, *arguments, **_kwargs: captured.append(arguments),
+    )
+
+    _install_meta_signing_root(paths, support)
+
+    assert captured[0][:5] == (
+        "runinprefix",
+        "certutil.exe",
+        "-addstore",
+        "-f",
+        "Root",
+    )
+    assert captured[0][5].startswith("Z:\\")
+    assert (
+        support / ".riftlift-meta-signing-root-v1"
+    ).read_text().strip() == META_SIGNING_ROOT_THUMBPRINT
+
+
+def test_meta_signing_root_matches_pinned_thumbprint() -> None:
+    certificate = x509.load_pem_x509_certificate(META_SIGNING_ROOT_PEM.encode())
+
+    assert (
+        certificate.fingerprint(hashes.SHA1()).hex().upper()
+        == META_SIGNING_ROOT_THUMBPRINT
+    )
+
+
 def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):
     paths = Paths(
         tmp_path / "data",
@@ -213,6 +306,10 @@ def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):
     assert (
         destination / ".riftlift-version"
     ).read_text().strip() == OPENVR_RUNTIME_VERSION
+    registry = json.loads((paths.config / "openvr/openvrpaths.vrpath").read_text())
+    assert registry["runtime"] == [str(destination)]
+    assert registry["config"] == [str(paths.config / "openvr/runtime")]
+    assert registry["log"] == [str(paths.data / "diagnostics/openvr")]
     archive.unlink()
     assert install_openvr_runtime(paths) == destination
 

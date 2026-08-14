@@ -35,6 +35,8 @@ from .launch import runtime_backend
 from .runtime import (
     META_CLIENT_COMPAT_MARKER,
     META_PACKAGES,
+    META_RUNTIME_SIGNED_FILES,
+    META_SIGNING_ROOT_THUMBPRINT,
     OPENVR_RUNTIME_VERSION,
     PROTON_VERSION,
     RUNTIME_VERSION,
@@ -63,6 +65,8 @@ _LOG_NAMES = {
 }
 _MAX_REPORT = 48 * 1024
 _MAX_LOG_TAIL = 512 * 1024
+_MAX_PRIORITIZED_LOG_CANDIDATES = 256
+_MAX_PRIORITIZED_LOG_LINES = 12
 
 
 def _command(arguments: list[str], timeout: float = 4) -> str:
@@ -458,6 +462,102 @@ def _tail_lines(path: Path) -> list[str]:
     return payload.decode(errors="replace").splitlines()
 
 
+def _proton_line_priority(line: str) -> int:
+    """Rank useful Proton evidence without relying on title-specific errors."""
+    folded = line.casefold()
+    if _noisy_evidence(line):
+        return 0
+    # These are loader/debug-print implementation details, not the exception or
+    # message that prompted them. Keeping them tends to hide the application
+    # error during Wine's very noisy process teardown.
+    if (
+        "trace:seh:dispatch_exception code=40010006" in folded
+        or 'warn:seh:dispatch_exception "' in folded
+        or "warn:module:find_builtin_dll cannot find builtin library" in folded
+    ):
+        return 0
+
+    application_output = "debugstr:outputdebugstring" in folded
+    vr_related = any(
+        marker in folded
+        for marker in ("riftlift", "openxr", "xr_", "ovr", "oculus", "vrclient")
+    )
+    crash = any(
+        marker in folded
+        for marker in (
+            "exception_access_violation",
+            "unhandled exception",
+            "access violation",
+            "segfault",
+            "page fault",
+            "fatal",
+            "panic",
+            "crash detected",
+        )
+    )
+    failure = bool(_ERROR_LINE.search(line))
+
+    if application_output and vr_related and failure:
+        return 120
+    if application_output and crash:
+        return 115
+    if crash:
+        return 110
+    if "riftlift:" in folded and failure:
+        return 105
+    if vr_related and failure:
+        return 100
+    if "riftlift: patched" in folded:
+        return 90
+    if application_output and failure:
+        # Bare "[ERROR]" fragments are less useful than the adjacent message.
+        return 55 if re.search(r'outputdebugstring[aw]? "\[error\]\s*"', folded) else 85
+    if ":err:" in folded and failure:
+        return 75
+    if failure and ":fixme:" not in folded:
+        return 45
+    return 0
+
+
+def _prioritized_proton_lines(path: Path) -> list[str]:
+    """Scan a retained log completely while keeping memory and output bounded."""
+    candidates: list[tuple[int, int, str]] = []
+    try:
+        with path.open(errors="replace") as stream:
+            for index, line in enumerate(stream):
+                line = line.strip()
+                priority = _proton_line_priority(line)
+                if not priority:
+                    continue
+                candidates.append((priority, index, redact(line)[:600]))
+                if len(candidates) > _MAX_PRIORITIZED_LOG_CANDIDATES * 2:
+                    candidates = sorted(
+                        candidates, key=lambda item: (-item[0], item[1])
+                    )[:_MAX_PRIORITIZED_LOG_CANDIDATES]
+    except OSError:
+        return []
+
+    selected: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
+    ranked = sorted(candidates, key=lambda value: (-value[0], value[1]))
+    # Once the log contains high-value application/XR evidence, do not pad the
+    # report with much weaker generic errors merely to reach the line limit.
+    minimum_priority = max(45, ranked[0][0] - 30) if ranked else 0
+    for item in ranked:
+        if item[0] < minimum_priority:
+            continue
+        # Wine can emit the same application message twice through neighboring
+        # debug channels. Prefer distinct evidence over repeated boilerplate.
+        normalized = re.sub(r"^\d+\.\d+:[0-9a-f]+:[0-9a-f]+:", "", item[2])
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        selected.append(item)
+        if len(selected) == _MAX_PRIORITIZED_LOG_LINES:
+            break
+    return [item[2] for item in sorted(selected, key=lambda value: value[1])]
+
+
 def _launch_epoch(launches: list[dict[str, object]]) -> float | None:
     values = []
     for launch in launches:
@@ -533,6 +633,10 @@ def _recent_game_log_errors(
         except OSError:
             pass
     result = []
+    include_diagnostic_tail = any(
+        launch.get("event") != "finished" or launch.get("exit_code") != 0
+        for launch in launches
+    )
     for _, candidate in sorted(recent, reverse=True)[:3]:
         try:
             lines = _tail_lines(candidate)[-500:]
@@ -546,7 +650,7 @@ def _recent_game_log_errors(
         if matches:
             result.append(f"{redact(str(candidate))}:")
             result.extend(f"  {line}" for line in matches[-6:])
-        elif candidate.name.casefold() in {
+        elif include_diagnostic_tail and candidate.name.casefold() in {
             "riftliftlauncher.txt",
             "riftlift-runtime-trace.log",
         }:
@@ -616,19 +720,10 @@ def _recent_proton_log_errors(
         return []
     result: list[str] = []
     for target in candidates:
-        try:
-            lines = _tail_lines(target)[-1000:]
-        except OSError:
-            continue
-        matches = [
-            redact(line.strip())[:600]
-            for line in lines
-            if (_ERROR_LINE.search(line) or "RiftLift: patched" in line)
-            and not _noisy_evidence(line)
-        ]
+        matches = _prioritized_proton_lines(target)
         if matches:
             result.append(f"{redact(str(target))}:")
-            result.extend(f"  {line}" for line in matches[-6:])
+            result.extend(f"  {line}" for line in matches)
     return result
 
 
@@ -1055,6 +1150,28 @@ def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> lis
         ]
     if "out_of_device_memory" in joined or "out of device memory" in joined:
         return ["Strong lead: the Vulkan graphics device exhausted available memory."]
+    vr_initialization_failed = bool(
+        re.search(
+            r"failed to initialize.{0,100}(?:oculus|ovr|openxr|vr (?:api|library|runtime|session))"
+            r"|failed to initialize (?:oculus|ovr|openxr|vr)",
+            joined,
+        )
+    )
+    if vr_initialization_failed:
+        bridge_loaded = bool(re.search(r"riftlift: patched [1-9]\d*", joined))
+        detail = (
+            "RiftLift loaded and intercepted the executable, but "
+            if bridge_loaded
+            else "The game started, but "
+        )
+        return [
+            "High confidence: "
+            + detail
+            + "the game reported that VR runtime initialization failed. Treat "
+            "that initialization error as primary; a later access violation or "
+            "crash reporter is likely secondary. The selected evidence below "
+            "preserves the game's original error text."
+        ]
     if "coredump" in joined or "segfault" in joined or "fatal" in joined:
         return ["Strong lead: a relevant process crashed during the launch window."]
     if "xr_error" in joined or "openxr" in joined and "failed" in joined:
@@ -1159,11 +1276,57 @@ def build_report(paths: Paths) -> tuple[str, bool]:
                 _file_identity(openvr_runtime),
             )
         )
+        path_registry = paths.config / "openvr/openvrpaths.vrpath"
+        try:
+            registry = json.loads(path_registry.read_text())
+            runtime_paths = registry.get("runtime", [])
+            registry_ok = (
+                registry.get("version") == 1
+                and isinstance(runtime_paths, list)
+                and str(openvr_runtime.parent) in runtime_paths
+            )
+            registry_detail = (
+                f"{redact(str(path_registry))}; runtime={redact(str(runtime_paths))}"
+            )
+        except (OSError, json.JSONDecodeError, AttributeError) as error:
+            registry_ok = False
+            registry_detail = f"{redact(str(path_registry))}: {error}"
+        checks.append(("RiftLift OpenVR path registry", registry_ok, registry_detail))
     meta_client = (
         paths.prefix
         / "pfx/drive_c/Program Files/Oculus/Support/oculus-client/Client.exe"
     )
     checks.append(("Meta client", meta_client.is_file(), _file_identity(meta_client)))
+    meta_support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
+    meta_runtime = meta_support / "oculus-runtime"
+    for name, expected in META_RUNTIME_SIGNED_FILES.items():
+        target = meta_runtime / name
+        identity = _file_identity(target)
+        current = ""
+        if target.is_file():
+            try:
+                current = hashlib.sha256(target.read_bytes()).hexdigest()
+            except OSError:
+                pass
+        checks.append(
+            (
+                f"Meta signed loader: {name}",
+                current == expected,
+                f"{identity}; expected sha256 {expected[:12]}",
+            )
+        )
+    trust_marker = meta_support / ".riftlift-meta-signing-root-v1"
+    try:
+        trust_value = trust_marker.read_text(errors="replace").strip()
+    except OSError:
+        trust_value = "missing"
+    checks.append(
+        (
+            "Meta signing root",
+            trust_value == META_SIGNING_ROOT_THUMBPRINT,
+            f"installed={trust_value}; expected={META_SIGNING_ROOT_THUMBPRINT}",
+        )
+    )
     platform_files = (
         paths.tools / "platform-compat/LibOVRPlatform64_1.dll",
         paths.tools / "platform-compat/LibOVRPlatformImpl64_1.dll",
@@ -1378,6 +1541,7 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         *_recent_launch_log_errors(paths, evidence_launches),
         *_recent_proton_log_errors(paths, evidence_launches),
         *_recent_debug_file_errors(paths, evidence_launches, "graphics"),
+        *_recent_debug_file_errors(paths, evidence_launches, "openvr"),
         *_recent_debug_file_errors(paths, evidence_launches, "game"),
         *_recent_debug_file_errors(
             paths, evidence_launches, "crashes", include_tail=True

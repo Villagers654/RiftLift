@@ -56,6 +56,7 @@ _DEBUG_ENVIRONMENT_KEYS = (
     "XR_LOADER_DEBUG",
     "XR_RUNTIME_JSON",
     "VR_OVERRIDE",
+    "VR_PATHREG_OVERRIDE",
     "DXVK_NO_VR",
     "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES",
     "OXR_ZERO_TIME_IS_NOW",
@@ -321,6 +322,12 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         # an OpenVR client, however, so preserve the caller's selected
         # OpenVR-to-OpenXR runtime (normally XRizer) for this backend only.
         environment["VR_OVERRIDE"] = openvr_runtime
+        # Proton only consumes VR_OVERRIDE after it has loaded a valid path
+        # registry. Point it at RiftLift's private registry so fresh systems do
+        # not require SteamVR (or a pre-existing user OpenVR configuration).
+        environment["VR_PATHREG_OVERRIDE"] = str(
+            paths.config / "openvr/openvrpaths.vrpath"
+        )
         _clear_stale_openvr_registry(paths, proton_root)
     wrapper_value = os.environ.get("RIFTLIFT_LAUNCH_WRAPPER", "").strip()
     wrapper: list[str] = []

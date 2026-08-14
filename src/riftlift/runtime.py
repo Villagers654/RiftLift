@@ -104,6 +104,35 @@ META_PACKAGES = (
 
 META_CLIENT_COMPAT_MARKER = ".riftlift-client-compat-v11"
 
+META_RUNTIME_SIGNED_FILES = {
+    "LibOVRRT32_1.dll": "e6435a297861f781d952ba21fdf009bc7d36fdaad0f96e0d39d3b419e1783983",
+    "LibOVRRT64_1.dll": "f6941275692026b18666bb856d71fe1b19462017b2b2e556fe8df82461f493f5",
+}
+META_SIGNING_ROOT_THUMBPRINT = "0563B8630D62D75ABBC8AB1E4BDFB5A899B24D43"
+META_SIGNING_ROOT_PEM = """-----BEGIN CERTIFICATE-----
+MIIDtzCCAp+gAwIBAgIQDOfg5RfYRv6P5WD8G/AwOTANBgkqhkiG9w0BAQUFADBl
+MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
+d3cuZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJv
+b3QgQ0EwHhcNMDYxMTEwMDAwMDAwWhcNMzExMTEwMDAwMDAwWjBlMQswCQYDVQQG
+EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
+cnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJvb3QgQ0EwggEi
+MA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCtDhXO5EOAXLGH87dg+XESpa7c
+JpSIqvTO9SA5KFhgDPiA2qkVlTJhPLWxKISKityfCgyDF3qPkKyK53lTXDGEKvYP
+mDI2dsze3Tyoou9q+yHyUmHfnyDXH+Kx2f4YZNISW1/5WBg1vEfNoTb5a3/UsDg+
+wRvDjDPZ2C8Y/igPs6eD1sNuRMBhNZYW/lmci3Zt1/GiSw0r/wty2p5g0I6QNcZ4
+VYcgoc/lbQrISXwxmDNsIumH0DJaoroTghHtORedmTpyoeb6pNnVFzF1roV9Iq4/
+AUaG9ih5yLHa5FcXxH4cDrC0kqZWs72yl+2qp/C3xag/lRbQ/6GW6whfGHdPAgMB
+AAGjYzBhMA4GA1UdDwEB/wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQW
+BBRF66Kv9JLLgjEtUYunpyGd823IDzAfBgNVHSMEGDAWgBRF66Kv9JLLgjEtUYun
+pyGd823IDzANBgkqhkiG9w0BAQUFAAOCAQEAog683+Lt8ONyc3pklL/3cmbYMuRC
+dWKuh+vy1dneVrOfzM4UKLkNl2BcEkxY5NM9g0lFWJc1aRqoR+pWxnmrEthngYTf
+fwk8lOa4JiwgvT2zKIn3X/8i4peEH+ll74fg38FnSbNd67IJKusm7Xi+fT8r87cm
+NW1fiQG2SVufAQWbqz0lwcy2f8Lxb4bG+mRo64EtlOtCt/qMHt1i8b5QZ7dsvfPx
+H2sMNgcWfzd8qVttevESRmCD1ycEvkvOl77DZypoEd+A5wwzZr8TDRRu838fYxAe
++o0bJW1sj6W3YQGx0qMmoRBxna3iw/nDmVG3KwcIzi7mULKn+gpFL6Lw8g==
+-----END CERTIFICATE-----
+"""
+
 
 META_RUNTIME_PATCHES = {
     "OVRServiceLauncher.exe": {
@@ -177,6 +206,38 @@ def patch_meta_runtime(runtime: Path) -> None:
     legacy_dir = plugins / ".riftlift-disabled"
     if legacy_dir.is_dir() and not any(legacy_dir.iterdir()):
         legacy_dir.rmdir()
+
+
+def _signed_meta_runtime_current(runtime: Path) -> bool:
+    for name, expected in META_RUNTIME_SIGNED_FILES.items():
+        target = runtime / name
+        try:
+            digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        except OSError:
+            return False
+        if digest != expected:
+            return False
+    return True
+
+
+def _install_meta_signing_root(paths: Paths, support: Path) -> None:
+    """Make Meta's LibOVR shim trust independent of the host distro CA set."""
+    marker = support / ".riftlift-meta-signing-root-v1"
+    runtime = support / "oculus-runtime"
+    if marker.is_file() or not _signed_meta_runtime_current(runtime):
+        return
+    certificate = support / ".riftlift-digicert-assured-id-root.pem"
+    certificate.write_text(META_SIGNING_ROOT_PEM)
+    proton(
+        paths,
+        "runinprefix",
+        "certutil.exe",
+        "-addstore",
+        "-f",
+        "Root",
+        linux_to_windows(certificate),
+    )
+    marker.write_text(f"{META_SIGNING_ROOT_THUMBPRINT}\n")
 
 
 def patch_meta_client(client: Path) -> None:
@@ -481,6 +542,10 @@ def install_meta_runtime(paths: Paths) -> Path:
                 current_package = (
                     json.loads(marker.read_text()).get("sha256") == package.sha256
                 )
+                if package.name == "oculus-runtime":
+                    current_package = current_package and _signed_meta_runtime_current(
+                        destination
+                    )
                 current_client_patch = (
                     package.name != "oculus-client"
                     or (destination / META_CLIENT_COMPAT_MARKER).is_file()
@@ -502,6 +567,7 @@ def install_meta_runtime(paths: Paths) -> Path:
     patch_meta_client(support / "oculus-client")
 
     patch_meta_runtime(support / "oculus-runtime")
+    _install_meta_signing_root(paths, support)
 
     registration = support / ".riftlift-registry-v4"
     if not registration.is_file():
@@ -721,6 +787,7 @@ def install_openvr_runtime(paths: Paths) -> Path:
         and version_marker.is_file()
         and version_marker.read_text().strip() == OPENVR_RUNTIME_VERSION
     ):
+        _write_openvr_path_registry(paths, destination)
         return destination
     override = os.environ.get("RIFTLIFT_OPENVR_RUNTIME_ARCHIVE")
     if override:
@@ -762,7 +829,30 @@ def install_openvr_runtime(paths: Paths) -> Path:
         shutil.copy2(library, proton_library)
     (destination / "bin/version.txt").write_text(f"{OPENVR_RUNTIME_VERSION}\n")
     version_marker.write_text(f"{OPENVR_RUNTIME_VERSION}\n")
+    _write_openvr_path_registry(paths, destination)
     return destination
+
+
+def _write_openvr_path_registry(paths: Paths, runtime: Path) -> Path:
+    """Provide Proton the valid path registry required to consume VR_OVERRIDE."""
+    target = paths.config / "openvr/openvrpaths.vrpath"
+    config = paths.config / "openvr/runtime"
+    logs = prepare_debug_logs(paths)["openvr"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    config.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "runtime": [str(runtime)],
+                "config": [str(config)],
+                "log": [str(logs)],
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    return target
 
 
 def install_platform_compat(paths: Paths) -> Path:
