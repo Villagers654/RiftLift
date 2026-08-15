@@ -536,9 +536,11 @@ def proton_environment(paths: Paths, game_dir: Path | None = None) -> dict[str, 
     )
     for variable in (
         "VR_OVERRIDE",
+        "VR_PATHREG_OVERRIDE",
         "XR_RUNTIME_JSON",
         "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES",
         "OXR_ZERO_TIME_IS_NOW",
+        "RIFTLIFT_XRIZER",
     ):
         environment.pop(variable, None)
     environment.update(
@@ -905,13 +907,84 @@ def install_openvr_runtime(paths: Paths) -> Path:
     return destination
 
 
+def steamvr_runtime_for_openxr(runtime: Path) -> Path | None:
+    """Return SteamVR's root when *runtime* is Valve's OpenXR manifest."""
+    try:
+        payload = json.loads(runtime.read_text())
+        description = payload["runtime"]
+        is_steamvr = (
+            description.get("VALVE_runtime_is_steamvr") is True
+            or str(description.get("name", "")).casefold() == "steamvr"
+        )
+    except (OSError, json.JSONDecodeError, KeyError, AttributeError):
+        return None
+    if not is_steamvr:
+        return None
+    root = runtime.resolve().parent
+    if not (root / "bin/linux64/vrclient.so").is_file():
+        return None
+    return root
+
+
+def select_openvr_runtime(paths: Paths, openxr_runtime: Path) -> tuple[Path, Path, str]:
+    """Select a direct OpenVR target matching the active headset runtime.
+
+    An explicit ``VR_OVERRIDE`` remains authoritative. When SteamVR is the
+    active OpenXR runtime, use Valve's OpenVR client directly. Monado and other
+    OpenXR runtimes continue through RiftLift's bundled XRizer translator.
+    """
+    explicit = os.environ.get("VR_OVERRIDE", "").strip()
+    registry_override = os.environ.get("VR_PATHREG_OVERRIDE", "").strip()
+    if explicit:
+        runtime = Path(explicit).expanduser().resolve()
+        if not (runtime / "bin/linux64/vrclient.so").is_file():
+            raise RiftLiftError(
+                f"VR_OVERRIDE is not a usable OpenVR runtime: {runtime}"
+            )
+        registry = (
+            Path(registry_override).expanduser().resolve()
+            if registry_override
+            else _write_openvr_path_registry(paths, runtime)
+        )
+        if steamvr_runtime_for_openxr(runtime / "steamxr_linux64.json") == runtime:
+            kind = "steamvr"
+        elif (runtime / "libxrizer.so").is_file():
+            kind = "xrizer"
+        else:
+            kind = "external"
+        return runtime, registry, kind
+
+    steamvr = steamvr_runtime_for_openxr(openxr_runtime)
+    if steamvr is not None:
+        registry = (
+            Path(registry_override).expanduser().resolve()
+            if registry_override
+            else _write_openvr_path_registry(paths, steamvr)
+        )
+        return steamvr, registry, "steamvr"
+
+    xrizer = install_openvr_runtime(paths)
+    return xrizer, _write_openvr_path_registry(paths, xrizer), "xrizer"
+
+
 def _write_openvr_path_registry(paths: Paths, runtime: Path) -> Path:
     """Provide Proton the valid path registry required to consume VR_OVERRIDE."""
     target = paths.config / "openvr/openvrpaths.vrpath"
-    config = paths.config / "openvr/runtime"
-    logs = prepare_debug_logs(paths)["openvr"]
+    steam_install = runtime.parent.parent.parent
+    if (runtime / "steamxr_linux64.json").is_file() and (
+        steam_install / "config"
+    ).is_dir():
+        # SteamVR's settings and server logs belong to Steam. The registry file
+        # itself remains private to RiftLift so selecting SteamVR never edits a
+        # user's global OpenVR registration.
+        config = steam_install / "config"
+        logs = steam_install / "logs"
+    else:
+        config = paths.config / "openvr/runtime"
+        logs = prepare_debug_logs(paths)["openvr"]
     target.parent.mkdir(parents=True, exist_ok=True)
     config.mkdir(parents=True, exist_ok=True)
+    logs.mkdir(parents=True, exist_ok=True)
     target.write_text(
         json.dumps(
             {
@@ -998,12 +1071,15 @@ def shutdown_compat_prefix(paths: Paths, proton_root: Path) -> None:
 
 
 def setup(paths: Paths) -> None:
-    active_runtime_json()
+    openxr_runtime = active_runtime_json()
     paths.create()
     proton_root = install_proton(paths)
     install_meta_runtime(paths)
     install_rift_runtime(paths)
     install_openvr_runtime(paths)
+    steamvr = steamvr_runtime_for_openxr(openxr_runtime)
+    if steamvr is not None:
+        _write_openvr_path_registry(paths, steamvr)
     install_platform_compat(paths)
     shutdown_compat_prefix(paths, proton_root)
 
@@ -1131,9 +1207,52 @@ def _runtime_manifest(candidate: Path, *, explicit: bool = False) -> Path | None
     return candidate.resolve()
 
 
+def running_steamvr_manifest() -> Path | None:
+    """Return Valve's manifest only while this user has SteamVR running."""
+    for comm in Path("/proc").glob("[0-9]*/comm"):
+        try:
+            if comm.stat().st_uid != os.getuid():
+                continue
+            if comm.read_text().strip() != "vrserver":
+                continue
+            executable = (comm.parent / "exe").resolve()
+        except OSError:
+            continue
+        try:
+            root = executable.parents[2]
+        except IndexError:
+            continue
+        manifest = root / "steamxr_linux64.json"
+        if (
+            root.name == "SteamVR"
+            and steamvr_runtime_for_openxr(manifest) == root.resolve()
+        ):
+            return manifest.resolve()
+    return None
+
+
+def installed_steamvr_manifest() -> Path | None:
+    """Find a normal SteamVR install without requiring OpenXR registration."""
+    try:
+        from .steam_oculus import steam_library_roots
+
+        libraries = steam_library_roots(steam_root())
+    except Exception:
+        return None
+    for library in libraries:
+        manifest = library / "steamapps/common/SteamVR/steamxr_linux64.json"
+        if steamvr_runtime_for_openxr(manifest) is not None:
+            return manifest.resolve()
+    return None
+
+
 def active_runtime_json() -> Path:
     explicit = os.environ.get("XR_RUNTIME_JSON")
     candidates = [Path(explicit)] if explicit else []
+    if not explicit:
+        running_steamvr = running_steamvr_manifest()
+        if running_steamvr is not None:
+            candidates.append(running_steamvr)
     envision = envision_profile()
     if not explicit and envision is not None:
         candidates.append(envision.manifest)
@@ -1154,6 +1273,9 @@ def active_runtime_json() -> Path:
             directory / "openxr/1/openxr_monado.json" for directory in data_dirs
         )
         candidates.append(Path("/etc/openxr/1/active_runtime.json"))
+        installed_steamvr = installed_steamvr_manifest()
+        if installed_steamvr is not None:
+            candidates.append(installed_steamvr)
 
     seen: set[Path] = set()
     for candidate in candidates:
@@ -1190,9 +1312,9 @@ def active_runtime_json() -> Path:
             f"has an unusable Monado build ({detail}); rebuild the profile in Envision"
         )
     raise RiftLiftError(
-        "no usable OpenXR runtime was found; build and select a Monado profile in "
-        "Envision, or select a manifest with ~/.config/openxr/1/active_runtime.json "
-        "or XR_RUNTIME_JSON"
+        "no usable OpenXR runtime was found; start an installed SteamVR session, "
+        "build and select a Monado profile in Envision, or select a manifest with "
+        "~/.config/openxr/1/active_runtime.json or XR_RUNTIME_JSON"
     )
 
 
@@ -1240,7 +1362,9 @@ def xr_build_components() -> dict[str, str]:
     try:
         runtime = active_runtime_json()
         payload = json.loads(runtime.read_text())
-        library_value = payload["runtime"]["library_path"]
+        runtime_description = payload["runtime"]
+        runtime_name = str(runtime_description.get("name", "unnamed"))
+        library_value = runtime_description["library_path"]
         library = Path(library_value).expanduser()
         if not library.is_absolute() and library.parent != Path("."):
             library = (runtime.parent / library).resolve()
@@ -1270,11 +1394,17 @@ def xr_build_components() -> dict[str, str]:
             )
         result = {
             "openxr_manifest": f"{runtime} sha256:{manifest_hash}",
-            "monado_runtime": library_identity,
+            "openxr_runtime": f"{runtime_name}: {library_identity}",
+            "monado_runtime": (
+                library_identity
+                if "monado" in runtime_name.casefold()
+                else f"not selected ({runtime_name})"
+            ),
         }
     except Exception as error:
         result = {
             "openxr_manifest": f"unavailable: {error}",
+            "openxr_runtime": "unavailable",
             "monado_runtime": "unavailable",
         }
     profile = envision_profile()
@@ -1316,9 +1446,14 @@ def platform_user_id(paths: Paths) -> str:
 
 
 def launch_environment(
-    paths: Paths, game_dir: Path, platform_shim: bool, platform_offline: bool = False
+    paths: Paths,
+    game_dir: Path,
+    platform_shim: bool,
+    platform_offline: bool = False,
+    *,
+    runtime: Path | None = None,
 ) -> dict[str, str]:
-    runtime = active_runtime_json()
+    runtime = runtime or active_runtime_json()
     environment = proton_environment(paths, game_dir)
     for key, value in _envision_environment(runtime).items():
         if key == "LD_LIBRARY_PATH" and environment.get(key):
@@ -1332,7 +1467,6 @@ def launch_environment(
             "XR_RUNTIME_JSON": str(runtime),
             "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
             "OXR_ZERO_TIME_IS_NOW": "1",
-            "RIFTLIFT_XRIZER": "1",
             "WINEDLLOVERRIDES": f"d3d11=n;dxgi=n{';' + existing_overrides if existing_overrides else ''}",
         }
     )

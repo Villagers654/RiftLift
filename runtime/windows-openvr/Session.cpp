@@ -31,7 +31,9 @@ ovrHmdStruct::ovrHmdStruct()
 	, StringBuffer()
 	, TrackerCount(0)
 	, Status()
-	, ChaperoneBuffer()
+	, ChaperoneSeatedPose()
+	, ChaperoneStandingPose()
+	, ChaperoneRestoreValid(false)
 	, HmdDesc()
 	, RenderDesc()
 	, TrackerDesc()
@@ -69,14 +71,17 @@ ovrHmdStruct::ovrHmdStruct()
 
 	vr::VRApplications()->GetApplicationKeyByProcessId(GetCurrentProcessId(), AppKey, sizeof(AppKey));
 
-	// Export the chaperone buffer so we can reset the tracking origin on graceful shutdown
+	// Save the typed origin poses so we can restore them on graceful shutdown.
+	// Proton's OpenVR bridge cannot safely marshal ImportFromBufferToWorking:
+	// current GE-Proton asserts inside the thunk when a game destroys a session.
+	// The typed chaperone API preserves the state RiftLift can modify without
+	// crossing that unsupported serialized-buffer boundary.
 	if (vr::IVRChaperoneSetup* chaperoneSetup = vr::VRChaperoneSetup())
 	{
-		uint32_t size = 0;
-		chaperoneSetup->ExportLiveToBuffer(nullptr, &size);
-		ChaperoneBuffer.resize(size);
-		chaperoneSetup->ExportLiveToBuffer(ChaperoneBuffer.data(), &size);
-		assert(size == ChaperoneBuffer.size());
+		chaperoneSetup->RevertWorkingCopy();
+		ChaperoneRestoreValid =
+			chaperoneSetup->GetWorkingSeatedZeroPoseToRawTrackingPose(&ChaperoneSeatedPose) &&
+			chaperoneSetup->GetWorkingStandingZeroPoseToRawTrackingPose(&ChaperoneStandingPose);
 	}
 
 	// Oculus games expect a seated tracking space by default
@@ -88,11 +93,13 @@ ovrHmdStruct::ovrHmdStruct()
 
 ovrHmdStruct::~ovrHmdStruct()
 {
-	// Restore chaperone buffer to reset tracking origin
+	// Restore only the origin values RiftLift may have changed.
 	vr::IVRChaperoneSetup* chaperoneSetup = vr::VRChaperoneSetup();
-	if (chaperoneSetup && !ChaperoneBuffer.empty())
+	if (chaperoneSetup && ChaperoneRestoreValid)
 	{
-		chaperoneSetup->ImportFromBufferToWorking(ChaperoneBuffer.data(), 0);
+		chaperoneSetup->RevertWorkingCopy();
+		chaperoneSetup->SetWorkingSeatedZeroPoseToRawTrackingPose(&ChaperoneSeatedPose);
+		chaperoneSetup->SetWorkingStandingZeroPoseToRawTrackingPose(&ChaperoneStandingPose);
 		chaperoneSetup->CommitWorkingCopy(vr::EChaperoneConfigFile_Live);
 	}
 }

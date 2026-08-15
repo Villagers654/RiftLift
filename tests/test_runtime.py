@@ -22,6 +22,8 @@ from riftlift.runtime import (
     install_openvr_runtime,
     install_meta_runtime,
     install_rift_runtime,
+    select_openvr_runtime,
+    steamvr_runtime_for_openxr,
     initialize_prefix,
     meta_signing_root_installed,
     proton_environment,
@@ -356,6 +358,78 @@ def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):
     assert registry["log"] == [str(paths.data / "diagnostics/openvr")]
     archive.unlink()
     assert install_openvr_runtime(paths) == destination
+
+
+def test_steamvr_openxr_manifest_selects_valve_openvr_directly(tmp_path, monkeypatch):
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    steam = tmp_path / "Steam"
+    steamvr = steam / "steamapps/common/SteamVR"
+    (steamvr / "bin/linux64").mkdir(parents=True)
+    (steamvr / "bin/linux64/vrclient.so").write_bytes(b"ELF")
+    (steam / "config").mkdir()
+    (steam / "logs").mkdir()
+    manifest = steamvr / "steamxr_linux64.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "runtime": {
+                    "name": "SteamVR",
+                    "VALVE_runtime_is_steamvr": True,
+                    "library_path": "bin/linux64/vrclient.so",
+                }
+            }
+        )
+    )
+    monkeypatch.delenv("VR_OVERRIDE", raising=False)
+    monkeypatch.delenv("VR_PATHREG_OVERRIDE", raising=False)
+    monkeypatch.setattr(
+        "riftlift.runtime.install_openvr_runtime",
+        lambda _paths: (_ for _ in ()).throw(AssertionError("XRizer was selected")),
+    )
+
+    selected, registry_path, kind = select_openvr_runtime(paths, manifest)
+
+    assert steamvr_runtime_for_openxr(manifest) == steamvr.resolve()
+    assert selected == steamvr.resolve()
+    assert kind == "steamvr"
+    registry = json.loads(registry_path.read_text())
+    assert registry["runtime"] == [str(steamvr.resolve())]
+    assert registry["config"] == [str(steam / "config")]
+    assert registry["log"] == [str(steam / "logs")]
+
+
+def test_non_steamvr_openxr_runtime_keeps_bundled_xrizer(tmp_path, monkeypatch):
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    manifest = tmp_path / "openxr_monado.json"
+    manifest.write_text(json.dumps({"runtime": {"name": "Monado"}}))
+    xrizer = tmp_path / "xrizer"
+    monkeypatch.delenv("VR_OVERRIDE", raising=False)
+    monkeypatch.delenv("VR_PATHREG_OVERRIDE", raising=False)
+    monkeypatch.setattr(
+        "riftlift.runtime.install_openvr_runtime", lambda _paths: xrizer
+    )
+
+    selected, registry_path, kind = select_openvr_runtime(paths, manifest)
+
+    assert selected == xrizer
+    assert kind == "xrizer"
+    registry = json.loads(registry_path.read_text())
+    assert registry["runtime"] == [str(xrizer)]
+    assert registry["config"] == [str(paths.config / "openvr/runtime")]
 
 
 def test_proton_debug_logs_use_diagnostics_directory(tmp_path, monkeypatch):

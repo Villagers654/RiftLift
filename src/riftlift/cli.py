@@ -206,8 +206,19 @@ def run(arguments: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    values = list(sys.argv[1:] if argv is None else argv)
+    # REMAINDER intentionally forwards game switches, but an otherwise bare
+    # help flag after the required game identifier must still be CLI help. It
+    # is far too surprising for `riftlift launch-steam APP --help` to start a
+    # VR title. Games that genuinely need this argument can use `-- --help`.
+    if (
+        len(values) == 3
+        and values[0] in {"launch", "launch-steam"}
+        and values[2] in {"-h", "--help"}
+    ):
+        parser().parse_args([values[0], "--help"])
     try:
-        return run(parser().parse_args(argv))
+        return run(parser().parse_args(values))
     except KeyboardInterrupt:
         print("\nCancelled.", file=sys.stderr)
         return 130

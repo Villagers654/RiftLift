@@ -7,7 +7,9 @@ import shutil
 import subprocess
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 from . import __version__
 from .config import Game, Paths
@@ -37,13 +39,15 @@ from .runtime import (
     OPENVR_RUNTIME_VERSION,
     PROTON_VERSION,
     RUNTIME_VERSION,
+    active_runtime_json,
     install_proton,
-    install_openvr_runtime,
     install_rift_runtime,
     launch_environment,
     native_xr_bridge,
+    select_openvr_runtime,
     xr_build_components,
 )
+from .steam import ensure_steam_running
 from .util import RiftLiftError, linux_to_windows
 
 _DEBUG_ENVIRONMENT_KEYS = (
@@ -59,6 +63,7 @@ _DEBUG_ENVIRONMENT_KEYS = (
     "XR_RUNTIME_JSON",
     "VR_OVERRIDE",
     "VR_PATHREG_OVERRIDE",
+    "RIFTLIFT_XRIZER",
     "DXVK_NO_VR",
     "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES",
     "OXR_ZERO_TIME_IS_NOW",
@@ -83,6 +88,50 @@ _EXPECTED_BUILD_COMPONENTS = {
 }
 
 
+@contextmanager
+def _steam_appid_marker(game: Game) -> Iterator[None]:
+    """Prevent Steamworks from replacing RiftLift's prepared game process.
+
+    Valve documents ``steam_appid.txt`` as the supported way to make
+    ``SteamAPI_RestartAppIfNecessary`` keep a directly launched development
+    process. RiftLift needs the same property: a Steam-client relaunch discards
+    the selected XR runtime and diagnostic environment. Keep the marker only
+    for the lifetime of the launch and never replace a file owned by the game.
+    """
+    if game.source != "steam" or not game.steam_app_id:
+        yield
+        return
+    marker = game.game_dir / "steam_appid.txt"
+    created: tuple[int, int] | None = None
+    try:
+        try:
+            descriptor = os.open(
+                marker,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o644,
+            )
+        except FileExistsError:
+            descriptor = -1
+        except OSError as error:
+            raise RiftLiftError(
+                f"cannot prepare Steamworks launch marker {marker}: {error}"
+            ) from error
+        if descriptor >= 0:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(f"{game.steam_app_id}\n".encode())
+                stat = os.fstat(stream.fileno())
+                created = (stat.st_dev, stat.st_ino)
+        yield
+    finally:
+        if created is not None:
+            try:
+                stat = marker.stat()
+                if (stat.st_dev, stat.st_ino) == created:
+                    marker.unlink()
+            except FileNotFoundError:
+                pass
+
+
 def _installed_build(path: Path, marker: str = ".riftlift-version") -> str:
     try:
         value = (path / marker).read_text(errors="replace").strip()
@@ -102,6 +151,19 @@ def _installed_proton_build(path: Path) -> str:
         if value:
             return value[:160]
     return path.name
+
+
+def _installed_openvr_build(path: Path, kind: str) -> str:
+    if kind == "steamvr":
+        try:
+            build = (path / "bin/version.txt").read_text(errors="replace").strip()
+        except OSError:
+            build = ""
+        return f"SteamVR {build[:160]}" if build else "SteamVR (build unknown)"
+    installed = _installed_build(path)
+    if installed == "missing" and str(path):
+        return f"external-unversioned:{path.name}"
+    return installed
 
 
 def _installed_meta_builds(paths: Paths) -> dict[str, str]:
@@ -129,24 +191,45 @@ def _launch_build_components(
     rift_runtime: Path,
     openvr_runtime: str,
     backend: str,
+    openvr_kind: str,
 ) -> dict[str, str]:
     if backend == "openvr":
-        openvr_build = _installed_build(Path(openvr_runtime))
-        if openvr_build == "missing" and openvr_runtime:
-            openvr_build = f"external-unversioned:{Path(openvr_runtime).name}"
+        openvr_build = _installed_openvr_build(Path(openvr_runtime), openvr_kind)
     else:
         openvr_build = "not-used(openxr)"
+    openvr_transport = {
+        "steamvr": "SteamVR direct (no XRizer)",
+        "xrizer": "bundled XRizer -> active OpenXR runtime",
+        "external": "explicit external OpenVR runtime",
+        "not-used": "not-used(openxr)",
+    }.get(openvr_kind, openvr_kind)
     runtime_build = _installed_build(rift_runtime)
     return {
         "riftlift": __version__,
         "compat_runtime": runtime_build,
         "openvr_runtime": openvr_build,
+        "openvr_transport": openvr_transport,
         "proton": _installed_proton_build(proton_root),
         **_installed_meta_builds(paths),
         "platform_bridge": f"compat-runtime:{runtime_build}",
         **system_build_components(),
         **xr_build_components(),
     }
+
+
+def _expected_launch_components(
+    components: dict[str, str], openvr_kind: str
+) -> dict[str, str]:
+    """Describe what this launch was expected to use without mislabeling Valve.
+
+    SteamVR and explicitly selected external OpenVR runtimes are not RiftLift
+    payloads. Their captured build is therefore the expected build for that
+    launch; only the bundled XRizer runtime is pinned to RiftLift's release.
+    """
+    expected = dict(_EXPECTED_BUILD_COMPONENTS)
+    if openvr_kind in {"steamvr", "external"}:
+        expected["openvr_runtime"] = components["openvr_runtime"]
+    return expected
 
 
 def runtime_backend(game: Game) -> str:
@@ -255,6 +338,8 @@ def _clear_stale_openvr_registry(paths: Paths, proton_root: Path) -> None:
 def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
     if not game.executable_path.is_file():
         raise RiftLiftError(f"game executable is missing: {game.executable_path}")
+    if game.source == "steam":
+        ensure_steam_running()
     rift_runtime = install_rift_runtime(paths)
     proton_root = install_proton(paths)
     proton = proton_root / "proton"
@@ -277,9 +362,15 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         *game_arguments,
     ]
     verified_rift_download = game.source == "meta"
-    openvr_runtime = os.environ.get("VR_OVERRIDE", "").strip()
-    if backend == "openvr" and not openvr_runtime:
-        openvr_runtime = str(install_openvr_runtime(paths))
+    openvr_runtime = ""
+    openvr_registry: Path | None = None
+    openvr_kind = "not-used"
+    if backend == "openvr":
+        openxr_runtime = active_runtime_json()
+        selected, openvr_registry, openvr_kind = select_openvr_runtime(
+            paths, openxr_runtime
+        )
+        openvr_runtime = str(selected)
     environment = launch_environment(
         paths,
         game.game_dir,
@@ -301,6 +392,13 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         steam_id = str(game.steam_app_id)
         environment["SteamAppId"] = steam_id
         environment["SteamGameId"] = steam_id
+        # GE-Proton's direct entry point normally starts its steam.exe shim
+        # for a nonzero Steam identity. That shim asks the host client to
+        # relaunch the title and loses RiftLift's selected XR runtime. UMU's
+        # no-Steam entry point bypasses only that launcher shim; Proton's
+        # lsteamclient and the real Steam identity remain available to games.
+        environment["UMU_ID"] = f"umu-{steam_id}"
+        environment["UMU_USE_STEAM"] = "0"
     else:
         # GE-Proton's generic non-Steam entry point avoids its steam.exe shim
         # while retaining normal prefix and VR-runtime initialization. A
@@ -308,21 +406,25 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         # neutral identity instead of inventing per-title database entries.
         environment["UMU_ID"] = "umu-default"
         environment["UMU_USE_STEAM"] = "0"
-    if backend == "openxr" or not uses_d3d12_runtime(game.executable_path):
+    if backend == "openxr":
         # Proton records OpenVR's Vulkan requirements in the shared Wine
         # prefix. DXVK otherwise consumes those stale requirements alongside
         # WineOpenXR's and can request host-only extensions from Wine's Vulkan
         # device, making D3D device creation fail before the title reaches XR.
-        # Keep the selected backend authoritative while leaving explicit
-        # OpenVR diagnostic launches untouched.
+        # Keep the selected backend authoritative. Direct OpenVR must retain
+        # Proton's VR Vulkan extensions for texture sharing with SteamVR or
+        # XRizer; DXVK_NO_VR corrupts or suppresses that compositor path.
         environment["DXVK_NO_VR"] = "1"
     if backend == "openvr":
-        # The Windows bridge's registry fallback points at a Wine path, while the
-        # OpenVR implementation consuming it is a native Linux library. Give
-        # XRizer the host path explicitly so the OpenVR bridge always loads the
-        # bundled actions and controller bindings.
-        environment["RIFTLIFT_ACTION_MANIFEST"] = str(
-            rift_runtime / "Input" / "action_manifest.json"
+        action_manifest = rift_runtime / "Input" / "action_manifest.json"
+        # XRizer consumes this value directly in its native Linux client, but
+        # Valve's Proton bridge treats SetActionManifestPath as a Windows API
+        # and converts its argument back to a host path. Passing Valve a host
+        # path makes that conversion return null and can abort the entire game.
+        environment["RIFTLIFT_ACTION_MANIFEST"] = (
+            str(action_manifest)
+            if openvr_kind == "xrizer"
+            else linux_to_windows(action_manifest)
         )
     if backend == "openvr":
         # proton_environment intentionally removes inherited OpenVR state so
@@ -333,9 +435,12 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         # Proton only consumes VR_OVERRIDE after it has loaded a valid path
         # registry. Point it at RiftLift's private registry so fresh systems do
         # not require SteamVR (or a pre-existing user OpenVR configuration).
-        environment["VR_PATHREG_OVERRIDE"] = str(
-            paths.config / "openvr/openvrpaths.vrpath"
-        )
+        environment["VR_PATHREG_OVERRIDE"] = str(openvr_registry)
+        if openvr_kind == "xrizer":
+            environment["RIFTLIFT_XRIZER"] = "1"
+        else:
+            environment.pop("RIFTLIFT_XRIZER", None)
+            environment.pop("XRIZER_LOG_DIR", None)
         _clear_stale_openvr_registry(paths, proton_root)
     wrapper_value = os.environ.get("RIFTLIFT_LAUNCH_WRAPPER", "").strip()
     wrapper: list[str] = []
@@ -360,6 +465,14 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         )
         if detected
     ]
+    launch_components = _launch_build_components(
+        paths,
+        proton_root,
+        rift_runtime,
+        openvr_runtime,
+        backend,
+        openvr_kind,
+    )
     launch_id, started = launch_started(
         paths,
         game,
@@ -372,10 +485,8 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
             for key in _DEBUG_ENVIRONMENT_KEYS
             if key in environment and environment.get("PROTON_LOG", "0") != "0"
         },
-        components=_launch_build_components(
-            paths, proton_root, rift_runtime, openvr_runtime, backend
-        ),
-        expected_components=_EXPECTED_BUILD_COMPONENTS,
+        components=launch_components,
+        expected_components=_expected_launch_components(launch_components, openvr_kind),
     )
     print(
         "Native XR bridge: "
@@ -416,13 +527,14 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
                 )
                 maintenance.start()
             try:
-                exit_code = subprocess.call(
-                    [*wrapper, *arguments],
-                    cwd=game.game_dir,
-                    env=environment,
-                    stdout=launch_log,
-                    stderr=subprocess.STDOUT,
-                )
+                with _steam_appid_marker(game):
+                    exit_code = subprocess.call(
+                        [*wrapper, *arguments],
+                        cwd=game.game_dir,
+                        env=environment,
+                        stdout=launch_log,
+                        stderr=subprocess.STDOUT,
+                    )
             finally:
                 stop_log_maintenance.set()
                 if maintenance is not None:

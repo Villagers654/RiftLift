@@ -1,12 +1,16 @@
 from pathlib import Path
 
+import pytest
+
 from riftlift.config import Game, Paths
 from riftlift.steam import (
     _existing_by_slug,
     _install_wayvr_metadata,
     _shortcut,
     _shortcut_games,
+    ensure_steam_running,
 )
+from riftlift.util import RiftLiftError
 
 
 def game() -> Game:
@@ -71,3 +75,28 @@ def test_native_steam_games_do_not_create_duplicate_shortcuts(tmp_path: Path) ->
     steam.save(paths)
 
     assert _shortcut_games(paths) == [rift]
+
+
+def test_steam_client_is_started_before_a_steamworks_game(monkeypatch) -> None:
+    readiness = iter((False, False, True))
+    popen_calls = []
+    monkeypatch.setattr("riftlift.steam._steam_client_ready", lambda: next(readiness))
+    monkeypatch.setattr("riftlift.steam.shutil.which", lambda _name: "/usr/bin/steam")
+    monkeypatch.setattr(
+        "riftlift.steam.subprocess.Popen",
+        lambda command, **kwargs: popen_calls.append((command, kwargs)),
+    )
+    monkeypatch.setattr("riftlift.steam.time.sleep", lambda _seconds: None)
+
+    ensure_steam_running()
+
+    assert popen_calls[0][0] == ("/usr/bin/steam", "-silent")
+    assert popen_calls[0][1]["start_new_session"] is True
+
+
+def test_missing_steam_launcher_has_actionable_error(monkeypatch) -> None:
+    monkeypatch.setattr("riftlift.steam._steam_client_ready", lambda: False)
+    monkeypatch.setattr("riftlift.steam.shutil.which", lambda _name: None)
+
+    with pytest.raises(RiftLiftError, match="start Steam and retry"):
+        ensure_steam_running()

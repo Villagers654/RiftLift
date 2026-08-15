@@ -11,6 +11,8 @@ from riftlift.diagnostics import (
 )
 from riftlift.launch import (
     _clear_stale_openvr_registry,
+    _expected_launch_components,
+    _installed_openvr_build,
     launch,
     oculus_launch_arguments,
     runtime_backend,
@@ -28,6 +30,7 @@ def fake_native_bridge(monkeypatch, tmp_path: Path) -> None:
         "riftlift.launch.native_xr_bridge",
         lambda *_args, **_kwargs: type("Bridge", (), {"pe": pe, "unix": unix})(),
     )
+    monkeypatch.setattr("riftlift.launch.ensure_steam_running", lambda: None)
 
 
 def test_native_xr_bridge_requires_wine_unixlib_pair(tmp_path: Path) -> None:
@@ -44,6 +47,22 @@ def test_native_xr_bridge_requires_wine_unixlib_pair(tmp_path: Path) -> None:
 
     assert bridge.pe == pe
     assert bridge.unix == unix
+
+
+def test_steamvr_build_identity_uses_valve_version_file(tmp_path: Path) -> None:
+    steamvr = tmp_path / "SteamVR"
+    (steamvr / "bin").mkdir(parents=True)
+    (steamvr / "bin/version.txt").write_text("1781734990\n")
+
+    assert _installed_openvr_build(steamvr, "steamvr") == "SteamVR 1781734990"
+
+
+def test_steamvr_build_is_expected_as_captured_not_as_bundled_xrizer() -> None:
+    components = {"openvr_runtime": "SteamVR 1781734990"}
+
+    expected = _expected_launch_components(components, "steamvr")
+
+    assert expected["openvr_runtime"] == "SteamVR 1781734990"
 
 
 def test_runtime_trace_cleanup_covers_wines_local_temp_directory(
@@ -115,9 +134,6 @@ def test_launcher_uses_existing_prefix_and_windows_game_path(
     monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
     monkeypatch.setattr(
         "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
-    )
-    monkeypatch.setattr(
-        "riftlift.launch.install_openvr_runtime", lambda _paths: tmp_path / "xrizer"
     )
     captured = {}
     monkeypatch.setattr(
@@ -241,7 +257,7 @@ def test_cancelled_launch_records_named_error(tmp_path: Path, monkeypatch) -> No
     assert recent_launches(paths)[0]["error"] == "KeyboardInterrupt"
 
 
-def test_openvr_bridge_uses_bundled_action_manifest(
+def test_direct_openvr_bridge_uses_windows_action_manifest(
     tmp_path: Path, monkeypatch
 ) -> None:
     paths = Paths(
@@ -266,8 +282,14 @@ def test_openvr_bridge_uses_bundled_action_manifest(
         "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
     )
     monkeypatch.setattr("riftlift.launch.runtime_backend", lambda _game: "openvr")
-    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
-    monkeypatch.setenv("VR_OVERRIDE", "/opt/xrizer")
+    monkeypatch.setattr(
+        "riftlift.launch.launch_environment",
+        lambda *_args: {"XRIZER_LOG_DIR": "/tmp/xrizer"},
+    )
+    openvr = tmp_path / "xrizer"
+    (openvr / "bin/linux64").mkdir(parents=True)
+    (openvr / "bin/linux64/vrclient.so").write_bytes(b"ELF")
+    monkeypatch.setenv("VR_OVERRIDE", str(openvr))
 
     game = Game(
         "sample", "Sample", "1", "sample-key", str(executable.parent), "Game.exe", []
@@ -278,7 +300,58 @@ def test_openvr_bridge_uses_bundled_action_manifest(
         lambda command, **kwargs: captured.update(command=command, **kwargs) or 0,
     )
     assert launch(paths, game, []) == 0
+    assert captured["env"]["RIFTLIFT_ACTION_MANIFEST"] == (
+        "Z:" + str(manifest.resolve()).replace("/", "\\")
+    )
+    assert "RIFTLIFT_XRIZER" not in captured["env"]
+    assert "XRIZER_LOG_DIR" not in captured["env"]
+
+
+def test_xrizer_bridge_uses_host_action_manifest(tmp_path: Path, monkeypatch) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "sample/Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    rift_runtime = tmp_path / "rift_runtime"
+    proton.mkdir()
+    (rift_runtime / "Input").mkdir(parents=True)
+    manifest = rift_runtime / "Input/action_manifest.json"
+    manifest.write_text("{}")
+    openvr = tmp_path / "xrizer"
+    registry = tmp_path / "openvrpaths.vrpath"
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr(
+        "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
+    )
+    monkeypatch.setattr("riftlift.launch.runtime_backend", lambda _game: "openvr")
+    monkeypatch.setattr(
+        "riftlift.launch.select_openvr_runtime",
+        lambda *_args: (openvr, registry, "xrizer"),
+    )
+    monkeypatch.setattr(
+        "riftlift.launch.launch_environment",
+        lambda *_args: {"XRIZER_LOG_DIR": "/tmp/xrizer"},
+    )
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "riftlift.launch.subprocess.call",
+        lambda command, **kwargs: captured.update(command=command, **kwargs) or 0,
+    )
+    game = Game(
+        "sample", "Sample", "1", "sample-key", str(executable.parent), "Game.exe", []
+    )
+
+    assert launch(paths, game, []) == 0
     assert captured["env"]["RIFTLIFT_ACTION_MANIFEST"] == str(manifest)
+    assert captured["env"]["RIFTLIFT_XRIZER"] == "1"
 
 
 def test_openvr_launch_clears_only_protons_generated_runtime_cache(
@@ -384,6 +457,55 @@ def test_active_runtime_uses_explicit_standard_manifest(
     assert active_runtime_json() == runtime.resolve()
 
 
+def test_running_steamvr_takes_priority_over_selected_envision(
+    tmp_path: Path, monkeypatch
+) -> None:
+    steamvr = tmp_path / "SteamVR"
+    (steamvr / "bin/linux64").mkdir(parents=True)
+    (steamvr / "bin/linux64/vrclient.so").write_bytes(b"ELF")
+    steam_manifest = steamvr / "steamxr_linux64.json"
+    steam_manifest.write_text(
+        '{"runtime":{"name":"SteamVR","VALVE_runtime_is_steamvr":true,'
+        '"library_path":"bin/linux64/vrclient.so"}}'
+    )
+    monado = tmp_path / "openxr_monado.json"
+    monado.write_text('{"runtime":{"library_path":"libopenxr_monado.so"}}')
+    profile = type("Profile", (), {"manifest": monado})()
+    monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
+    monkeypatch.setattr(
+        "riftlift.runtime.running_steamvr_manifest", lambda: steam_manifest
+    )
+    monkeypatch.setattr("riftlift.runtime.envision_profile", lambda: profile)
+
+    from riftlift.runtime import active_runtime_json
+
+    assert active_runtime_json() == steam_manifest.resolve()
+
+
+def test_installed_steamvr_is_zero_configuration_fallback(
+    tmp_path: Path, monkeypatch
+) -> None:
+    steamvr = tmp_path / "SteamVR"
+    (steamvr / "bin/linux64").mkdir(parents=True)
+    (steamvr / "bin/linux64/vrclient.so").write_bytes(b"ELF")
+    manifest = steamvr / "steamxr_linux64.json"
+    manifest.write_text(
+        '{"runtime":{"name":"SteamVR","VALVE_runtime_is_steamvr":true,'
+        '"library_path":"bin/linux64/vrclient.so"}}'
+    )
+    monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_DATA_DIRS", str(tmp_path / "system-data"))
+    monkeypatch.setattr("riftlift.runtime.envision_profile", lambda: None)
+    monkeypatch.setattr("riftlift.runtime.running_steamvr_manifest", lambda: None)
+    monkeypatch.setattr("riftlift.runtime.installed_steamvr_manifest", lambda: manifest)
+
+    from riftlift.runtime import active_runtime_json
+
+    assert active_runtime_json() == manifest.resolve()
+
+
 def test_active_runtime_uses_selected_envision_profile_without_shell_exports(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -419,6 +541,7 @@ def test_active_runtime_uses_selected_envision_profile_without_shell_exports(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
     monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
     monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
+    monkeypatch.setattr("riftlift.runtime.running_steamvr_manifest", lambda: None)
 
     from riftlift.runtime import active_runtime_json
 
@@ -472,6 +595,7 @@ def test_launch_environment_imports_selected_envision_profile(
     monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
     monkeypatch.delenv("DRI_PRIME", raising=False)
     monkeypatch.setattr("riftlift.runtime.steam_root", lambda: tmp_path / "steam")
+    monkeypatch.setattr("riftlift.runtime.running_steamvr_manifest", lambda: None)
 
     environment = launch_environment(paths, paths.games / "sample", False)
 
@@ -521,6 +645,7 @@ def test_unbuilt_selected_envision_profile_has_actionable_error(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
     monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
     monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
+    monkeypatch.setattr("riftlift.runtime.running_steamvr_manifest", lambda: None)
 
     from riftlift.runtime import active_runtime_json
 
@@ -624,7 +749,7 @@ def test_openvr_backend_uses_packaged_translator_by_default(
     )
     packaged_openvr = tmp_path / "packaged-openvr"
     monkeypatch.setattr(
-        "riftlift.launch.install_openvr_runtime", lambda _paths: packaged_openvr
+        "riftlift.runtime.install_openvr_runtime", lambda _paths: packaged_openvr
     )
     monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
     monkeypatch.setenv("RIFTLIFT_RUNTIME_BACKEND", "openvr")
@@ -648,8 +773,9 @@ def test_openvr_backend_uses_packaged_translator_by_default(
     command = captured["command"]
     assert command[command.index("/wait") + 1] == "/openvr"
     assert command[1] == "run"
-    assert captured["env"]["DXVK_NO_VR"] == "1"
+    assert "DXVK_NO_VR" not in captured["env"]
     assert captured["env"]["VR_OVERRIDE"] == str(packaged_openvr)
+    assert captured["env"]["RIFTLIFT_XRIZER"] == "1"
     assert captured["env"]["VR_PATHREG_OVERRIDE"] == str(
         paths.config / "openvr/openvrpaths.vrpath"
     )
@@ -856,10 +982,17 @@ def test_steam_game_keeps_steam_identity(tmp_path: Path, monkeypatch) -> None:
         lambda *_args: {"SteamAppId": "0", "SteamGameId": "0"},
     )
     captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        "riftlift.launch.subprocess.call",
-        lambda command, **kwargs: captured.update(command=command, **kwargs) or 0,
-    )
+
+    def fake_call(command, **kwargs):
+        marker = executable.parent / "steam_appid.txt"
+        captured.update(
+            command=command,
+            marker_during_launch=marker.read_text(),
+            **kwargs,
+        )
+        return 0
+
+    monkeypatch.setattr("riftlift.launch.subprocess.call", fake_call)
     game = Game(
         "sample",
         "Sample",
@@ -875,6 +1008,53 @@ def test_steam_game_keeps_steam_identity(tmp_path: Path, monkeypatch) -> None:
     assert launch(paths, game, []) == 0
     assert captured["env"]["SteamAppId"] == "732690"
     assert captured["env"]["SteamGameId"] == "732690"
+    assert captured["env"]["UMU_ID"] == "umu-732690"
+    assert captured["env"]["UMU_USE_STEAM"] == "0"
+    assert captured["marker_during_launch"] == "732690\n"
+    assert not (executable.parent / "steam_appid.txt").exists()
+
+
+def test_steam_game_preserves_existing_appid_marker(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "sample/Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    marker = executable.parent / "steam_appid.txt"
+    marker.write_text("user-owned\n")
+    proton = tmp_path / "proton"
+    runtime = tmp_path / "runtime"
+    proton.mkdir()
+    runtime.mkdir()
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr("riftlift.launch.install_rift_runtime", lambda _paths: runtime)
+    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
+    monkeypatch.setattr(
+        "riftlift.launch.subprocess.call",
+        lambda *_args, **_kwargs: 0,
+    )
+    game = Game(
+        "sample",
+        "Sample",
+        "732690",
+        "steam.app.732690",
+        str(executable.parent),
+        executable.name,
+        [],
+        steam_app_id=732690,
+        source="steam",
+    )
+
+    assert launch(paths, game, []) == 0
+    assert marker.read_text() == "user-owned\n"
 
 
 def test_local_game_does_not_inherit_verified_rift_offline_mode(

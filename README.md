@@ -4,9 +4,9 @@
 
 RiftLift is a Linux compatibility app for Meta Rift PC VR games. Its desktop
 GUI handles Meta sign-in, owned-game downloads, Steam shortcuts, local playtime,
-and launching through your existing OpenXR headset setup. It supports Rift
-Store releases and compatible Steam games that include an Oculus mode. If your
-headset works with Monado, SteamVR is not required.
+and launching through your existing VR headset setup. It supports Rift Store
+releases and compatible Steam games that include an Oculus mode. RiftLift can
+use SteamVR directly or a Monado-based OpenXR setup.
 
 ![RiftLift showing an installed Meta Rift library](docs/images/riftlift-library.png)
 
@@ -20,7 +20,7 @@ Before you start, you need:
 
 - a 64-bit Linux PC;
 - Steam;
-- a VR headset that already works through Monado/OpenXR; and
+- a VR headset that already works through SteamVR or Monado/OpenXR; and
 - a Meta account that owns a **Rift / PC VR** game.
 
 Your headset must already run OpenXR apps. RiftLift does not install headset
@@ -107,10 +107,11 @@ Common fixes:
   excerpts. Retention rotates with the five-launch history, preserves both log
   headers and failure tails, and is capped at approximately 120 MiB.
 
-RiftLift uses Envision's selected profile, including its Monado manifest and
-environment. Build and select the profile, then start its XR service before
-launching a game. Non-Envision runtimes can set `XR_RUNTIME_JSON`; custom
-service startup can set `RIFTLIFT_LAUNCH_WRAPPER`.
+When SteamVR is running, RiftLift uses Valve's OpenVR client and OpenXR runtime
+directly; XRizer, Vapor, and OpenComposite are not part of that path. Otherwise
+RiftLift uses Envision's selected Monado profile and its bundled XRizer only for
+games that require OpenVR. Non-Envision runtimes can set `XR_RUNTIME_JSON`;
+custom service startup can set `RIFTLIFT_LAUNCH_WRAPPER`.
 
 ## Updating RiftLift
 
@@ -226,8 +227,9 @@ Proton environment. It combines:
 RiftLift selects a rendering path from the runtimes bundled with each game:
 
 ```text
-Oculus-only game -> RiftLift PE ABI -> Wine unixlib -> Linux OpenXR -> headset
-Oculus + OpenVR game -> RiftLift PE ABI -> Wine unixlib -> Linux OpenVR -> headset
+Oculus-only game -> RiftLift PE ABI -> Wine unixlib -> active OpenXR runtime
+Oculus + OpenVR game -> RiftLift PE ABI -> Wine unixlib -> SteamVR directly
+                    or -> bundled XRizer -> active Monado/OpenXR runtime
 ```
 
 The PE portion exists because the games and their D3D graphics objects are

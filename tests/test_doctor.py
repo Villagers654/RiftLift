@@ -76,6 +76,33 @@ def test_doctor_component_snapshot_skips_active_vulkan_probe(
     assert calls == {"vulkan": False, "xr": True}
 
 
+def test_doctor_reports_selected_steamvr_and_bundled_xrizer_separately(
+    tmp_path: Path, monkeypatch
+) -> None:
+    test_paths = paths(tmp_path)
+    (test_paths.tools / "openvr-runtime").mkdir(parents=True)
+    (test_paths.tools / "openvr-runtime/.riftlift-version").write_text("xrizer-test\n")
+    steamvr = tmp_path / "SteamVR"
+    (steamvr / "bin/linux64").mkdir(parents=True)
+    (steamvr / "bin/linux64/vrclient.so").write_bytes(b"ELF")
+    (steamvr / "bin/version.txt").write_text("1781734990\n")
+    manifest = steamvr / "steamxr_linux64.json"
+    manifest.write_text(
+        '{"runtime":{"name":"SteamVR","VALVE_runtime_is_steamvr":true}}'
+    )
+    monkeypatch.setattr("riftlift.doctor.active_runtime_json", lambda: manifest)
+
+    from riftlift.doctor import _current_components, _expected_components
+
+    current = _current_components(test_paths)
+
+    assert current["bundled_xrizer"] == "xrizer-test"
+    assert current["openvr_runtime"] == "SteamVR 1781734990"
+    assert current["openvr_transport"] == "SteamVR direct (no XRizer)"
+    assert _expected_components()["bundled_xrizer"] != "xrizer-test"
+    assert "openvr_runtime" not in _expected_components()
+
+
 def test_envision_log_errors_include_doctor_window(tmp_path: Path, monkeypatch) -> None:
     cache = tmp_path / "cache"
     log = cache / "envision/logs/log.today"

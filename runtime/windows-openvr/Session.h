@@ -4,7 +4,6 @@
 #include <openvr.h>
 #include <memory>
 #include <atomic>
-#include <vector>
 
 // Forward declarations
 class CompositorBase;
@@ -52,7 +51,9 @@ struct ovrHmdStruct
 	// Session status
 	std::atomic_uint32_t TrackerCount;
 	ovrSessionStatus Status;
-	std::vector<char> ChaperoneBuffer;
+	vr::HmdMatrix34_t ChaperoneSeatedPose;
+	vr::HmdMatrix34_t ChaperoneStandingPose;
+	bool ChaperoneRestoreValid;
 
 	// Description structs
 	ovrHmdDesc HmdDesc;

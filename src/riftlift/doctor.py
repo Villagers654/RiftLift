@@ -46,6 +46,7 @@ from .runtime import (
     meta_signing_root_installed,
     native_xr_bridge,
     proton_dir,
+    steamvr_runtime_for_openxr,
     xr_build_components,
 )
 from .steam import steam_root
@@ -225,10 +226,26 @@ def _current_components(paths: Paths) -> dict[str, str]:
     meta_builds["meta_client_patch"] = (
         META_CLIENT_COMPAT_MARKER if client_patch.is_file() else "missing"
     )
+    bundled_xrizer = _installed_marker(paths.tools / "openvr-runtime")
+    selected_openvr = bundled_xrizer
+    openvr_transport = f"XRizer {bundled_xrizer} -> active OpenXR runtime"
+    try:
+        steamvr = steamvr_runtime_for_openxr(active_runtime_json())
+    except Exception:
+        steamvr = None
+    if steamvr is not None:
+        try:
+            steamvr_build = (steamvr / "bin/version.txt").read_text().strip()
+        except OSError:
+            steamvr_build = "unknown"
+        selected_openvr = f"SteamVR {steamvr_build[:160]}"
+        openvr_transport = "SteamVR direct (no XRizer)"
     return {
         "riftlift": __version__,
         "compat_runtime": runtime_build,
-        "openvr_runtime": _installed_marker(paths.tools / "openvr-runtime"),
+        "bundled_xrizer": bundled_xrizer,
+        "openvr_runtime": selected_openvr,
+        "openvr_transport": openvr_transport,
         "proton": proton_build,
         **meta_builds,
         "platform_bridge": f"compat-runtime:{runtime_build}",
@@ -244,7 +261,7 @@ def _expected_components() -> dict[str, str]:
     return {
         "riftlift": __version__,
         "compat_runtime": RUNTIME_VERSION,
-        "openvr_runtime": OPENVR_RUNTIME_VERSION,
+        "bundled_xrizer": OPENVR_RUNTIME_VERSION,
         "proton": PROTON_VERSION,
         **{
             f"meta_{package.name.replace('-', '_')}": f"205.0 sha256:{package.sha256[:12]}"
@@ -803,6 +820,18 @@ def _recent_steam_log_errors(
         )[:8]
     except OSError:
         return []
+    steamvr_launch = any(
+        isinstance(launch.get("components"), dict)
+        and (
+            str(launch["components"].get("openvr_transport", "")).startswith(
+                "SteamVR direct"
+            )
+            or str(launch["components"].get("openxr_runtime", "")).startswith(
+                "SteamVR:"
+            )
+        )
+        for launch in launches
+    )
     result = []
     for target in candidates:
         if not re.search(
@@ -819,9 +848,28 @@ def _recent_steam_log_errors(
             for line in lines
             if _ERROR_LINE.search(line) and not _noisy_evidence(line)
         ]
-        if matches:
+        lifecycle = (
+            [
+                redact(line.strip())[:600]
+                for line in lines
+                if re.search(
+                    r"(?i)(startup with PID|Active HMD|Using existing HMD|"
+                    r"New Connect message|ProcessConnected|VR_Init successful|"
+                    r"application.*(?:connected|started)|submitted frame|presented)",
+                    line,
+                )
+                and not _noisy_evidence(line)
+            ][-5:]
+            if steamvr_launch
+            and target.name.casefold().startswith(
+                ("vrserver", "vrcompositor", "vrclient")
+            )
+            else []
+        )
+        selected = list(dict.fromkeys([*matches[-5:], *lifecycle]))
+        if selected:
             result.append(f"{redact(str(target))}:")
-            result.extend(f"  {line}" for line in matches[-5:])
+            result.extend(f"  {line}" for line in selected[-8:])
     return result
 
 
@@ -1051,7 +1099,7 @@ def _debug_capture_summary(paths: Paths, enabled: bool) -> list[str]:
     lines = [
         "Profile: "
         + (
-            "Proton + Wine XR/Steam/Vulkan + XRizer tracking + DXVK debug + "
+            "Proton + Wine XR/Steam/Vulkan + OpenVR runtime + DXVK debug + "
             "VKD3D info + Vulkan/OpenXR loader + crash reports"
             if enabled
             else "disabled"
@@ -1061,7 +1109,7 @@ def _debug_capture_summary(paths: Paths, enabled: bool) -> list[str]:
         ("Proton", "proton"),
         ("Graphics", "graphics"),
         ("Crash", "crashes"),
-        ("OpenVR/XRizer", "openvr"),
+        ("OpenVR runtime", "openvr"),
         ("Game", "game"),
         ("Launch", "logs"),
     ):
@@ -1270,13 +1318,20 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         except Exception as error:
             checks.append((f"Native {backend.upper()} unixlib", False, str(error)))
     if "openvr" in required_backends:
-        openvr_runtime = paths.tools / "openvr-runtime/libxrizer.so"
+        try:
+            steamvr_runtime = steamvr_runtime_for_openxr(active_runtime_json())
+        except Exception:
+            steamvr_runtime = None
+        if steamvr_runtime is not None:
+            openvr_runtime = steamvr_runtime / "bin/linux64/vrclient.so"
+            runtime_label = "SteamVR OpenVR client (direct; no XRizer)"
+            expected_runtime_path = steamvr_runtime
+        else:
+            openvr_runtime = paths.tools / "openvr-runtime/libxrizer.so"
+            runtime_label = "RiftLift OpenVR translator (XRizer)"
+            expected_runtime_path = openvr_runtime.parent
         checks.append(
-            (
-                "RiftLift OpenVR translator",
-                openvr_runtime.is_file(),
-                _file_identity(openvr_runtime),
-            )
+            (runtime_label, openvr_runtime.is_file(), _file_identity(openvr_runtime))
         )
         path_registry = paths.config / "openvr/openvrpaths.vrpath"
         try:
@@ -1285,7 +1340,7 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             registry_ok = (
                 registry.get("version") == 1
                 and isinstance(runtime_paths, list)
-                and str(openvr_runtime.parent) in runtime_paths
+                and str(expected_runtime_path) in runtime_paths
             )
             registry_detail = (
                 f"{redact(str(path_registry))}; runtime={redact(str(runtime_paths))}"
@@ -1293,7 +1348,7 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         except (OSError, json.JSONDecodeError, AttributeError) as error:
             registry_ok = False
             registry_detail = f"{redact(str(path_registry))}: {error}"
-        checks.append(("RiftLift OpenVR path registry", registry_ok, registry_detail))
+        checks.append(("Selected OpenVR path registry", registry_ok, registry_detail))
     meta_client = (
         paths.prefix
         / "pfx/drive_c/Program Files/Oculus/Support/oculus-client/Client.exe"
@@ -1410,6 +1465,8 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         f"wivrn.service: {_service_state('wivrn.service')}",
         f"XR_RUNTIME_JSON: {redact(os.environ.get('XR_RUNTIME_JSON', '<unset>'))}",
         f"VR_OVERRIDE: {redact(os.environ.get('VR_OVERRIDE', '<unset>'))}",
+        f"VR_PATHREG_OVERRIDE: {redact(os.environ.get('VR_PATHREG_OVERRIDE', '<unset>'))}",
+        f"RIFTLIFT_XRIZER: {redact(os.environ.get('RIFTLIFT_XRIZER', '<unset>'))}",
         "Debug logging: "
         + ("enabled (expanded bounded capture)" if debug_logging else "disabled"),
         "",

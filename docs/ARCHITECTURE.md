@@ -29,11 +29,12 @@ Oculus-only titles use the shortest path:
 Rift game -> RiftLift Oculus ABI -> wineopenxr.dll/so -> Linux OpenXR runtime
 ```
 
-Titles that bundle both Oculus and OpenVR integrations use RiftLift's OpenVR
-compositor path:
+Titles that bundle both Oculus and OpenVR integrations use an OpenVR compositor
+path selected from the active headset runtime:
 
 ```text
-Game -> RiftLift Oculus ABI -> vrclient_x64.dll/so -> xrizer -> Linux OpenXR runtime
+SteamVR: Game -> RiftLift Oculus ABI -> Valve vrclient_x64.dll/so -> SteamVR
+Monado:  Game -> RiftLift Oculus ABI -> vrclient_x64.dll/so -> xrizer -> OpenXR
 ```
 
 The paired DLL/ELF modules are Wine's supported in-process `unixlib` boundary.
@@ -42,9 +43,11 @@ Linux runtime directly. RiftLift does not create a second XR process or proxy
 runtime calls over a socket.
 
 The choice is made from installed runtime capabilities, not a game-name list or
-a failed-launch retry. RiftLift installs and pins the in-repository xrizer build
-for this path, so compatibility does not depend on a host-provided copy. An
-explicit `VR_OVERRIDE` remains available for runtime development and debugging.
+a failed-launch retry. A running SteamVR session selects Valve's native OpenVR
+client directly; XRizer, Vapor, and OpenComposite are not loaded on that path.
+For Monado and other OpenXR-only runtimes, RiftLift installs and pins its
+in-repository xrizer build. An explicit `VR_OVERRIDE` remains available for
+runtime development and debugging.
 
 ## Host integration contract
 

@@ -139,6 +139,75 @@ def _steam_running() -> bool:
     return False
 
 
+def _steam_client_ready(root: Path | None = None) -> bool:
+    """Return whether Steam's recorded main process is still alive."""
+    candidates = [
+        Path.home() / ".steam/steam.pid",
+        Path.home() / ".local/share/Steam/steam.pid",
+        Path.home() / ".var/app/com.valvesoftware.Steam/.steam/steam.pid",
+        Path.home() / ".var/app/com.valvesoftware.Steam/data/Steam/steam.pid",
+    ]
+    if root is not None:
+        candidates.append(root / "steam.pid")
+    for candidate in candidates:
+        try:
+            pid = int(candidate.read_text())
+        except (OSError, ValueError):
+            continue
+        try:
+            if (Path("/proc") / str(pid) / "comm").read_text().strip() == "steam":
+                return True
+        except OSError:
+            continue
+    # Steam can replace its main process while updating or recovering from a
+    # crash before steam.pid catches up. A same-user main process is stronger
+    # readiness evidence than starting a second client and perturbing a live
+    # VR session; steamwebhelper alone is deliberately insufficient.
+    for comm in Path("/proc").glob("[0-9]*/comm"):
+        try:
+            if comm.read_text().strip() != "steam":
+                continue
+            status = comm.with_name("status").read_text()
+            uid_line = next(
+                line for line in status.splitlines() if line.startswith("Uid:")
+            )
+            if int(uid_line.split()[1]) == os.getuid():
+                return True
+        except (OSError, StopIteration, ValueError):
+            continue
+    return False
+
+
+def ensure_steam_running(timeout: float = 30.0) -> None:
+    """Start Steam before a Steamworks title can escape RiftLift's launch.
+
+    Some games call ``SteamAPI_RestartAppIfNecessary``. If Steam is closed,
+    that call exits the prepared process and asks the client to relaunch a
+    plain copy without RiftLift's XR environment. Starting the client first
+    keeps the original process—and its native XR bridge—authoritative.
+    """
+    if _steam_client_ready():
+        return
+    steam = shutil.which("steam")
+    if not steam:
+        raise RiftLiftError(
+            "Steam is not running and its launcher is not on PATH; start Steam and retry"
+        )
+    print("Starting Steam before the Steamworks game...")
+    subprocess.Popen(
+        (steam, "-silent"),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _steam_client_ready():
+            return
+        time.sleep(0.2)
+    raise RiftLiftError("Steam did not become ready in time; start Steam and retry")
+
+
 def sync(
     paths: Paths, launcher: Path | None = None, *, allow_running: bool = False
 ) -> Path:
