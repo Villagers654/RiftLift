@@ -184,6 +184,19 @@ def test_likely_cause_treats_vr_initialization_error_as_primary() -> None:
     assert "initialization error as primary" in cause[0]
 
 
+def test_likely_cause_decodes_openxr_api_version_failure() -> None:
+    cause = _likely_cause(
+        [
+            "RiftLift: xrCreateInstance failed with "
+            "XR_ERROR_API_VERSION_UNSUPPORTED (OpenXR result -4)"
+        ],
+        [],
+    )
+
+    assert "rejected the API version" in cause[0]
+    assert "build comparison" in cause[0]
+
+
 def test_successful_launcher_tail_is_not_reported_as_error_evidence(
     tmp_path: Path, monkeypatch
 ) -> None:

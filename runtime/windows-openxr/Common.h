@@ -26,6 +26,16 @@ constexpr const wchar_t* ResultToString(XrResult e)
 	}
 }
 
+#define XR_ENUM_CASE_STR_A(name, val) case name: return #name;
+constexpr const char* ResultToStringA(XrResult e)
+{
+	switch (e)
+	{
+		XR_LIST_ENUM_XrResult(XR_ENUM_CASE_STR_A)
+		default: return "XR_UNKNOWN_RESULT";
+	}
+}
+
 extern XrResult g_LastResult;
 
 #ifdef NDEBUG

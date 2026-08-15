@@ -1023,6 +1023,12 @@ def _recommendations(
                 "launch was captured with different component versions."
             )
     evidence_text = "\n".join(evidence).casefold()
+    if "xr_error_api_version_unsupported" in evidence_text:
+        result.append(
+            "The selected OpenXR runtime rejected the API level requested by the "
+            "captured compatibility bridge. Update RiftLift, run `riftlift setup`, "
+            "and update the selected XR runtime if the build table is already current."
+        )
     if (
         "xr_error_runtime_unavailable" in evidence_text
         or "openxr result -51" in evidence_text
@@ -1161,6 +1167,13 @@ def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> lis
             "High confidence: RiftLift loaded, but could not intercept the game's "
             "Oculus runtime imports. This compatibility runtime build does not "
             "support the executable's loader layout."
+        ]
+    if "xr_error_api_version_unsupported" in joined:
+        return [
+            "High confidence: the selected OpenXR runtime rejected the API version "
+            "requested by the captured RiftLift compatibility bridge. The build "
+            "comparison above shows whether RiftLift/setup is stale; otherwise the "
+            "selected XR runtime needs updating."
         ]
     if (
         "xr_error_runtime_unavailable" in joined

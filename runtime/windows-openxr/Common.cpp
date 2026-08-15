@@ -66,8 +66,8 @@ void TraceXrResult(const char* expression, XrResult result)
 		return;
 
 	char message[512];
-	sprintf_s(message, sizeof(message), "RiftLift: %s failed with OpenXR result %d\n",
-		expression, static_cast<int>(result));
+	sprintf_s(message, sizeof(message), "RiftLift: %s failed with %s (OpenXR result %d)\n",
+		expression, ResultToStringA(result), static_cast<int>(result));
 	OutputDebugStringA(message);
 
 	char temp[MAX_PATH];
