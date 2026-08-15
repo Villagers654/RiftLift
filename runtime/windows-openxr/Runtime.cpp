@@ -93,7 +93,12 @@ ovrResult Runtime::CreateInstance(XrInstance* out_Instance, const ovrInitParams*
 	ColorSpace = Supports(XR_FB_COLOR_SPACE_EXTENSION_NAME);
 
 	XrInstanceCreateInfo createInfo = XR_TYPE(INSTANCE_CREATE_INFO);
-	createInfo.applicationInfo = { "RiftLift", RIFTLIFT_RUNTIME_VERSION_INT, "RiftLift", RIFTLIFT_RUNTIME_VERSION_INT, XR_CURRENT_API_VERSION };
+	// Request the oldest OpenXR API level used by the bridge. SteamVR's Linux
+	// loader interface can advertise OpenXR 1.1 while its runtime still rejects
+	// 1.1 application requests with XR_ERROR_API_VERSION_UNSUPPORTED. RiftLift
+	// does not use any 1.1-only entry points, and OpenXR 1.0 remains compatible
+	// with newer conformant runtimes such as Monado.
+	createInfo.applicationInfo = { "RiftLift", RIFTLIFT_RUNTIME_VERSION_INT, "RiftLift", RIFTLIFT_RUNTIME_VERSION_INT, XR_MAKE_VERSION(1, 0, 0) };
 	createInfo.enabledExtensionCount = (uint32_t)m_extensions.size();
 	createInfo.enabledExtensionNames = m_extensions.data();
 	CHK_XR(xrCreateInstance(&createInfo, out_Instance));
