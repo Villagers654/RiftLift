@@ -43,8 +43,7 @@ def rift_store_app_id(value: str) -> str | None:
     except ValueError:
         return None
     match = re.fullmatch(
-        r"/(?:[a-z]{2}-[a-z]{2}/)?experiences/pcvr/[^/]+/"
-        r"(?P<app_id>\d{8,})/?",
+        r"/(?:[a-z]{2}-[a-z]{2}/)?experiences/pcvr/[^/]+/(?P<app_id>\d{8,})/?",
         parsed.path,
         re.IGNORECASE,
     )
