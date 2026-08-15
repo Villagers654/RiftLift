@@ -360,6 +360,7 @@
     <ClCompile Include="CompositorD3D.cpp" />
     <ClCompile Include="CompositorGL.cpp" />
     <ClCompile Include="CompositorVk.cpp" />
+    <ClCompile Include="Common.cpp" />
     <ClCompile Include="HapticsBuffer.cpp" />
     <ClCompile Include="ProfileManager.cpp" />
     <ClCompile Include="REV_CAPI_Vk.cpp" />

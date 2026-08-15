@@ -116,6 +116,9 @@
     <ClCompile Include="CompositorD3D.cpp">
       <Filter>Source Files\RiftLiftOpenVR</Filter>
     </ClCompile>
+    <ClCompile Include="Common.cpp">
+      <Filter>Source Files\RiftLiftOpenVR</Filter>
+    </ClCompile>
     <ClCompile Include="InputManager.cpp">
       <Filter>Source Files\RiftLiftOpenVR</Filter>
     </ClCompile>

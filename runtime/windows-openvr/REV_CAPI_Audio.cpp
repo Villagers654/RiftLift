@@ -9,6 +9,18 @@
 #include <Mmddk.h>
 #include <Mmdeviceapi.h>
 
+namespace
+{
+bool RunningUnderWine()
+{
+	static const bool isWine = [] {
+		HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+		return ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
+	}();
+	return isWine;
+}
+}
+
 ovrResult AudioEndPointToGuid(char* deviceStrBuffer, int deviceStrSize, GUID* deviceGuid)
 {
 	if (!deviceGuid)
@@ -74,7 +86,7 @@ ovrResult GetDefaultAudioEndpoint(EDataFlow endpoint, WCHAR deviceStrBuffer[OVR_
 		return ovrError_AudioComError;
 
 	Microsoft::WRL::ComPtr<IMMDevice> pDevice;
-	hr = pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice);
+	hr = pEnumerator->GetDefaultAudioEndpoint(endpoint, eConsole, &pDevice);
 	if (FAILED(hr))
 		return ovrError_AudioDeviceNotFound;
 
@@ -92,6 +104,13 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetAudioDeviceOutWaveId(UINT* deviceOutId)
 
 	if (!deviceOutId)
 		return ovrError_InvalidParameter;
+	if (RunningUnderWine())
+	{
+		MMRESULT result = waveOutMessage((HWAVEOUT)UIntToPtr(WAVE_MAPPER),
+			DRVM_MAPPER_PREFERRED_GET, (DWORD_PTR)deviceOutId, NULL);
+		TraceOculusValue("ovr_GetAudioDeviceOutWaveId.defaultResult", result);
+		return result == MMSYSERR_NOERROR ? ovrSuccess : ovrError_AudioDeviceNotFound;
+	}
 
 	// Query and cache the result
 	static UINT cachedId = 0;
@@ -180,6 +199,13 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetAudioDeviceInWaveId(UINT* deviceInId)
 
 	if (!deviceInId)
 		return ovrError_InvalidParameter;
+	if (RunningUnderWine())
+	{
+		MMRESULT result = waveInMessage((HWAVEIN)UIntToPtr(WAVE_MAPPER),
+			DRVM_MAPPER_PREFERRED_GET, (DWORD_PTR)deviceInId, NULL);
+		TraceOculusValue("ovr_GetAudioDeviceInWaveId.defaultResult", result);
+		return result == MMSYSERR_NOERROR ? ovrSuccess : ovrError_AudioDeviceNotFound;
+	}
 
 	// Query and cache the result
 	static UINT cachedId = 0;
@@ -268,6 +294,15 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetAudioDeviceOutGuidStr(WCHAR deviceOutStrBu
 
 	if (!deviceOutStrBuffer)
 		return ovrError_InvalidParameter;
+	if (RunningUnderWine())
+	{
+		HRESULT com = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+		ovrResult result = GetDefaultAudioEndpoint(eRender, deviceOutStrBuffer);
+		if (SUCCEEDED(com))
+			CoUninitialize();
+		TraceOculusValue("ovr_GetAudioDeviceOutGuidStr.defaultResult", result);
+		return result;
+	}
 
 	char endpoint[OVR_AUDIO_MAX_DEVICE_STR_SIZE] = {};
 	vr::ETrackedPropertyError error = vr::TrackedProp_Success;
@@ -297,6 +332,12 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetAudioDeviceOutGuid(GUID* deviceOutGuid)
 
 	if (!deviceOutGuid)
 		return ovrError_InvalidParameter;
+	if (RunningUnderWine())
+	{
+		HRESULT result = GetDeviceID(&DSDEVID_DefaultPlayback, deviceOutGuid);
+		TraceOculusValue("ovr_GetAudioDeviceOutGuid.defaultResult", result);
+		return SUCCEEDED(result) ? ovrSuccess : ovrError_AudioOutputDeviceNotFound;
+	}
 
 	// Query and cache the result
 	static GUID cachedGuid = GUID_NULL;
@@ -334,6 +375,15 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetAudioDeviceInGuidStr(WCHAR deviceInStrBuff
 
 	if (!deviceInStrBuffer)
 		return ovrError_InvalidParameter;
+	if (RunningUnderWine())
+	{
+		HRESULT com = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+		ovrResult result = GetDefaultAudioEndpoint(eCapture, deviceInStrBuffer);
+		if (SUCCEEDED(com))
+			CoUninitialize();
+		TraceOculusValue("ovr_GetAudioDeviceInGuidStr.defaultResult", result);
+		return result;
+	}
 
 	char endpoint[OVR_AUDIO_MAX_DEVICE_STR_SIZE] = {};
 	vr::ETrackedPropertyError error = vr::TrackedProp_Success;
@@ -363,6 +413,12 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetAudioDeviceInGuid(GUID* deviceInGuid)
 
 	if (!deviceInGuid)
 		return ovrError_InvalidParameter;
+	if (RunningUnderWine())
+	{
+		HRESULT result = GetDeviceID(&DSDEVID_DefaultCapture, deviceInGuid);
+		TraceOculusValue("ovr_GetAudioDeviceInGuid.defaultResult", result);
+		return SUCCEEDED(result) ? ovrSuccess : ovrError_AudioInputDeviceNotFound;
+	}
 
 	// Query and cache the result
 	static GUID cachedGuid = GUID_NULL;

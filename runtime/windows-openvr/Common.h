@@ -2,12 +2,11 @@
 
 #include "microprofile.h"
 
-#if 0
-#include <Windows.h>
-#define REV_TRACE(x) OutputDebugStringA("RiftLift: " #x "\n");
-#else
-#define REV_TRACE(x) MICROPROFILE_SCOPEI("RiftLift", #x, 0xff0000);
-#endif
+// Debug launches record each Oculus entry point once. This is intentionally
+// bounded: frame-loop APIs do not append a line on every frame.
+void TraceOculusCall(const char* name);
+void TraceOculusValue(const char* name, long long value);
+#define REV_TRACE(x) MICROPROFILE_SCOPEI("RiftLift", #x, 0xff0000); TraceOculusCall(#x);
 
 extern unsigned int g_MinorVersion;
 
