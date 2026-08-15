@@ -306,7 +306,8 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetSessionStatus(ovrSession session, ovrSessi
 	// If this is true from the first call then Airmech will assume the Health-and-Safety warning
 	// is still being displayed.
 	static bool first_call = true;
-	sessionStatus->IsVisible = vr::VRCompositor()->CanRenderScene() && !first_call;
+	sessionStatus->IsVisible =
+		(RunningUnderWine() || vr::VRCompositor()->CanRenderScene()) && !first_call;
 	first_call = false;
 
 	static const bool do_sleep = session->UseHack(HACK_SLEEP_IN_SESSION_STATUS);

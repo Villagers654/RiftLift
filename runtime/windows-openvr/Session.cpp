@@ -1,4 +1,5 @@
 #include "Session.h"
+#include "Common.h"
 #include "CompositorBase.h"
 #include "InputManager.h"
 #include "REV_Math.h"
@@ -49,7 +50,7 @@ ovrHmdStruct::ovrHmdStruct()
 	// SteamVR's IsInputAvailable also includes dashboard/input-routing state and
 	// its Proton thunk can dereference an unavailable host input object while
 	// processing the initial focus-change burst.
-	Status.HasInputFocus = vr::VRCompositor()->CanRenderScene();
+	Status.HasInputFocus = RunningUnderWine() || vr::VRCompositor()->CanRenderScene();
 	Status.OverlayPresent = vr::VROverlay()->IsDashboardVisible();
 
 	char filepath[MAX_PATH];
@@ -157,7 +158,7 @@ void ovrHmdStruct::UpdateStatus()
 		break;
 		case vr::VREvent_InputFocusChanged:
 		{
-			Status.HasInputFocus = vr::VRCompositor()->CanRenderScene();
+			Status.HasInputFocus = RunningUnderWine() || vr::VRCompositor()->CanRenderScene();
 		}
 		break;
 		case vr::VREvent_DashboardActivated:
