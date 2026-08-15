@@ -756,9 +756,7 @@ def test_openvr_backend_uses_packaged_translator_by_default(
         "riftlift.runtime.install_openvr_runtime", lambda _paths: packaged_openvr
     )
     runtime = tmp_path / "openxr_monado.json"
-    runtime.write_text(
-        '{"runtime":{"name":"Monado","library_path":"libmonado.so"}}'
-    )
+    runtime.write_text('{"runtime":{"name":"Monado","library_path":"libmonado.so"}}')
     monkeypatch.setattr("riftlift.runtime.active_runtime_json", lambda: runtime)
     monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
     monkeypatch.setenv("RIFTLIFT_RUNTIME_BACKEND", "openvr")
