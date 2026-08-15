@@ -68,6 +68,7 @@ ovrResult InputManager::SetControllerVibration(ovrSession session, ovrController
 ovrResult InputManager::GetInputState(ovrSession session, ovrControllerType controllerType, ovrInputState* inputState)
 {
 	memset(inputState, 0, sizeof(ovrInputState));
+	SyncActions(session->Session);
 
 	if (controllerType == ovrControllerType_Active)
 		controllerType = ovrControllerType_Touch;
@@ -176,6 +177,13 @@ void InputManager::GetTrackingState(ovrSession session, ovrTrackingState* outSta
 	if (!session->Session)
 		return;
 
+	// Oculus applications may query controller tracking before entering their
+	// first render frame.  OpenXR action state is undefined until xrSyncActions
+	// has run, so syncing only from ovr_WaitToBeginFrame makes valid controllers
+	// appear untracked during startup and some applications never proceed to the
+	// first frame.  Keep pose queries current independently of render ordering.
+	SyncActions(session->Session);
+
 	if (absTime <= 0.0)
 		absTime = ovr_GetTimeInSeconds();
 
@@ -215,6 +223,8 @@ void InputManager::GetTrackingState(ovrSession session, ovrTrackingState* outSta
 
 ovrResult InputManager::GetDevicePoses(ovrSession session, ovrTrackedDeviceType* deviceTypes, int deviceCount, double absTime, ovrPoseStatef* outDevicePoses)
 {
+	SyncActions(session->Session);
+
 	if (absTime <= 0.0)
 		absTime = ovr_GetTimeInSeconds();
 
@@ -897,12 +907,17 @@ ovrResult InputManager::AttachSession(XrSession session)
 
 ovrResult InputManager::SyncInputState(XrSession session, XrDuration displayPeriod)
 {
-	XrActionsSyncInfo syncInfo = XR_TYPE(ACTIONS_SYNC_INFO);
-	syncInfo.countActiveActionSets = (uint32_t)m_ActionSets.size();
-	syncInfo.activeActionSets = m_ActionSets.data();
-	CHK_XR(xrSyncActions(session, &syncInfo));
+	CHK_XR(SyncActions(session));
 
 	for (InputDevice* device : m_InputDevices)
 		device->UpdateHaptics(session, displayPeriod);
 	return ovrSuccess;
+}
+
+XrResult InputManager::SyncActions(XrSession session) const
+{
+	XrActionsSyncInfo syncInfo = XR_TYPE(ACTIONS_SYNC_INFO);
+	syncInfo.countActiveActionSets = (uint32_t)m_ActionSets.size();
+	syncInfo.activeActionSets = m_ActionSets.data();
+	return xrSyncActions(session, &syncInfo);
 }

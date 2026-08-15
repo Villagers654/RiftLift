@@ -191,6 +191,6 @@ protected:
 
 	ovrTrackingState m_LastTrackingState;
 
+	XrResult SyncActions(XrSession session) const;
 	static unsigned int SpaceRelationToPoseState(const XrSpaceLocation& location, double time, ovrPoseStatef& lastPoseState, ovrPoseStatef& outPoseState);
 };
-
