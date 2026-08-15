@@ -245,8 +245,7 @@ Meta's original library. RiftLift is compatibility software, not a purchase or
 DRM bypass.
 
 Headset drivers, Monado, compositor lifecycle, and device-specific setup remain
-the responsibility of the host VR setup. See
-[Architecture and ownership](docs/ARCHITECTURE.md) for the technical boundary.
+the responsibility of the host VR setup.
 
 The Rift compatibility runtime lives at the repository root under
 [`runtime/`](runtime). The maintained [RiftLift xrizer fork](https://github.com/Villagers654/xrizer)
