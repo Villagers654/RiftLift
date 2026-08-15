@@ -45,7 +45,11 @@ ovrHmdStruct::ovrHmdStruct()
 {
 	Status.HmdPresent = vr::VR_IsHmdPresent();
 	Status.HmdMounted = true;
-	Status.HasInputFocus = vr::VRSystem()->IsInputAvailable();
+	// Oculus input focus follows whether this scene application may render.
+	// SteamVR's IsInputAvailable also includes dashboard/input-routing state and
+	// its Proton thunk can dereference an unavailable host input object while
+	// processing the initial focus-change burst.
+	Status.HasInputFocus = vr::VRCompositor()->CanRenderScene();
 	Status.OverlayPresent = vr::VROverlay()->IsDashboardVisible();
 
 	char filepath[MAX_PATH];
@@ -153,7 +157,7 @@ void ovrHmdStruct::UpdateStatus()
 		break;
 		case vr::VREvent_InputFocusChanged:
 		{
-			Status.HasInputFocus = vr::VRSystem()->IsInputAvailable();
+			Status.HasInputFocus = vr::VRCompositor()->CanRenderScene();
 		}
 		break;
 		case vr::VREvent_DashboardActivated:
