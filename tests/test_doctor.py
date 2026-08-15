@@ -664,6 +664,19 @@ def test_proton_evidence_finds_application_error_before_noisy_teardown(
     assert sum("teardown failure" in line for line in evidence) < 3
 
 
+def test_proton_evidence_preserves_runtime_assertion(tmp_path: Path) -> None:
+    target = tmp_path / "steam-0.log"
+    target.write_text(
+        "ordinary trace output\n"
+        '0188:err:msvcrt:_wassert (L"!status && xrSyncActions", '
+        'L"../wineopenxr/loader_thunks.c", 4963)\n'
+    )
+
+    evidence = _prioritized_proton_lines(target)
+
+    assert any("xrSyncActions" in line for line in evidence)
+
+
 def test_build_report_ignores_proton_logs_older_than_launch_window(
     tmp_path: Path, monkeypatch
 ) -> None:

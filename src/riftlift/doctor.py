@@ -512,7 +512,7 @@ def _proton_line_priority(line: str) -> int:
             "panic",
             "crash detected",
         )
-    )
+    ) or bool(re.search(r"\b(?:_?w?assert|assertion)\b", folded))
     failure = bool(_ERROR_LINE.search(line))
 
     if application_output and vr_related and failure:
