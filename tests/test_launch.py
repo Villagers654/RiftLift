@@ -305,6 +305,10 @@ def test_direct_openvr_bridge_uses_windows_action_manifest(
     )
     assert "RIFTLIFT_XRIZER" not in captured["env"]
     assert "XRIZER_LOG_DIR" not in captured["env"]
+    assert "XR_RUNTIME_JSON" not in captured["env"]
+    assert "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES" not in captured["env"]
+    assert "OXR_ZERO_TIME_IS_NOW" not in captured["env"]
+    assert captured["env"]["WINEDLLOVERRIDES"].split(";")[0] == "wineopenxr=d"
 
 
 def test_xrizer_bridge_uses_host_action_manifest(tmp_path: Path, monkeypatch) -> None:
@@ -751,6 +755,11 @@ def test_openvr_backend_uses_packaged_translator_by_default(
     monkeypatch.setattr(
         "riftlift.runtime.install_openvr_runtime", lambda _paths: packaged_openvr
     )
+    runtime = tmp_path / "openxr_monado.json"
+    runtime.write_text(
+        '{"runtime":{"name":"Monado","library_path":"libmonado.so"}}'
+    )
+    monkeypatch.setattr("riftlift.runtime.active_runtime_json", lambda: runtime)
     monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
     monkeypatch.setenv("RIFTLIFT_RUNTIME_BACKEND", "openvr")
     monkeypatch.delenv("VR_OVERRIDE", raising=False)

@@ -5,6 +5,7 @@
 #include "HapticsBuffer.h"
 
 #include <openxr/openxr.h>
+#include <mutex>
 #include <vector>
 
 class Runtime;
@@ -188,6 +189,10 @@ protected:
 	std::vector<InputDevice*> m_InputDevices;
 	std::vector<XrSpace> m_ActionSpaces;
 	std::vector<XrActiveActionSet> m_ActionSets;
+	// Oculus applications may query input and tracking concurrently. Keep each
+	// action sync and its dependent reads atomic from the runtime's perspective;
+	// some OpenXR runtimes do not safely tolerate overlapping action access.
+	mutable std::mutex m_ActionMutex;
 
 	ovrTrackingState m_LastTrackingState;
 

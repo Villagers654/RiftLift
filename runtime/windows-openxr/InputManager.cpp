@@ -52,6 +52,8 @@ InputManager::~InputManager()
 
 ovrResult InputManager::SetControllerVibration(ovrSession session, ovrControllerType controllerType, float frequency, float amplitude)
 {
+	std::lock_guard<std::mutex> actionLock(m_ActionMutex);
+
 	// Clamp the input
 	frequency = std::min(std::max(frequency, 0.0f), 1.0f);
 	amplitude = std::min(std::max(amplitude, 0.0f), 1.0f);
@@ -67,6 +69,8 @@ ovrResult InputManager::SetControllerVibration(ovrSession session, ovrController
 
 ovrResult InputManager::GetInputState(ovrSession session, ovrControllerType controllerType, ovrInputState* inputState)
 {
+	std::lock_guard<std::mutex> actionLock(m_ActionMutex);
+
 	memset(inputState, 0, sizeof(ovrInputState));
 	SyncActions(session->Session);
 
@@ -87,6 +91,8 @@ ovrResult InputManager::GetInputState(ovrSession session, ovrControllerType cont
 
 ovrResult InputManager::SubmitControllerVibration(ovrSession session, ovrControllerType controllerType, const ovrHapticsBuffer* buffer)
 {
+	std::lock_guard<std::mutex> actionLock(m_ActionMutex);
+
 	for (InputDevice* device : m_InputDevices)
 	{
 		if (controllerType & device->GetType() && device->IsConnected())
@@ -98,6 +104,8 @@ ovrResult InputManager::SubmitControllerVibration(ovrSession session, ovrControl
 
 ovrResult InputManager::GetControllerVibrationState(ovrSession session, ovrControllerType controllerType, ovrHapticsPlaybackState* outState)
 {
+	std::lock_guard<std::mutex> actionLock(m_ActionMutex);
+
 	memset(outState, 0, sizeof(ovrHapticsPlaybackState));
 
 	for (InputDevice* device : m_InputDevices)
@@ -176,6 +184,7 @@ void InputManager::GetTrackingState(ovrSession session, ovrTrackingState* outSta
 
 	if (!session->Session)
 		return;
+	std::lock_guard<std::mutex> actionLock(m_ActionMutex);
 
 	// Oculus applications may query controller tracking before entering their
 	// first render frame.  OpenXR action state is undefined until xrSyncActions
@@ -223,6 +232,8 @@ void InputManager::GetTrackingState(ovrSession session, ovrTrackingState* outSta
 
 ovrResult InputManager::GetDevicePoses(ovrSession session, ovrTrackedDeviceType* deviceTypes, int deviceCount, double absTime, ovrPoseStatef* outDevicePoses)
 {
+	std::lock_guard<std::mutex> actionLock(m_ActionMutex);
+
 	SyncActions(session->Session);
 
 	if (absTime <= 0.0)
@@ -884,6 +895,8 @@ void InputManager::XboxGamepad::GetActiveSets(std::vector<XrActiveActionSet>& ou
 
 ovrResult InputManager::AttachSession(XrSession session)
 {
+	std::lock_guard<std::mutex> actionLock(m_ActionMutex);
+
 	for (XrSpace space : m_ActionSpaces)
 		CHK_XR(xrDestroySpace(space));
 	m_ActionSpaces.clear();
@@ -907,6 +920,8 @@ ovrResult InputManager::AttachSession(XrSession session)
 
 ovrResult InputManager::SyncInputState(XrSession session, XrDuration displayPeriod)
 {
+	std::lock_guard<std::mutex> actionLock(m_ActionMutex);
+
 	CHK_XR(SyncActions(session));
 
 	for (InputDevice* device : m_InputDevices)

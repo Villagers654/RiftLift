@@ -39,7 +39,6 @@ from .runtime import (
     OPENVR_RUNTIME_VERSION,
     PROTON_VERSION,
     RUNTIME_VERSION,
-    active_runtime_json,
     install_proton,
     install_rift_runtime,
     launch_environment,
@@ -366,10 +365,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
     openvr_registry: Path | None = None
     openvr_kind = "not-used"
     if backend == "openvr":
-        openxr_runtime = active_runtime_json()
-        selected, openvr_registry, openvr_kind = select_openvr_runtime(
-            paths, openxr_runtime
-        )
+        selected, openvr_registry, openvr_kind = select_openvr_runtime(paths)
         openvr_runtime = str(selected)
     environment = launch_environment(
         paths,
@@ -377,6 +373,19 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         game.platform_shim,
         game.platform_offline or verified_rift_download,
     )
+    if backend == "openvr" and openvr_kind != "xrizer":
+        # Valve's native OpenVR client is the compositor connection. Loading
+        # SteamVR's OpenXR client in the same Wine process gives vrclient.so a
+        # second, conflicting shared-state lifetime; current SteamVR then
+        # faults on ordinary device queries. XRizer is the only OpenVR target
+        # here that needs WineOpenXR and the host OpenXR runtime alongside it.
+        environment.pop("XR_RUNTIME_JSON", None)
+        environment.pop("PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES", None)
+        environment.pop("OXR_ZERO_TIME_IS_NOW", None)
+        overrides = environment.get("WINEDLLOVERRIDES", "").strip(";")
+        environment["WINEDLLOVERRIDES"] = (
+            f"wineopenxr=d{';' + overrides if overrides else ''}"
+        )
     if environment.get("PROTON_LOG") == "1":
         environment["RIFTLIFT_RUNTIME_TRACE"] = "1"
         # The bridge writes a compact first-call trace in Wine's temp folder.

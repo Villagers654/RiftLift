@@ -926,7 +926,9 @@ def steamvr_runtime_for_openxr(runtime: Path) -> Path | None:
     return root
 
 
-def select_openvr_runtime(paths: Paths, openxr_runtime: Path) -> tuple[Path, Path, str]:
+def select_openvr_runtime(
+    paths: Paths, openxr_runtime: Path | None = None
+) -> tuple[Path, Path, str]:
     """Select a direct OpenVR target matching the active headset runtime.
 
     An explicit ``VR_OVERRIDE`` remains authoritative. When SteamVR is the
@@ -954,6 +956,11 @@ def select_openvr_runtime(paths: Paths, openxr_runtime: Path) -> tuple[Path, Pat
             kind = "external"
         return runtime, registry, kind
 
+    # Resolve OpenXR only after honoring an explicit OpenVR target. A native
+    # OpenVR runtime is self-contained, and requiring an unrelated OpenXR
+    # registration first makes otherwise valid SteamVR launches fail on fresh
+    # systems. XRizer still needs the active OpenXR runtime below.
+    openxr_runtime = openxr_runtime or active_runtime_json()
     steamvr = steamvr_runtime_for_openxr(openxr_runtime)
     if steamvr is not None:
         registry = (
