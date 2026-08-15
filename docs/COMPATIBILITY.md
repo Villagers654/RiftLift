@@ -11,6 +11,7 @@ These games have been tested successfully with RiftLift. Results can vary with W
 | [Five Nights at Freddy's: Help Wanted](https://store.steampowered.com/app/732690/FIVE_NIGHTS_AT_FREDDYS_HELP_WANTED/) | Steam Oculus mode | ✅ Working | No | — |
 | [Keep Talking and Nobody Explodes](https://store.steampowered.com/app/341800/Keep_Talking_and_Nobody_Explodes/) | Steam Oculus mode | ✅ Working | No | — |
 | [Lone Echo](https://www.youtube.com/watch?v=2pmV2mwAV9k) | Meta Rift Store | ✅ Working | Yes | — |
+| Lone Echo 2 | Meta Rift Store | ✅ Working | Yes | — |
 | Oculus First Contact | Meta Rift Store | ✅ Working | Yes | — |
 | [StereoPaint](https://store.steampowered.com/app/1920760/StereoPaint/) | Steam build through RiftLift | ✅ Working | No | — |
 | [SUPERHOT VR](https://store.steampowered.com/app/617830/SUPERHOT_VR/) | Steam Oculus mode | ✅ Working | No | — |
