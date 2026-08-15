@@ -6,6 +6,7 @@
 // bounded: frame-loop APIs do not append a line on every frame.
 void TraceOculusCall(const char* name);
 void TraceOculusValue(const char* name, long long value);
+bool RunningUnderWine();
 #define REV_TRACE(x) MICROPROFILE_SCOPEI("RiftLift", #x, 0xff0000); TraceOculusCall(#x);
 
 extern unsigned int g_MinorVersion;

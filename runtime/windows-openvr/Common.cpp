@@ -58,3 +58,12 @@ void TraceOculusValue(const char* name, long long value)
 		fclose(stream);
 	}
 }
+
+bool RunningUnderWine()
+{
+	static const bool isWine = [] {
+		HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+		return ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
+	}();
+	return isWine;
+}

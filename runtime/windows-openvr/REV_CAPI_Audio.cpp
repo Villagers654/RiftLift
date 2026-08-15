@@ -9,18 +9,6 @@
 #include <Mmddk.h>
 #include <Mmdeviceapi.h>
 
-namespace
-{
-bool RunningUnderWine()
-{
-	static const bool isWine = [] {
-		HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
-		return ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
-	}();
-	return isWine;
-}
-}
-
 ovrResult AudioEndPointToGuid(char* deviceStrBuffer, int deviceStrSize, GUID* deviceGuid)
 {
 	if (!deviceGuid)

@@ -1,4 +1,5 @@
 #include "CompositorD3D.h"
+#include "Common.h"
 #include "TextureD3D.h"
 
 #include <openvr.h>
@@ -92,9 +93,15 @@ CompositorD3D::CompositorD3D(ID3D11Device* pDevice, ID3D11DeviceContext* pContex
 	bm.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 	m_pDevice->CreateBlendState(&bm, m_BlendState.GetAddressOf());
 
-	// Get the mirror textures
-	vr::VRCompositor()->GetMirrorTextureD3D11(vr::Eye_Left, m_pDevice.Get(), (void**)&m_pMirror[ovrEye_Left]);
-	vr::VRCompositor()->GetMirrorTextureD3D11(vr::Eye_Right, m_pDevice.Get(), (void**)&m_pMirror[ovrEye_Right]);
+	// SteamVR's Linux compositor cannot expose its native mirror surfaces as
+	// Windows D3D objects. Proton's bridge forwards this call into an invalid
+	// host object on affected runtimes, even when the application never asked
+	// Oculus for a desktop mirror. Headset submission does not use these SRVs.
+	if (!RunningUnderWine())
+	{
+		vr::VRCompositor()->GetMirrorTextureD3D11(vr::Eye_Left, m_pDevice.Get(), (void**)&m_pMirror[ovrEye_Left]);
+		vr::VRCompositor()->GetMirrorTextureD3D11(vr::Eye_Right, m_pDevice.Get(), (void**)&m_pMirror[ovrEye_Right]);
+	}
 }
 
 CompositorD3D::CompositorD3D(ID3D12CommandQueue* pQueue)
