@@ -38,12 +38,18 @@ def test_validates_meta_rift_store_urls() -> None:
     assert is_valid_rift_store_url(
         "https://meta.com/experiences/pcvr/lone-echo/123456789/?ref=library"
     )
+    assert is_valid_rift_store_url(
+        "https://www.meta.com/en-gb/experiences/pcvr/lone-echo/1368187813209608/"
+    )
     assert not is_valid_rift_store_url("123456789")
     assert not is_valid_rift_store_url(
         "https://www.meta.com/experiences/quest/vader-immortal/123456789/"
     )
     assert not is_valid_rift_store_url(
         "https://example.com/experiences/pcvr/vader-immortal/123456789/"
+    )
+    assert not is_valid_rift_store_url(
+        "https://www.meta.com/not-a-locale/experiences/pcvr/vader-immortal/123456789/"
     )
 
 

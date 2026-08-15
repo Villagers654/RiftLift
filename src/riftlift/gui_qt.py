@@ -42,7 +42,12 @@ def rift_store_app_id(value: str) -> str | None:
         port = parsed.port
     except ValueError:
         return None
-    match = re.fullmatch(r"/experiences/pcvr/[^/]+/(?P<app_id>\d{8,})/?", parsed.path)
+    match = re.fullmatch(
+        r"/(?:[a-z]{2}-[a-z]{2}/)?experiences/pcvr/[^/]+/"
+        r"(?P<app_id>\d{8,})/?",
+        parsed.path,
+        re.IGNORECASE,
+    )
     if not (
         parsed.scheme.lower() == "https"
         and host in {"meta.com", "www.meta.com"}
