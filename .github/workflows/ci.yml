@@ -60,10 +60,14 @@ jobs:
                   src/*|tests/*|scripts/*|install.sh|pyproject.toml)
                     app=true
                     ;;
-                  runtime/*|.gitmodules)
+                  runtime/*)
                     runtime=true
                     ;;
-                  components/xrizer/*)
+                  .gitmodules)
+                    runtime=true
+                    xrizer=true
+                    ;;
+                  components/xrizer|components/xrizer/*)
                     xrizer=true
                     ;;
                 esac
@@ -128,6 +132,8 @@ jobs:
         working-directory: components/xrizer
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: true
       - name: Install native build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang cmake glslc libopenxr-dev libvulkan-dev libx11-xcb-dev ninja-build
       - uses: actions/cache@v4

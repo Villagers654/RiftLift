@@ -1,1 +1,0 @@
-This is a simple build step for xrizer. Currently it is only intended to create the proper directory structure so that the build directory can be directly used as an OpenVR runtime would be. Compile time should be kept as low as possible.

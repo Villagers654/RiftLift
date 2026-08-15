@@ -7,3 +7,6 @@
 [submodule "runtime/Externals/openvr"]
 	path = runtime/Externals/openvr
 	url = https://github.com/ValveSoftware/openvr.git
+[submodule "components/xrizer"]
+	path = components/xrizer
+	url = https://github.com/Villagers654/xrizer.git

@@ -1,7 +1,0 @@
-{
-	"jsonid": "vrpathreg",
-	"runtime": [
-		"${XRIZER_INSTALL_PREFIX}"
-	],
-	"version": 1
-}

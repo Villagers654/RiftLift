@@ -45,9 +45,9 @@ runtime calls over a socket.
 The choice is made from installed runtime capabilities, not a game-name list or
 a failed-launch retry. A running SteamVR session selects Valve's native OpenVR
 client directly; XRizer, Vapor, and OpenComposite are not loaded on that path.
-For Monado and other OpenXR-only runtimes, RiftLift installs and pins its
-in-repository xrizer build. An explicit `VR_OVERRIDE` remains available for
-runtime development and debugging.
+For Monado and other OpenXR-only runtimes, RiftLift installs the exact revision
+of its maintained xrizer fork pinned by the `components/xrizer` submodule. An
+explicit `VR_OVERRIDE` remains available for runtime development and debugging.
 
 ## Host integration contract
 

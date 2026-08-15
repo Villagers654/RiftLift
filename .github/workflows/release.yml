@@ -104,6 +104,8 @@ jobs:
         working-directory: components/xrizer
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: true
       - name: Install native build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang cmake glslc libopenxr-dev libvulkan-dev libx11-xcb-dev ninja-build
       - uses: actions/cache@v4

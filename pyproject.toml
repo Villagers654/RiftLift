@@ -28,7 +28,7 @@ dependencies = [
 Homepage = "https://github.com/Villagers654/RiftLift"
 Issues = "https://github.com/Villagers654/RiftLift/issues"
 Runtime = "https://github.com/Villagers654/RiftLift/tree/main/runtime"
-xrizer = "https://github.com/Villagers654/RiftLift/tree/main/components/xrizer"
+xrizer = "https://github.com/Villagers654/xrizer"
 
 [project.scripts]
 riftlift = "riftlift.cli:main"
