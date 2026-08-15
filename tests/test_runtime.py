@@ -432,6 +432,44 @@ def test_non_steamvr_openxr_runtime_keeps_bundled_xrizer(tmp_path, monkeypatch):
     assert registry["config"] == [str(paths.config / "openvr/runtime")]
 
 
+def test_explicit_openvr_registry_is_mirrored_to_private_fallback(
+    tmp_path, monkeypatch
+):
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    steamvr = tmp_path / "SteamVR"
+    (steamvr / "bin/linux64").mkdir(parents=True)
+    (steamvr / "bin/linux64/vrclient.so").write_bytes(b"ELF")
+    (steamvr / "steamxr_linux64.json").write_text(
+        json.dumps({"runtime": {"name": "SteamVR"}})
+    )
+    selected_registry = tmp_path / "isolated/openvrpaths.vrpath"
+    selected_registry.parent.mkdir()
+    payload = {
+        "version": 1,
+        "runtime": [str(steamvr)],
+        "config": [str(tmp_path / "isolated/config")],
+        "log": [str(tmp_path / "isolated/logs")],
+        "external_drivers": [str(tmp_path / "virtual-hmd")],
+    }
+    selected_registry.write_text(json.dumps(payload))
+    monkeypatch.setenv("VR_OVERRIDE", str(steamvr))
+    monkeypatch.setenv("VR_PATHREG_OVERRIDE", str(selected_registry))
+
+    selected, registry_path, kind = select_openvr_runtime(paths)
+
+    assert selected == steamvr.resolve()
+    assert kind == "steamvr"
+    assert registry_path == paths.config / "openvr/openvrpaths.vrpath"
+    assert json.loads(registry_path.read_text()) == payload
+
+
 def test_proton_debug_logs_use_diagnostics_directory(tmp_path, monkeypatch):
     paths = Paths(
         tmp_path / "data",

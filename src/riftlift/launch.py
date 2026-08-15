@@ -505,6 +505,12 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         # registry. Point it at RiftLift's private registry so fresh systems do
         # not require SteamVR (or a pre-existing user OpenVR configuration).
         environment["VR_PATHREG_OVERRIDE"] = str(openvr_registry)
+        # Proton consumes and removes VR_PATHREG_OVERRIDE while preparing its
+        # Windows bridge. The native vrclient loaded later therefore falls
+        # back to $XDG_CONFIG_HOME/openvr/openvrpaths.vrpath. Scope XDG config
+        # to RiftLift's private config root, where that same registry lives,
+        # instead of requiring or changing the user's global OpenVR registry.
+        environment["XDG_CONFIG_HOME"] = str(paths.config)
         if openvr_kind == "xrizer":
             environment["RIFTLIFT_XRIZER"] = "1"
         else:

@@ -346,6 +346,7 @@ def test_direct_openvr_bridge_uses_windows_action_manifest(
     assert "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES" not in captured["env"]
     assert "OXR_ZERO_TIME_IS_NOW" not in captured["env"]
     assert captured["env"]["WINEDLLOVERRIDES"].split(";")[0] == "wineopenxr=d"
+    assert captured["env"]["XDG_CONFIG_HOME"] == str(paths.config)
 
 
 def test_xrizer_bridge_uses_host_action_manifest(tmp_path: Path, monkeypatch) -> None:
@@ -823,6 +824,7 @@ def test_openvr_backend_uses_packaged_translator_by_default(
     assert captured["env"]["VR_PATHREG_OVERRIDE"] == str(
         paths.config / "openvr/openvrpaths.vrpath"
     )
+    assert captured["env"]["XDG_CONFIG_HOME"] == str(paths.config)
     assert captured["env"]["UMU_ID"] == "umu-default"
     assert captured["env"]["UMU_USE_STEAM"] == "0"
     assert "PROTON_VR_RUNTIME" not in captured["env"]

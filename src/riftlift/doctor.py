@@ -71,6 +71,20 @@ _MAX_PRIORITIZED_LOG_CANDIDATES = 256
 _MAX_PRIORITIZED_LOG_LINES = 12
 
 
+def _cancelled_launch(launch: dict[str, object]) -> bool:
+    return (
+        launch.get("event") == "finished" and launch.get("error") == "KeyboardInterrupt"
+    )
+
+
+def _failed_launch(launch: dict[str, object]) -> bool:
+    return not _cancelled_launch(launch) and (
+        launch.get("event") != "finished"
+        or bool(launch.get("error"))
+        or launch.get("exit_code") != 0
+    )
+
+
 def _command(arguments: list[str], timeout: float = 4) -> str:
     try:
         result = subprocess.run(
@@ -651,10 +665,7 @@ def _recent_game_log_errors(
         except OSError:
             pass
     result = []
-    include_diagnostic_tail = any(
-        launch.get("event") != "finished" or launch.get("exit_code") != 0
-        for launch in launches
-    )
+    include_diagnostic_tail = any(_failed_launch(launch) for launch in launches)
     for _, candidate in sorted(recent, reverse=True)[:3]:
         try:
             lines = _tail_lines(candidate)[-500:]
@@ -701,7 +712,7 @@ def _recent_launch_log_errors(
         if matches:
             result.append(f"{redact(str(target))}:")
             result.extend(f"  {line}" for line in matches[-8:])
-        elif launch.get("event") != "finished" or launch.get("exit_code") != 0:
+        elif _failed_launch(launch):
             tail = [
                 redact(line.strip())[:600]
                 for line in lines[-8:]
@@ -986,13 +997,7 @@ def _recommendations(
         result.append("Run `riftlift login` before installing Meta-owned games.")
     if any(label.startswith("Game: ") for label in failed_labels):
         result.append("Repair or re-register games whose executable is marked missing.")
-    unsuccessful = [
-        item
-        for item in launches
-        if item.get("event") != "finished"
-        or item.get("error")
-        or item.get("exit_code") != 0
-    ]
+    unsuccessful = [item for item in launches if _failed_launch(item)]
     expected = _expected_components()
     stale_now = [
         name
@@ -1242,7 +1247,8 @@ def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> lis
     if "not found" in joined or "failed to load" in joined:
         return ["Strong lead: a required runtime module or game file failed to load."]
     if any(
-        item.get("event") != "finished" or item.get("exit_code") is None
+        not _cancelled_launch(item)
+        and (item.get("event") != "finished" or item.get("exit_code") is None)
         for item in launches
     ):
         return [
@@ -1533,6 +1539,8 @@ def build_report(paths: Paths) -> tuple[str, bool]:
     for item in launches:
         if item.get("event") != "finished":
             outcome = "INCOMPLETE (still running or no completion recorded)"
+        elif _cancelled_launch(item):
+            outcome = "CANCELLED by user"
         elif item.get("error"):
             outcome = f"ERROR: {item['error']}"
         elif item.get("exit_code") is None:
@@ -1648,13 +1656,9 @@ def build_report(paths: Paths) -> tuple[str, bool]:
     if recommendations:
         lines.extend(["", "[Recommended next steps]"])
         lines.extend(f"- {item}" for item in recommendations)
-    unsuccessful_launches = sum(
-        item.get("event") != "finished"
-        or bool(item.get("error"))
-        or item.get("exit_code") != 0
-        for item in launches
-    )
-    successful_launches = len(launches) - unsuccessful_launches
+    cancelled_launches = sum(_cancelled_launch(item) for item in launches)
+    unsuccessful_launches = sum(_failed_launch(item) for item in launches)
+    successful_launches = len(launches) - unsuccessful_launches - cancelled_launches
     stale_components = [
         name
         for name, expected in expected_components.items()
@@ -1666,6 +1670,7 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             f"[Summary] checks: {passed} passed, {failed} failed; "
             f"component builds: {len(stale_components)} mismatched; "
             f"shown launches: {successful_launches} successful, "
+            f"{cancelled_launches} cancelled, "
             f"{unsuccessful_launches} failed/incomplete",
         ]
     )
@@ -1683,11 +1688,7 @@ def build_report(paths: Paths) -> tuple[str, bool]:
     if len(report.encode()) > _MAX_REPORT:
         encoded = report.encode()[: _MAX_REPORT - 100]
         report = encoded.decode(errors="ignore") + "\n[report truncated]\n"
-    latest_failed = bool(launches) and (
-        launches[0].get("event") != "finished"
-        or bool(launches[0].get("error"))
-        or launches[0].get("exit_code") != 0
-    )
+    latest_failed = bool(launches) and _failed_launch(launches[0])
     return report, failed == 0 and not stale_components and not latest_failed
 
 

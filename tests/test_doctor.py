@@ -468,7 +468,18 @@ def test_build_report_includes_recent_launch_evidence(
                     "riftlift": "0.8.0",
                     "compat_runtime": "old-compat",
                 },
-            }
+            },
+            {
+                "event": "finished",
+                "at": "2026-01-01T00:00:01+00:00",
+                "game": "Cancelled Sample",
+                "backend": "openxr",
+                "error": "KeyboardInterrupt",
+                "exit_code": None,
+                "duration_seconds": 1.0,
+                "capabilities": [],
+                "riftlift_version": "0.8.0",
+            },
         ],
     )
 
@@ -484,10 +495,11 @@ def test_build_report_includes_recent_launch_evidence(
     assert "CHANGED riftlift: launch=0.8.0; doctor=" in report
     assert "Evidence launch RiftLift build: 0.8.0" in report
     assert "Sample  openvr  exit 1 after 2.5s" in report
+    assert "Cancelled Sample  openxr  CANCELLED by user" in report
     assert "XR_ERROR failed" in report
-    assert journal_queries == ["2026-01-01T00:00:00+00:00"]
+    assert journal_queries == ["2026-01-01T00:00:01+00:00"]
     assert "Test Controller" in report
-    assert "shown launches: 0 successful, 1 failed/incomplete" in report
+    assert "shown launches: 0 successful, 1 cancelled, 1 failed/incomplete" in report
     assert not healthy  # Missing components are correctly visible as failures.
 
 

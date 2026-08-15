@@ -943,11 +943,12 @@ def select_openvr_runtime(
             raise RiftLiftError(
                 f"VR_OVERRIDE is not a usable OpenVR runtime: {runtime}"
             )
-        registry = (
+        selected_registry = (
             Path(registry_override).expanduser().resolve()
             if registry_override
             else _write_openvr_path_registry(paths, runtime)
         )
+        registry = _private_openvr_path_registry(paths, selected_registry)
         if steamvr_runtime_for_openxr(runtime / "steamxr_linux64.json") == runtime:
             kind = "steamvr"
         elif (runtime / "libxrizer.so").is_file():
@@ -963,11 +964,12 @@ def select_openvr_runtime(
     openxr_runtime = openxr_runtime or active_runtime_json()
     steamvr = steamvr_runtime_for_openxr(openxr_runtime)
     if steamvr is not None:
-        registry = (
+        selected_registry = (
             Path(registry_override).expanduser().resolve()
             if registry_override
             else _write_openvr_path_registry(paths, steamvr)
         )
+        registry = _private_openvr_path_registry(paths, selected_registry)
         return steamvr, registry, "steamvr"
 
     xrizer = install_openvr_runtime(paths)
@@ -1004,6 +1006,24 @@ def _write_openvr_path_registry(paths: Paths, runtime: Path) -> Path:
         )
         + "\n"
     )
+    return target
+
+
+def _private_openvr_path_registry(paths: Paths, source: Path) -> Path:
+    """Mirror an explicit OpenVR registry where native Proton clients find it."""
+    target = paths.config / "openvr/openvrpaths.vrpath"
+    if source == target.resolve():
+        return target
+    try:
+        payload = json.loads(source.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise RiftLiftError(
+            f"OpenVR path registry is not readable: {source}"
+        ) from error
+    if not isinstance(payload, dict):
+        raise RiftLiftError(f"OpenVR path registry is invalid: {source}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, indent=2) + "\n")
     return target
 
 
