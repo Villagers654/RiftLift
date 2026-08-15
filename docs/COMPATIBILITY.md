@@ -13,7 +13,7 @@ These games have been tested successfully with RiftLift. Results can vary with W
 | [Lone Echo](https://www.youtube.com/watch?v=2pmV2mwAV9k) | Meta Rift Store | ✅ Working | Yes | — |
 | Lone Echo 2 | Meta Rift Store | ✅ Working | Yes | — |
 | Oculus First Contact | Meta Rift Store | ✅ Working | Yes | — |
-| [StereoPaint](https://store.steampowered.com/app/1920760/StereoPaint/) | Steam build through RiftLift | ✅ Working | Yes | — |
+| [StereoPaint](https://store.steampowered.com/app/1920760/StereoPaint/) | Steam | ✅ Working | Yes | — |
 | [SUPERHOT VR](https://store.steampowered.com/app/617830/SUPERHOT_VR/) | Steam Oculus mode | ✅ Working | No | — |
 | [Vader Immortal: Episode I](https://www.playstation.com/en-us/games/vader-immortal-a-star-wars-vr-series/) | Meta Rift Store | ✅ Working | No | — |
 
