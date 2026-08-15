@@ -16,9 +16,14 @@ const char* Runtime::s_required_extensions[] = {
 	"XR_KHR_D3D11_enable"
 };
 
+// RiftLift's direct Wine bridge initializes the Oculus session through D3D11.
+// WineOpenXR translates the Windows D3D11 extension to the host Vulkan
+// extension. Requesting the Windows D3D12 or Vulkan extensions at the same
+// time therefore produces duplicate XR_KHR_vulkan_enable names for runtimes
+// such as SteamVR, which correctly reject the instance create request. D3D12
+// Oculus clients are selected for the OpenVR bridge by the launcher instead.
+// OpenGL remains distinct after Wine's translation and can coexist here.
 const char* Runtime::s_optional_extensions[] = {
-	"XR_KHR_D3D12_enable",
-	"XR_KHR_vulkan_enable",
 	"XR_KHR_opengl_enable",
 	XR_MND_HEADLESS_EXTENSION_NAME,
 	XR_KHR_VISIBILITY_MASK_EXTENSION_NAME,
