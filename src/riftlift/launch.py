@@ -45,6 +45,7 @@ from .runtime import (
     launch_environment,
     native_xr_bridge,
     select_openvr_runtime,
+    steamvr_runtime_for_openxr,
     xr_build_components,
 )
 from .steam import ensure_steam_running
@@ -433,6 +434,17 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         game.platform_shim,
         game.platform_offline or verified_rift_download,
     )
+    if backend == "openxr" and environment.get("XR_RUNTIME_JSON"):
+        # SteamVR's OpenXR runtime is implemented by its native OpenVR client.
+        # Proton consumes VR_PATHREG_OVERRIDE while preparing Wine, so that
+        # client later needs the same registry at XDG's canonical fallback.
+        # Keep both files private to RiftLift; a fresh SteamVR install should
+        # not depend on (or alter) ~/.config/openvr.
+        openxr_manifest = Path(environment["XR_RUNTIME_JSON"])
+        if steamvr_runtime_for_openxr(openxr_manifest) is not None:
+            _, steamvr_registry, _ = select_openvr_runtime(paths, openxr_manifest)
+            environment["VR_PATHREG_OVERRIDE"] = str(steamvr_registry)
+            environment["XDG_CONFIG_HOME"] = str(paths.config)
     if backend == "openvr" and openvr_kind != "xrizer":
         # Valve's native OpenVR client is the compositor connection. Loading
         # SteamVR's OpenXR client in the same Wine process gives vrclient.so a

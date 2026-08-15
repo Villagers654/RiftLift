@@ -219,6 +219,60 @@ def test_meta_game_ignores_steam_shortcut_id_for_proton_identity(
     assert captured["env"]["UMU_USE_STEAM"] == "0"
 
 
+def test_openxr_launch_mirrors_steamvr_registry_for_native_client_fallback(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config/riftlift",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "sample/Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    rift_runtime = tmp_path / "rift-runtime"
+    steamvr = tmp_path / "SteamVR"
+    manifest = steamvr / "steamxr_linux64.json"
+    registry = paths.config / "openvr/openvrpaths.vrpath"
+    proton.mkdir()
+    rift_runtime.mkdir()
+    (steamvr / "bin/linux64").mkdir(parents=True)
+    (steamvr / "bin/linux64/vrclient.so").write_bytes(b"ELF")
+    manifest.write_text(
+        '{"runtime":{"VALVE_runtime_is_steamvr":true,'
+        '"library_path":"bin/linux64/vrclient.so"}}'
+    )
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr(
+        "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
+    )
+    monkeypatch.setattr("riftlift.launch.runtime_backend", lambda _game: "openxr")
+    monkeypatch.setattr(
+        "riftlift.launch.launch_environment",
+        lambda *_args: {"XR_RUNTIME_JSON": str(manifest)},
+    )
+    monkeypatch.setattr(
+        "riftlift.launch.select_openvr_runtime",
+        lambda *_args: (steamvr, registry, "steamvr"),
+    )
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "riftlift.launch._run_game_process",
+        lambda _command, **kwargs: captured.update(**kwargs) or 0,
+    )
+    game = Game(
+        "sample", "Sample", "1", "sample-key", str(executable.parent), "Game.exe", []
+    )
+
+    assert launch(paths, game, []) == 0
+    assert captured["env"]["VR_PATHREG_OVERRIDE"] == str(registry)
+    assert captured["env"]["XDG_CONFIG_HOME"] == str(paths.config)
+
+
 def test_cancelled_launch_records_named_error(tmp_path: Path, monkeypatch) -> None:
     paths = Paths(
         tmp_path / "data",
