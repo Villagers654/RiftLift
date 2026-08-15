@@ -93,6 +93,8 @@ void DetachDetours();
 
 OVR_PUBLIC_FUNCTION(ovrResult) ovr_Initialize(const ovrInitParams* params)
 {
+	REV_TRACE(ovr_Initialize);
+
 	if (g_InitError == vr::VRInitError_None)
 		return ovrSuccess;
 
@@ -134,7 +136,10 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_Initialize(const ovrInitParams* params)
 	g_ProfileManager.Initialize();
 #endif
 
-	return InitErrorToOvrError(g_InitError);
+	ovrResult result = InitErrorToOvrError(g_InitError);
+	TraceOculusValue("ovr_Initialize.openvrError", g_InitError);
+	TraceOculusValue("ovr_Initialize.result", result);
+	return result;
 }
 
 OVR_PUBLIC_FUNCTION(void) ovr_Shutdown()

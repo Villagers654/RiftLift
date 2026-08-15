@@ -51,7 +51,6 @@ CompositorBase::CompositorBase()
 	, m_MirrorTexture(nullptr)
 	, m_OverlayCount(0)
 	, m_ActiveOverlays()
-	, m_Timeout(100)
 	, m_TimingMode(vr::VRCompositorTimingMode_Explicit_ApplicationPerformsPostPresentHandoff)
 #if MICROPROFILE_ENABLED
 	, m_ProfileTexture()
@@ -59,9 +58,6 @@ CompositorBase::CompositorBase()
 {
 	// We want to handle all graphics tasks explicitly instead of implicitly letting WaitGetPoses execute them
 	vr::VRCompositor()->SetExplicitTimingMode(m_TimingMode);
-
-	// Set the timeout based on the display frequency
-	m_Timeout = (DWORD)ceilf(1000.0f / vr::VRSystem()->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_DisplayFrequency_Float));
 }
 
 CompositorBase::~CompositorBase()
