@@ -51,13 +51,18 @@ CompositorBase::CompositorBase()
 	, m_MirrorTexture(nullptr)
 	, m_OverlayCount(0)
 	, m_ActiveOverlays()
-	, m_TimingMode(vr::VRCompositorTimingMode_Explicit_ApplicationPerformsPostPresentHandoff)
+	, m_TimingMode(RunningUnderWine()
+		? vr::VRCompositorTimingMode_Implicit
+		: vr::VRCompositorTimingMode_Explicit_ApplicationPerformsPostPresentHandoff)
 #if MICROPROFILE_ENABLED
 	, m_ProfileTexture()
 #endif
 {
-	// We want to handle all graphics tasks explicitly instead of implicitly letting WaitGetPoses execute them
-	vr::VRCompositor()->SetExplicitTimingMode(m_TimingMode);
+	// Proton's Linux OpenVR bridge does not preserve all host interfaces after
+	// switching to explicit timing. Use SteamVR's normal WaitGetPoses-driven
+	// implicit flow there; native Windows retains the upstream explicit path.
+	if (m_TimingMode != vr::VRCompositorTimingMode_Implicit)
+		vr::VRCompositor()->SetExplicitTimingMode(m_TimingMode);
 }
 
 CompositorBase::~CompositorBase()
