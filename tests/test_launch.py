@@ -13,6 +13,7 @@ from riftlift.launch import (
     _clear_stale_openvr_registry,
     _expected_launch_components,
     _installed_openvr_build,
+    _run_game_process,
     launch,
     oculus_launch_arguments,
     runtime_backend,
@@ -141,7 +142,7 @@ def test_launcher_uses_existing_prefix_and_windows_game_path(
         lambda *args: captured.update(environment_args=args) or {},
     )
     monkeypatch.setattr(
-        "riftlift.launch.subprocess.call",
+        "riftlift.launch._run_game_process",
         lambda command, **kwargs: captured.update(command=command, **kwargs) or 0,
     )
 
@@ -197,7 +198,7 @@ def test_meta_game_ignores_steam_shortcut_id_for_proton_identity(
     monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
     captured = {}
     monkeypatch.setattr(
-        "riftlift.launch.subprocess.call",
+        "riftlift.launch._run_game_process",
         lambda _command, **kwargs: captured.update(**kwargs) or 0,
     )
     game = Game(
@@ -238,7 +239,7 @@ def test_cancelled_launch_records_named_error(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setattr("riftlift.launch.install_rift_runtime", lambda _paths: runtime)
     monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
     monkeypatch.setattr(
-        "riftlift.launch.subprocess.call",
+        "riftlift.launch._run_game_process",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
     )
     game = Game(
@@ -255,6 +256,42 @@ def test_cancelled_launch_records_named_error(tmp_path: Path, monkeypatch) -> No
         launch(paths, game, [])
 
     assert recent_launches(paths)[0]["error"] == "KeyboardInterrupt"
+
+
+def test_cancelled_process_terminates_the_game_process_group(monkeypatch) -> None:
+    class Process:
+        pid = 4321
+
+        def __init__(self) -> None:
+            self.waits = 0
+
+        def wait(self, timeout=None):
+            self.waits += 1
+            if self.waits == 1:
+                raise KeyboardInterrupt()
+            assert timeout == 5
+            return -15
+
+        def poll(self):
+            return None
+
+    process = Process()
+    options = {}
+    monkeypatch.setattr(
+        "riftlift.launch.subprocess.Popen",
+        lambda *_args, **kwargs: options.update(kwargs) or process,
+    )
+    signals = []
+    monkeypatch.setattr(
+        "riftlift.launch.os.killpg", lambda pid, value: signals.append((pid, value))
+    )
+    monkeypatch.setattr("riftlift.launch._marked_launch_processes", lambda _id: [])
+
+    with pytest.raises(KeyboardInterrupt):
+        _run_game_process(["proton", "run", "game.exe"], launch_id="test-launch")
+
+    assert options["start_new_session"] is True
+    assert signals == [(4321, 15)]
 
 
 def test_direct_openvr_bridge_uses_windows_action_manifest(
@@ -296,7 +333,7 @@ def test_direct_openvr_bridge_uses_windows_action_manifest(
     )
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "riftlift.launch.subprocess.call",
+        "riftlift.launch._run_game_process",
         lambda command, **kwargs: captured.update(command=command, **kwargs) or 0,
     )
     assert launch(paths, game, []) == 0
@@ -346,7 +383,7 @@ def test_xrizer_bridge_uses_host_action_manifest(tmp_path: Path, monkeypatch) ->
     )
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "riftlift.launch.subprocess.call",
+        "riftlift.launch._run_game_process",
         lambda command, **kwargs: captured.update(command=command, **kwargs) or 0,
     )
     game = Game(
@@ -712,7 +749,7 @@ def test_launch_has_no_device_specific_wrapper(tmp_path: Path, monkeypatch) -> N
     monkeypatch.delenv("RIFTLIFT_LAUNCH_WRAPPER", raising=False)
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "riftlift.launch.subprocess.call",
+        "riftlift.launch._run_game_process",
         lambda command, **kwargs: captured.update(command=command, **kwargs) or 0,
     )
 
@@ -763,7 +800,7 @@ def test_openvr_backend_uses_packaged_translator_by_default(
     monkeypatch.delenv("VR_OVERRIDE", raising=False)
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "riftlift.launch.subprocess.call",
+        "riftlift.launch._run_game_process",
         lambda command, **kwargs: captured.update(command=command, **kwargs) or 0,
     )
 
@@ -999,7 +1036,7 @@ def test_steam_game_keeps_steam_identity(tmp_path: Path, monkeypatch) -> None:
         )
         return 0
 
-    monkeypatch.setattr("riftlift.launch.subprocess.call", fake_call)
+    monkeypatch.setattr("riftlift.launch._run_game_process", fake_call)
     game = Game(
         "sample",
         "Sample",
@@ -1045,7 +1082,7 @@ def test_steam_game_preserves_existing_appid_marker(
     monkeypatch.setattr("riftlift.launch.install_rift_runtime", lambda _paths: runtime)
     monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
     monkeypatch.setattr(
-        "riftlift.launch.subprocess.call",
+        "riftlift.launch._run_game_process",
         lambda *_args, **_kwargs: 0,
     )
     game = Game(
@@ -1091,7 +1128,9 @@ def test_local_game_does_not_inherit_verified_rift_offline_mode(
         "riftlift.launch.launch_environment",
         lambda *args: captured.update(environment_args=args) or {},
     )
-    monkeypatch.setattr("riftlift.launch.subprocess.call", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(
+        "riftlift.launch._run_game_process", lambda *_args, **_kwargs: 0
+    )
     game = Game(
         "local",
         "Local",

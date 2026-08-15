@@ -4,6 +4,7 @@ import os
 import json
 import shlex
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -71,6 +72,7 @@ _DEBUG_ENVIRONMENT_KEYS = (
     "UMU_ID",
     "UMU_USE_STEAM",
     "RIFTLIFT_RUNTIME_TRACE",
+    "RIFTLIFT_LAUNCH_ID",
 )
 
 _EXPECTED_BUILD_COMPONENTS = {
@@ -85,6 +87,64 @@ _EXPECTED_BUILD_COMPONENTS = {
     "meta_client_patch": META_CLIENT_COMPAT_MARKER,
     "platform_bridge": f"compat-runtime:{RUNTIME_VERSION}",
 }
+
+
+def _marked_launch_processes(launch_id: str) -> list[int]:
+    marker = f"RIFTLIFT_LAUNCH_ID={launch_id}".encode()
+    result: list[int] = []
+    for target in Path("/proc").iterdir():
+        if not target.name.isdigit():
+            continue
+        try:
+            environment = (target / "environ").read_bytes().split(b"\0")
+        except (OSError, PermissionError):
+            continue
+        if marker in environment:
+            result.append(int(target.name))
+    return result
+
+
+def _run_game_process(
+    arguments: list[str], *, launch_id: str, **options: object
+) -> int:
+    """Run the Proton launcher and tear down its whole tree on cancellation."""
+    process = subprocess.Popen(arguments, start_new_session=True, **options)
+    try:
+        return process.wait()
+    except BaseException:
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait()
+        # Wine processes can detach from Proton and be reparented to the user
+        # manager. Every process in this launch inherits a unique marker, so
+        # clean up those detached descendants without touching another game or
+        # any other Wine prefix.
+        remaining = _marked_launch_processes(launch_id)
+        for pid in remaining:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        deadline = time.monotonic() + 5
+        while remaining and time.monotonic() < deadline:
+            time.sleep(0.05)
+            remaining = _marked_launch_processes(launch_id)
+        for pid in remaining:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        raise
 
 
 @contextmanager
@@ -497,6 +557,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         components=launch_components,
         expected_components=_expected_launch_components(launch_components, openvr_kind),
     )
+    environment["RIFTLIFT_LAUNCH_ID"] = launch_id
     print(
         "Native XR bridge: "
         f"{native_bridge.pe.name} -> {native_bridge.unix.name} (Wine unixlib)"
@@ -537,8 +598,9 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
                 maintenance.start()
             try:
                 with _steam_appid_marker(game):
-                    exit_code = subprocess.call(
+                    exit_code = _run_game_process(
                         [*wrapper, *arguments],
+                        launch_id=launch_id,
                         cwd=game.game_dir,
                         env=environment,
                         stdout=launch_log,
