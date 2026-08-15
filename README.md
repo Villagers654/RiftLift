@@ -10,7 +10,8 @@ use SteamVR directly or a Monado-based OpenXR setup.
 
 ![RiftLift showing an installed Meta Rift library](docs/images/riftlift-library.png)
 
-> **Alpha software:** game compatibility is still expanding.
+> [!WARNING]
+> **RiftLift is alpha software.** Game compatibility is still expanding.
 
 See the [compatibility wiki](docs/COMPATIBILITY.md) for games tested with real VR output.
 
