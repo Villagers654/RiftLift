@@ -15,11 +15,11 @@ These games have been tested successfully with RiftLift. Results can vary with W
 | [Oculus First Contact](https://www.meta.com/experiences/pcvr/oculus-first-contact/1217155751659625/) | Meta Rift Store | ✅ Working | Yes | — |
 | [StereoPaint](https://store.steampowered.com/app/1920760/StereoPaint/) | Steam | ✅ Working | Yes | — |
 | [SUPERHOT VR](https://store.steampowered.com/app/617830/SUPERHOT_VR/) | Steam Oculus mode | ✅ Working | No | — |
-| [Vader Immortal: Episode I](https://www.playstation.com/en-us/games/vader-immortal-a-star-wars-vr-series/) | Meta Rift Store | ✅ Working | No | — |
+| [Vader Immortal: Episode I](https://www.playstation.com/en-us/games/vader-immortal-a-star-wars-vr-series/) | Meta Rift Store | ✅ Working | Yes | — |
 
 ## What “Oculus exclusive” means here
 
-**Yes** means the title was officially distributed only for Oculus/Meta hardware or storefronts. **No** means it also has an official release for another PC VR storefront or headset platform. This is separate from whether the particular build tested by RiftLift uses the Oculus SDK.
+**Yes** means the title's PC VR release was available only for Oculus/Meta Rift, though it may also have versions on non-PC consoles. **No** means it also received an official PC VR release for another headset platform. This is separate from whether the particular build tested by RiftLift uses the Oculus SDK.
 
 ## Steam Oculus-mode games
 
