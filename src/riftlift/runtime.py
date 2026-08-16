@@ -9,6 +9,7 @@ import shutil
 import struct
 import subprocess
 import tarfile
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 import zipfile
@@ -20,11 +21,14 @@ from .auth_browser import default_browser, launch_browser_login, stop_browser
 from .config import Paths, debug_logging_enabled
 from .diagnostics import prepare_debug_logs
 from .meta_auth import MetaAuthSession, install_protocol_handler, record_callback
-from .util import RiftLiftError, download, linux_to_windows, run
+from .util import RiftLiftError, download, linux_to_windows, run, sha256
 
 PROTON_VERSION = "GE-Proton11-3"
 PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{PROTON_VERSION}/{PROTON_VERSION}.tar.gz"
 PROTON_SHA256 = "861c2edc8d40d051fb1e7a692deb953be52bd339c46d90f2b7dde50ddad91266"
+DXVK_VERSION = "3.0.2-riftlift.1"
+DXVK_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.10.1/riftlift-dxvk.tar.gz"
+DXVK_SHA256 = "2adcaee8850e35e378a7b66d41329974be7cfb98b547306450f0006e6440f347"
 RUNTIME_VERSION = "riftlift-0.10.1"
 RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.10.1/riftlift-compat.zip"
 RUNTIME_SHA256 = "49f3a588cd8e7feb59c2bf93719d4d234ac16371677c3ded66eb14f13a315985"
@@ -449,6 +453,7 @@ def _safe_tar(archive: Path, destination: Path) -> None:
 def install_proton(paths: Paths) -> Path:
     target = proton_dir()
     if (target / "proton").is_file():
+        install_dxvk_compat(paths, target)
         return target
     archive = download(
         PROTON_URL, paths.cache / f"{PROTON_VERSION}.tar.gz", PROTON_SHA256
@@ -458,7 +463,95 @@ def install_proton(paths: Paths) -> Path:
         source.extractall(target.parent, filter="data")
     if not (target / "proton").is_file():
         raise RiftLiftError("GE-Proton archive did not contain the expected launcher")
+    install_dxvk_compat(paths, target)
     return target
+
+
+def install_dxvk_compat(paths: Paths, proton: Path) -> Path:
+    """Install RiftLift's generic D3D fence fix into its dedicated Proton."""
+    destination = proton / "files/lib/wine/dxvk"
+    marker = destination / ".riftlift-dxvk.json"
+    required = {
+        "x64/d3d11.dll": "x86_64-windows/d3d11.dll",
+        "x64/dxgi.dll": "x86_64-windows/dxgi.dll",
+        "x32/d3d11.dll": "i386-windows/d3d11.dll",
+        "x32/dxgi.dll": "i386-windows/dxgi.dll",
+    }
+    override = os.environ.get("RIFTLIFT_DXVK_ARCHIVE")
+    if override:
+        archive = Path(override).expanduser()
+        artifact_sha256 = sha256(archive)
+    else:
+        if not DXVK_SHA256:
+            raise RiftLiftError("RiftLift DXVK release checksum is not configured")
+        artifact_sha256 = DXVK_SHA256
+
+    try:
+        installed = json.loads(marker.read_text())
+        installed_files = installed.get("files", {})
+        if (
+            installed.get("version") == DXVK_VERSION
+            and installed.get("artifact_sha256") == artifact_sha256
+            and all(
+                installed_files.get(relative) == sha256(destination / relative)
+                for relative in required.values()
+            )
+        ):
+            return destination
+    except (OSError, json.JSONDecodeError, AttributeError):
+        pass
+
+    if not override:
+        archive = download(
+            DXVK_URL,
+            paths.cache / f"dxvk-{DXVK_VERSION}.tar.gz",
+            DXVK_SHA256,
+        )
+
+    paths.tools.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".dxvk-unpack-", dir=paths.tools))
+    try:
+        _safe_tar(archive, staging)
+        source = staging / "dxvk"
+        try:
+            packaged_version = (source / "VERSION").read_text().strip()
+        except OSError as error:
+            raise RiftLiftError("RiftLift DXVK payload is incomplete") from error
+        if packaged_version != DXVK_VERSION:
+            raise RiftLiftError(
+                f"RiftLift DXVK payload has unexpected version {packaged_version!r}"
+            )
+
+        file_hashes: dict[str, str] = {}
+        for packaged, installed_path in required.items():
+            source_file = source / packaged
+            if not source_file.is_file() or source_file.read_bytes()[:2] != b"MZ":
+                raise RiftLiftError("RiftLift DXVK payload is incomplete")
+            target = destination / installed_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_suffix(target.suffix + ".riftlift.tmp")
+            shutil.copy2(source_file, temporary)
+            os.replace(temporary, target)
+            file_hashes[installed_path] = sha256(target)
+
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        temporary_marker = marker.with_suffix(".tmp")
+        temporary_marker.write_text(
+            json.dumps(
+                {
+                    "version": DXVK_VERSION,
+                    "artifact_sha256": artifact_sha256,
+                    "files": file_hashes,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        os.replace(temporary_marker, marker)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return destination
 
 
 @dataclass(frozen=True, slots=True)

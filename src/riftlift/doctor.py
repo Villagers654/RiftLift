@@ -33,6 +33,7 @@ from .diagnostics import (
 )
 from .launch import runtime_backend
 from .runtime import (
+    DXVK_VERSION,
     META_CLIENT_COMPAT_MARKER,
     META_PACKAGES,
     META_RUNTIME_SIGNED_FILES,
@@ -213,6 +214,36 @@ def _installed_marker(path: Path) -> str:
     return value[:160] or "unknown"
 
 
+def _installed_dxvk(path: Path) -> tuple[bool, str]:
+    marker = path / "files/lib/wine/dxvk/.riftlift-dxvk.json"
+    try:
+        payload = json.loads(marker.read_text())
+        version = str(payload.get("version", ""))
+        expected_files = payload.get("files", {})
+        if not isinstance(expected_files, dict) or not expected_files:
+            raise ValueError("file manifest is empty")
+        damaged = []
+        for relative, expected in expected_files.items():
+            target = marker.parent / str(relative)
+            if (
+                not target.is_file()
+                or hashlib.sha256(target.read_bytes()).hexdigest() != expected
+            ):
+                damaged.append(str(relative))
+        if damaged:
+            return (
+                False,
+                f"{version or 'unknown'}; missing or changed: {', '.join(damaged)}",
+            )
+        artifact = str(payload.get("artifact_sha256", ""))[:12]
+        return (
+            version == DXVK_VERSION,
+            f"{version}; artifact sha256 {artifact or 'unknown'}",
+        )
+    except (OSError, json.JSONDecodeError, AttributeError, ValueError) as error:
+        return False, f"missing or unreadable: {error}"
+
+
 def _current_components(paths: Paths) -> dict[str, str]:
     try:
         proton = proton_dir()
@@ -224,6 +255,9 @@ def _current_components(paths: Paths) -> dict[str, str]:
         # report. A clean host must say Proton is missing instead of aborting
         # before the guarded core checks can explain that Steam is absent.
         proton_build = "missing"
+        proton = Path("/nonexistent")
+    dxvk_ok, dxvk_detail = _installed_dxvk(proton)
+    dxvk_build = DXVK_VERSION if dxvk_ok else f"invalid ({dxvk_detail})"
     runtime_build = _installed_marker(paths.tools / "rift-runtime")
     support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
     meta_builds: dict[str, str] = {}
@@ -261,6 +295,7 @@ def _current_components(paths: Paths) -> dict[str, str]:
         "openvr_runtime": selected_openvr,
         "openvr_transport": openvr_transport,
         "proton": proton_build,
+        "dxvk": dxvk_build,
         **meta_builds,
         "platform_bridge": f"compat-runtime:{runtime_build}",
         # Doctor must remain passive while an XR compositor is live. Starting a
@@ -277,6 +312,7 @@ def _expected_components() -> dict[str, str]:
         "compat_runtime": RUNTIME_VERSION,
         "bundled_xrizer": OPENVR_RUNTIME_VERSION,
         "proton": PROTON_VERSION,
+        "dxvk": DXVK_VERSION,
         **{
             f"meta_{package.name.replace('-', '_')}": f"205.0 sha256:{package.sha256[:12]}"
             for package in META_PACKAGES
@@ -980,6 +1016,7 @@ def _recommendations(
         result.append("Start and sign in to Steam once so RiftLift can find it.")
     setup_labels = {
         "GE-Proton",
+        "RiftLift DXVK compatibility",
         "Windows ABI launcher",
         "OpenXR ABI bridge",
         "OpenVR ABI bridge",
@@ -1314,6 +1351,11 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             else (_ for _ in ()).throw(FileNotFoundError("not installed"))
         ),
     )
+    try:
+        dxvk_ok, dxvk_detail = _installed_dxvk(proton_dir())
+    except Exception as error:
+        dxvk_ok, dxvk_detail = False, str(error)
+    checks.append(("RiftLift DXVK compatibility", dxvk_ok, dxvk_detail))
     rift_runtime = paths.tools / "rift-runtime"
     for label, relative in (
         ("Windows ABI launcher", "RiftLiftLauncher.exe"),

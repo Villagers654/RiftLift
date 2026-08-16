@@ -35,6 +35,7 @@ from .detection import (
 )
 from .playtime import PlaytimeSession
 from .runtime import (
+    DXVK_VERSION,
     META_CLIENT_COMPAT_MARKER,
     META_PACKAGES,
     OPENVR_RUNTIME_VERSION,
@@ -81,6 +82,7 @@ _EXPECTED_BUILD_COMPONENTS = {
     "compat_runtime": RUNTIME_VERSION,
     "openvr_runtime": OPENVR_RUNTIME_VERSION,
     "proton": PROTON_VERSION,
+    "dxvk": DXVK_VERSION,
     **{
         f"meta_{package.name.replace('-', '_')}": f"205.0 sha256:{package.sha256[:12]}"
         for package in META_PACKAGES
@@ -213,6 +215,15 @@ def _installed_proton_build(path: Path) -> str:
     return path.name
 
 
+def _installed_dxvk_build(path: Path) -> str:
+    marker = path / "files/lib/wine/dxvk/.riftlift-dxvk.json"
+    try:
+        value = str(json.loads(marker.read_text()).get("version", "")).strip()
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return "missing"
+    return value[:160] or "unknown"
+
+
 def _installed_openvr_build(path: Path, kind: str) -> str:
     if kind == "steamvr":
         try:
@@ -270,6 +281,7 @@ def _launch_build_components(
         "openvr_runtime": openvr_build,
         "openvr_transport": openvr_transport,
         "proton": _installed_proton_build(proton_root),
+        "dxvk": _installed_dxvk_build(proton_root),
         **_installed_meta_builds(paths),
         "platform_bridge": f"compat-runtime:{runtime_build}",
         **system_build_components(),

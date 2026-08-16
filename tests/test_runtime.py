@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives import hashes
 
 from riftlift.config import Paths
 from riftlift.runtime import (
+    DXVK_VERSION,
     META_SIGNING_ROOT_REGISTRY_KEY,
     META_SIGNING_ROOT_THUMBPRINT,
     META_SIGNING_ROOT_PEM,
@@ -20,6 +21,7 @@ from riftlift.runtime import (
     _meta_signing_root_der,
     _meta_signing_root_registry_blob,
     install_openvr_runtime,
+    install_dxvk_compat,
     install_meta_runtime,
     install_rift_runtime,
     select_openvr_runtime,
@@ -52,6 +54,58 @@ def _runtime_archive(path: Path, content: bytes) -> Path:
         for name in REQUIRED_RUNTIME_FILES:
             bundle.writestr(name, content)
     return archive
+
+
+def _dxvk_archive(path: Path, content: bytes) -> Path:
+    archive = path / "dxvk.tar.gz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        files = {
+            "dxvk/VERSION": f"{DXVK_VERSION}\n".encode(),
+            "dxvk/x64/d3d11.dll": b"MZ" + content + b"-x64-d3d11",
+            "dxvk/x64/dxgi.dll": b"MZ" + content + b"-x64-dxgi",
+            "dxvk/x32/d3d11.dll": b"MZ" + content + b"-x32-d3d11",
+            "dxvk/x32/dxgi.dll": b"MZ" + content + b"-x32-dxgi",
+        }
+        for name, payload in files.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            bundle.addfile(info, io.BytesIO(payload))
+    return archive
+
+
+def test_dxvk_compat_installs_both_architectures_and_repairs_changes(
+    tmp_path, monkeypatch
+):
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    proton = tmp_path / "GE-Proton"
+    archive = _dxvk_archive(tmp_path, b"patched")
+    monkeypatch.setenv("RIFTLIFT_DXVK_ARCHIVE", str(archive))
+
+    destination = install_dxvk_compat(paths, proton)
+
+    x64 = destination / "x86_64-windows/d3d11.dll"
+    x32 = destination / "i386-windows/d3d11.dll"
+    assert x64.read_bytes() == b"MZpatched-x64-d3d11"
+    assert x32.read_bytes() == b"MZpatched-x32-d3d11"
+    marker = json.loads((destination / ".riftlift-dxvk.json").read_text())
+    assert marker["version"] == DXVK_VERSION
+    assert set(marker["files"]) == {
+        "x86_64-windows/d3d11.dll",
+        "x86_64-windows/dxgi.dll",
+        "i386-windows/d3d11.dll",
+        "i386-windows/dxgi.dll",
+    }
+
+    x64.write_bytes(b"corrupt")
+    install_dxvk_compat(paths, proton)
+    assert x64.read_bytes() == b"MZpatched-x64-d3d11"
 
 
 def test_runtime_payload_is_reused_only_for_current_version(tmp_path, monkeypatch):
