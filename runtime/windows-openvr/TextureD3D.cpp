@@ -303,6 +303,8 @@ bool TextureD3D::Init(ovrTextureType Type, int Width, int Height, int MipLevels,
 		desc.BindFlags = BindFlagsToD3DBindFlags(BindFlags);
 		desc.CPUAccessFlags = 0;
 		desc.MiscFlags = MiscFlagsToD3DMiscFlags(MiscFlags);
+		if (Type == ovrTexture_Cube)
+			desc.MiscFlags |= D3D11_RESOURCE_MISC_TEXTURECUBE;
 
 		HRESULT hr = m_pDevice->CreateTexture2D(&desc, nullptr, m_pTexture.GetAddressOf());
 		if (FAILED(hr))
@@ -313,7 +315,13 @@ bool TextureD3D::Init(ovrTextureType Type, int Width, int Height, int MipLevels,
 	{
 		D3D11_SHADER_RESOURCE_VIEW_DESC desc = {};
 		desc.Format = TextureFormatToDXGIFormat(Format);
-		if (ArraySize > 1)
+		if (Type == ovrTexture_Cube)
+		{
+			desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
+			desc.TextureCube.MostDetailedMip = 0;
+			desc.TextureCube.MipLevels = -1;
+		}
+		else if (ArraySize > 1)
 		{
 			if (SampleCount > 1)
 			{
