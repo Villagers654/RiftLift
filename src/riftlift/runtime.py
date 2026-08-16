@@ -27,11 +27,11 @@ PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/down
 PROTON_SHA256 = "861c2edc8d40d051fb1e7a692deb953be52bd339c46d90f2b7dde50ddad91266"
 RUNTIME_VERSION = "riftlift-0.10.1"
 RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.10.1/riftlift-compat.zip"
-RUNTIME_SHA256 = "0000000000000000000000000000000000000000000000000000000000000000"
+RUNTIME_SHA256 = "49f3a588cd8e7feb59c2bf93719d4d234ac16371677c3ded66eb14f13a315985"
 OPENVR_RUNTIME_VERSION = "riftlift-0.10.1"
 OPENVR_RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.10.1/riftlift-xrizer.tar.gz"
 OPENVR_RUNTIME_SHA256 = (
-    "0000000000000000000000000000000000000000000000000000000000000000"
+    "f4a48981b88927b2c0c65d861b663fa851d306f5973b5f376d70ef7747217b5b"
 )
 
 DEBUG_WINE_CHANNELS = ",".join(
