@@ -689,6 +689,19 @@ def test_proton_evidence_preserves_runtime_assertion(tmp_path: Path) -> None:
     assert any("xrSyncActions" in line for line in evidence)
 
 
+def test_likely_cause_identifies_amd_command_stream_hang() -> None:
+    evidence = [
+        "Kernel/GPU journal:",
+        "  amdgpu: Illegal opcode in command stream",
+        "  amdgpu: ring gfx_0.0.0 timeout, signaled seq=10, emitted seq=10",
+    ]
+
+    assert _likely_cause(evidence, []) == [
+        "High confidence: the kernel recorded an AMD GPU command-stream hang, "
+        "reset, or memory fault during the launch window."
+    ]
+
+
 def test_build_report_ignores_proton_logs_older_than_launch_window(
     tmp_path: Path, monkeypatch
 ) -> None:

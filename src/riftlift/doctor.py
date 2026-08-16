@@ -1195,10 +1195,16 @@ def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> lis
             "High confidence: the RiftLift launcher could not start or inject the "
             "Oculus compatibility bridge into the game process."
         ]
-    if "gpu reset" in joined or "ring timeout" in joined or "vm fault" in joined:
+    if (
+        "gpu reset" in joined
+        or "ring timeout" in joined
+        or re.search(r"\bring\s+[^\n]{0,80}\btimeout\b", joined)
+        or "vm fault" in joined
+        or "illegal opcode in command stream" in joined
+    ):
         return [
-            "High confidence: the kernel recorded an AMD GPU hang/reset or memory "
-            "fault during the launch window."
+            "High confidence: the kernel recorded an AMD GPU command-stream hang, "
+            "reset, or memory fault during the launch window."
         ]
     if "vk_error_device_lost" in joined or "device lost" in joined:
         return [
