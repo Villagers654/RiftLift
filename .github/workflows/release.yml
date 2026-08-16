@@ -137,6 +137,7 @@ jobs:
         run: |
           git clone --filter=blob:none https://github.com/doitsujin/dxvk.git "$RUNNER_TEMP/dxvk-source"
           git -C "$RUNNER_TEMP/dxvk-source" checkout 3a4c6fa3cb1548d56a90a38dd8f526b6c13e63fd
+          git -C "$RUNNER_TEMP/dxvk-source" submodule update --init --recursive --depth 1
           git -C "$RUNNER_TEMP/dxvk-source" apply "$GITHUB_WORKSPACE/components/dxvk/monotonic-fence-signals.patch"
           "$RUNNER_TEMP/dxvk-source/package-release.sh" 3.0.2-riftlift.1 "$RUNNER_TEMP" --no-package
           mkdir -p out/dxvk/x64 out/dxvk/x32
