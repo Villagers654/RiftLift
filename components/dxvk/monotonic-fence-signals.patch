@@ -1,0 +1,89 @@
+diff --git a/src/dxvk/dxvk_cmdlist.cpp b/src/dxvk/dxvk_cmdlist.cpp
+index 108ce64..24606b5 100644
+--- a/src/dxvk/dxvk_cmdlist.cpp
++++ b/src/dxvk/dxvk_cmdlist.cpp
+@@ -344,8 +344,10 @@ namespace dxvk {
+       if (isLast) {
+         // Signal per-command list semaphores on the final submission
+         for (size_t i = 0; i < m_signalSemaphores.size(); i++) {
+-          m_commandSubmission.signalSemaphore(m_signalSemaphores[i].fence->handle(),
+-            m_signalSemaphores[i].value, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT);
++          if (m_signalSemaphores[i].fence->reserveSignal(m_signalSemaphores[i].value)) {
++            m_commandSubmission.signalSemaphore(m_signalSemaphores[i].fence->handle(),
++              m_signalSemaphores[i].value, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT);
++          }
+         }
+ 
+         // Signal WSI semaphore on the final submission
+diff --git a/src/dxvk/dxvk_fence.cpp b/src/dxvk/dxvk_fence.cpp
+index 8485c40..16b7c8f 100644
+--- a/src/dxvk/dxvk_fence.cpp
++++ b/src/dxvk/dxvk_fence.cpp
+@@ -6,7 +6,7 @@ namespace dxvk {
+   DxvkFence::DxvkFence(
+           DxvkDevice*           device,
+     const DxvkFenceCreateInfo&  info)
+-  : m_vkd(device->vkd()), m_info(info) {
++  : m_vkd(device->vkd()), m_info(info), m_lastSignalValue(info.initialValue) {
+     VkSemaphoreTypeCreateInfo typeInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
+     typeInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+     typeInfo.initialValue = info.initialValue;
+@@ -173,6 +173,25 @@ namespace dxvk {
+     return value;
+   }
+ 
++  bool DxvkFence::reserveSignal(uint64_t value) {
++    uint64_t completedValue = getValue();
++
++    std::unique_lock<dxvk::mutex> lock(m_mutex);
++    m_lastSignalValue = std::max(m_lastSignalValue, completedValue);
++
++    if (value <= m_lastSignalValue) {
++      if (!m_warnedNonIncreasingSignal) {
++        Logger::warn(str::format("Ignoring non-increasing fence signal value ",
++          value, " (current value ", m_lastSignalValue, ")"));
++        m_warnedNonIncreasingSignal = true;
++      }
++      return false;
++    }
++
++    m_lastSignalValue = value;
++    return true;
++  }
++
+   HANDLE DxvkFence::sharedHandle() const {
+     if (m_info.sharedType == VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_FLAG_BITS_MAX_ENUM)
+       return INVALID_HANDLE_VALUE;
+diff --git a/src/dxvk/dxvk_fence.h b/src/dxvk/dxvk_fence.h
+index f348a53..b5a1832 100644
+--- a/src/dxvk/dxvk_fence.h
++++ b/src/dxvk/dxvk_fence.h
+@@ -91,6 +91,19 @@ namespace dxvk {
+      */
+     uint64_t getValue();
+ 
++    /**
++     * \brief Reserves a value for a GPU signal
++     *
++     * Vulkan timeline semaphore signals must strictly increase, while
++     * D3D fence signals may request the current or an older value. Keep
++     * track of values submitted but not completed yet so those requests
++     * can be treated as no-ops instead of invalid Vulkan submissions.
++     *
++     * \param [in] value Requested signal value
++     * \returns \c true if the signal should be submitted
++     */
++    bool reserveSignal(uint64_t value);
++
+     /**
+      * \brief Enqueues semaphore wait
+      *
+@@ -139,6 +152,8 @@ namespace dxvk {
+     VkSemaphore                     m_semaphore;
+     D3DKMT_HANDLE                   m_kmtLocal = 0;
+     D3DKMT_HANDLE                   m_kmtGlobal = 0;
++    uint64_t                        m_lastSignalValue;
++    bool                            m_warnedNonIncreasingSignal = false;
+ 
+     std::priority_queue<QueueItem>  m_queue;
+     bool                            m_running    = false;

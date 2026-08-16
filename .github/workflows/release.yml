@@ -126,6 +126,39 @@ jobs:
           name: riftlift-xrizer
           path: riftlift-xrizer.tar.gz
 
+  dxvk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install DXVK build dependencies
+        run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64 gcc-mingw-w64 meson ninja-build
+      - name: Build pinned RiftLift DXVK compatibility DLLs
+        shell: bash
+        run: |
+          git clone --filter=blob:none https://github.com/doitsujin/dxvk.git "$RUNNER_TEMP/dxvk-source"
+          git -C "$RUNNER_TEMP/dxvk-source" checkout 3a4c6fa3cb1548d56a90a38dd8f526b6c13e63fd
+          git -C "$RUNNER_TEMP/dxvk-source" apply "$GITHUB_WORKSPACE/components/dxvk/monotonic-fence-signals.patch"
+          "$RUNNER_TEMP/dxvk-source/package-release.sh" 3.0.2-riftlift.1 "$RUNNER_TEMP" --no-package
+          mkdir -p out/dxvk/x64 out/dxvk/x32
+          for arch in x64 x32; do
+            cp "$RUNNER_TEMP/dxvk-3.0.2-riftlift.1/$arch/d3d11.dll" "out/dxvk/$arch/"
+            cp "$RUNNER_TEMP/dxvk-3.0.2-riftlift.1/$arch/dxgi.dll" "out/dxvk/$arch/"
+          done
+          cp "$RUNNER_TEMP/dxvk-source/LICENSE" out/dxvk/DXVK-LICENSE
+          cp components/dxvk/README.md out/dxvk/RIFTLIFT-DXVK.md
+          printf '%s\n' '3.0.2-riftlift.1' > out/dxvk/VERSION
+          (cd out/dxvk && sha256sum x64/*.dll x32/*.dll > SHA256SUMS)
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -C out -cf - dxvk \
+            | gzip -n -9 > riftlift-dxvk.tar.gz
+          sha256sum riftlift-dxvk.tar.gz > riftlift-dxvk.tar.gz.sha256
+          tar -tzf riftlift-dxvk.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: riftlift-dxvk
+          path: |
+            riftlift-dxvk.tar.gz
+            riftlift-dxvk.tar.gz.sha256
+
   compatibility:
     needs: windows-bridge
     runs-on: ubuntu-latest

@@ -6,6 +6,8 @@ histories distinct:
 - `xrizer/` is a pinned submodule of the maintained
   [RiftLift xrizer fork](https://github.com/Villagers654/xrizer), derived from
   [Supreeeme/xrizer](https://github.com/Supreeeme/xrizer).
+- `dxvk/` pins the upstream DXVK source revision and the small generic fence
+  compatibility patch used to build RiftLift's D3D11/DXGI payload.
 
 The Rift compatibility runtime is a first-class part of RiftLift and lives at
 the repository root in [`runtime/`](../runtime).
