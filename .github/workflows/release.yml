@@ -131,7 +131,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Install DXVK build dependencies
-        run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64 gcc-mingw-w64 meson ninja-build
+        run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64 gcc-mingw-w64 glslang-tools meson ninja-build
       - name: Build pinned RiftLift DXVK compatibility DLLs
         shell: bash
         run: |
