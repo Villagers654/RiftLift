@@ -313,17 +313,64 @@ bool TextureD3D::Init(ovrTextureType Type, int Width, int Height, int MipLevels,
 	{
 		D3D11_SHADER_RESOURCE_VIEW_DESC desc = {};
 		desc.Format = TextureFormatToDXGIFormat(Format);
-		desc.ViewDimension = SampleCount > 1 ? D3D11_SRV_DIMENSION_TEXTURE2DMS : D3D11_SRV_DIMENSION_TEXTURE2D;
-		desc.Texture2D.MipLevels = -1;
-		desc.Texture2D.MostDetailedMip = 0;
+		if (ArraySize > 1)
+		{
+			if (SampleCount > 1)
+			{
+				desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DMSARRAY;
+				desc.Texture2DMSArray.FirstArraySlice = 0;
+				desc.Texture2DMSArray.ArraySize = ArraySize;
+			}
+			else
+			{
+				desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+				desc.Texture2DArray.MostDetailedMip = 0;
+				desc.Texture2DArray.MipLevels = -1;
+				desc.Texture2DArray.FirstArraySlice = 0;
+				desc.Texture2DArray.ArraySize = ArraySize;
+			}
+		}
+		else if (SampleCount > 1)
+		{
+			desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DMS;
+		}
+		else
+		{
+			desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+			desc.Texture2D.MostDetailedMip = 0;
+			desc.Texture2D.MipLevels = -1;
+		}
 		HRESULT hr = m_pDevice->CreateShaderResourceView(m_pTexture.Get(), &desc, m_pSRV.GetAddressOf());
 		if (FAILED(hr))
 			return false;
 
 		D3D11_RENDER_TARGET_VIEW_DESC target_desc = {};
 		target_desc.Format = TextureFormatToDXGIFormat(Format);
-		target_desc.ViewDimension = SampleCount > 1 ? D3D11_RTV_DIMENSION_TEXTURE2DMS : D3D11_RTV_DIMENSION_TEXTURE2D;
-		target_desc.Texture2D.MipSlice = 0;
+		if (ArraySize > 1)
+		{
+			if (SampleCount > 1)
+			{
+				target_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMSARRAY;
+				target_desc.Texture2DMSArray.FirstArraySlice = 0;
+				target_desc.Texture2DMSArray.ArraySize = ArraySize;
+			}
+			else
+			{
+				target_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
+				target_desc.Texture2DArray.MipSlice = 0;
+				target_desc.Texture2DArray.FirstArraySlice = 0;
+				target_desc.Texture2DArray.ArraySize = ArraySize;
+			}
+		}
+		else if (SampleCount > 1)
+		{
+			target_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMS;
+		}
+		else
+		{
+			target_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+			target_desc.Texture2D.MipSlice = 0;
+		}
 		hr = m_pDevice->CreateRenderTargetView(m_pTexture.Get(), &target_desc, m_pRTV.GetAddressOf());
 		if (FAILED(hr))
 			return false;

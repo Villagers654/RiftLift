@@ -19,6 +19,17 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_CreateTextureSwapChainDX(ovrSession session,
 	if (!d3dPtr || !desc || !out_TextureSwapChain)
 		return ovrError_InvalidParameter;
 
+	TraceOculusValue("ovr_CreateTextureSwapChainDX.Type", desc->Type);
+	TraceOculusValue("ovr_CreateTextureSwapChainDX.Format", desc->Format);
+	TraceOculusValue("ovr_CreateTextureSwapChainDX.ArraySize", desc->ArraySize);
+	TraceOculusValue("ovr_CreateTextureSwapChainDX.Width", desc->Width);
+	TraceOculusValue("ovr_CreateTextureSwapChainDX.Height", desc->Height);
+	TraceOculusValue("ovr_CreateTextureSwapChainDX.MipLevels", desc->MipLevels);
+	TraceOculusValue("ovr_CreateTextureSwapChainDX.SampleCount", desc->SampleCount);
+	TraceOculusValue("ovr_CreateTextureSwapChainDX.StaticImage", desc->StaticImage);
+	TraceOculusValue("ovr_CreateTextureSwapChainDX.MiscFlags", desc->MiscFlags);
+	TraceOculusValue("ovr_CreateTextureSwapChainDX.BindFlags", desc->BindFlags);
+
 	if (!session->Compositor)
 	{
 		session->Compositor.reset(CompositorD3D::Create(d3dPtr));
@@ -29,7 +40,9 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_CreateTextureSwapChainDX(ovrSession session,
 	if (session->Compositor->GetAPI() != vr::TextureType_DirectX)
 		return ovrError_RuntimeException;
 
-	return session->Compositor->CreateTextureSwapChain(desc, out_TextureSwapChain);
+	ovrResult result = session->Compositor->CreateTextureSwapChain(desc, out_TextureSwapChain);
+	TraceOculusValue("ovr_CreateTextureSwapChainDX.result", result);
+	return result;
 }
 
 OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetTextureSwapChainBufferDX(ovrSession session,
