@@ -33,6 +33,7 @@ from .diagnostics import (
 )
 from .launch import runtime_backend
 from .runtime import (
+    DXVK_SHA256,
     DXVK_VERSION,
     META_CLIENT_COMPAT_MARKER,
     META_PACKAGES,
@@ -237,8 +238,8 @@ def _installed_dxvk(path: Path) -> tuple[bool, str]:
             )
         artifact = str(payload.get("artifact_sha256", ""))[:12]
         return (
-            version == DXVK_VERSION,
-            f"{version}; artifact sha256 {artifact or 'unknown'}",
+            version == DXVK_VERSION and artifact == DXVK_SHA256[:12],
+            f"{version} sha256:{artifact or 'unknown'}",
         )
     except (OSError, json.JSONDecodeError, AttributeError, ValueError) as error:
         return False, f"missing or unreadable: {error}"
@@ -257,7 +258,7 @@ def _current_components(paths: Paths) -> dict[str, str]:
         proton_build = "missing"
         proton = Path("/nonexistent")
     dxvk_ok, dxvk_detail = _installed_dxvk(proton)
-    dxvk_build = DXVK_VERSION if dxvk_ok else f"invalid ({dxvk_detail})"
+    dxvk_build = dxvk_detail if dxvk_ok else f"invalid ({dxvk_detail})"
     runtime_build = _installed_marker(paths.tools / "rift-runtime")
     support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
     meta_builds: dict[str, str] = {}
@@ -312,7 +313,7 @@ def _expected_components() -> dict[str, str]:
         "compat_runtime": RUNTIME_VERSION,
         "bundled_xrizer": OPENVR_RUNTIME_VERSION,
         "proton": PROTON_VERSION,
-        "dxvk": DXVK_VERSION,
+        "dxvk": f"{DXVK_VERSION} sha256:{DXVK_SHA256[:12]}",
         **{
             f"meta_{package.name.replace('-', '_')}": f"205.0 sha256:{package.sha256[:12]}"
             for package in META_PACKAGES

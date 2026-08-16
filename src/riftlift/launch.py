@@ -35,6 +35,7 @@ from .detection import (
 )
 from .playtime import PlaytimeSession
 from .runtime import (
+    DXVK_SHA256,
     DXVK_VERSION,
     META_CLIENT_COMPAT_MARKER,
     META_PACKAGES,
@@ -82,7 +83,7 @@ _EXPECTED_BUILD_COMPONENTS = {
     "compat_runtime": RUNTIME_VERSION,
     "openvr_runtime": OPENVR_RUNTIME_VERSION,
     "proton": PROTON_VERSION,
-    "dxvk": DXVK_VERSION,
+    "dxvk": f"{DXVK_VERSION} sha256:{DXVK_SHA256[:12]}",
     **{
         f"meta_{package.name.replace('-', '_')}": f"205.0 sha256:{package.sha256[:12]}"
         for package in META_PACKAGES
@@ -218,10 +219,14 @@ def _installed_proton_build(path: Path) -> str:
 def _installed_dxvk_build(path: Path) -> str:
     marker = path / "files/lib/wine/dxvk/.riftlift-dxvk.json"
     try:
-        value = str(json.loads(marker.read_text()).get("version", "")).strip()
+        payload = json.loads(marker.read_text())
+        version = str(payload.get("version", "")).strip()
+        artifact = str(payload.get("artifact_sha256", "")).strip()
     except (OSError, json.JSONDecodeError, AttributeError):
         return "missing"
-    return value[:160] or "unknown"
+    if not version:
+        return "unknown"
+    return f"{version[:120]} sha256:{artifact[:12] or 'unknown'}"
 
 
 def _installed_openvr_build(path: Path, kind: str) -> str:
