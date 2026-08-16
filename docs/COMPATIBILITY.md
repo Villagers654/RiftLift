@@ -14,6 +14,7 @@ These games have been tested successfully with RiftLift. Results can vary with W
 | [Lone Echo 2](https://www.meta.com/experiences/pcvr/lone-echo-ii/1711938725528735/) | Meta Rift Store | ✅ Working | Yes | — |
 | [Oculus First Contact](https://www.meta.com/experiences/pcvr/oculus-first-contact/1217155751659625/) | Meta Rift Store | ✅ Working | Yes | — |
 | [StereoPaint](https://store.steampowered.com/app/1920760/StereoPaint/) | Steam | ✅ Working | Yes | — |
+| [Stormland](https://www.meta.com/experiences/pcvr/stormland/1360938750683878/) | Meta Rift Store | ✅ Working | Yes | Some AMD/Mesa systems may encounter a Vulkan device-loss reset; `riftlift doctor` reports the associated DXVK and kernel evidence. |
 | [SUPERHOT VR](https://store.steampowered.com/app/617830/SUPERHOT_VR/) | Steam Oculus mode | ✅ Working | No | — |
 | [Vader Immortal: Episode I](https://www.playstation.com/en-us/games/vader-immortal-a-star-wars-vr-series/) | Meta Rift Store | ✅ Working | Yes | — |
 
