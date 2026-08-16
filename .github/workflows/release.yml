@@ -135,6 +135,9 @@ jobs:
       - name: Build pinned RiftLift DXVK compatibility DLLs
         shell: bash
         run: |
+          # MinGW honors SOURCE_DATE_EPOCH for PE timestamps and build IDs.
+          # Without it, identical source builds produce different payload hashes.
+          export SOURCE_DATE_EPOCH=0
           git clone --filter=blob:none https://github.com/doitsujin/dxvk.git "$RUNNER_TEMP/dxvk-source"
           git -C "$RUNNER_TEMP/dxvk-source" checkout 3a4c6fa3cb1548d56a90a38dd8f526b6c13e63fd
           git -C "$RUNNER_TEMP/dxvk-source" submodule update --init --recursive --depth 1
