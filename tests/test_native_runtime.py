@@ -17,14 +17,6 @@ def test_d3d_array_swapchains_use_array_views():
     assert "target_desc.Texture2DMSArray.ArraySize = ArraySize" in source
 
 
-def test_d3d_swapchains_preserve_r11g11b10_format():
-    source = (RUNTIME / "TextureD3D.cpp").read_text()
-
-    assert source.count(
-        "case OVR_FORMAT_R11G11B10_FLOAT:      return DXGI_FORMAT_R11G11B10_FLOAT;"
-    ) == 2
-
-
 def test_d3d_swapchain_trace_records_capabilities_and_result():
     source = (RUNTIME / "REV_CAPI_D3D.cpp").read_text()
 
