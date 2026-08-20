@@ -11,7 +11,7 @@ from meta_pcvr_downloader.download import Downloader, fetch_manifest
 from .auth import runtime_access_token
 from .config import Game, Paths
 from .detection import best_windows_executable, is_unreal_shipping
-from .metadata import populate_game_metadata
+from .metadata import generate_artwork, populate_game_metadata
 from .util import RiftLiftError
 
 
@@ -21,7 +21,6 @@ def slugify(value: str) -> str:
 
 
 def default_download_workers(cpu_count: int | None = None) -> int:
-    """Choose useful download concurrency without overwhelming small hosts."""
     if cpu_count is None:
         try:
             cpu_count = len(os.sched_getaffinity(0))
@@ -102,6 +101,32 @@ def add(
     return game
 
 
+def _local_game_root(
+    executable: Path, root: str | Path | None
+) -> tuple[Path, str | None]:
+    if root is not None:
+        return Path(root).expanduser().resolve(), None
+    if (
+        executable.parent.name.casefold() == "win10"
+        and executable.parent.parent.name.casefold() == "bin"
+    ):
+        game_root = executable.parent.parent.parent
+        return game_root, game_root.name
+    return executable.parent, None
+
+
+def _check_local_conflict(paths: Paths, slug: str, name: str, executable: Path) -> None:
+    target = paths.data / "games" / f"{slug}.json"
+    if not target.exists():
+        return
+    existing = Game.load(paths, slug)
+    if existing.executable_path.resolve() != executable:
+        raise ValueError(
+            f"{name!r} conflicts with existing game {existing.name!r}; "
+            "choose a different name"
+        )
+
+
 def add_local(
     paths: Paths,
     executable: str | Path,
@@ -113,7 +138,6 @@ def add_local(
     artwork: str | Path | None = None,
     version: str = "",
 ) -> Game:
-    """Register an existing Windows VR game without copying its installation."""
     paths.create()
     executable_path = Path(executable).expanduser().resolve()
     if not executable_path.is_file():
@@ -121,23 +145,7 @@ def add_local(
     if executable_path.suffix.casefold() != ".exe":
         raise ValueError("local games must point to a Windows .exe file")
 
-    inferred_app_key = None
-    if (
-        root is None
-        and executable_path.parent.name.casefold() == "win10"
-        and executable_path.parent.parent.name.casefold() == "bin"
-    ):
-        # Oculus PC packages conventionally keep their executable below
-        # <canonical app key>/bin/win10. Import the complete package so the
-        # working directory and Platform SDK identity survive a GUI import.
-        game_root = executable_path.parent.parent.parent
-        inferred_app_key = game_root.name
-    else:
-        game_root = (
-            Path(root).expanduser().resolve()
-            if root is not None
-            else executable_path.parent
-        )
+    game_root, inferred_app_key = _local_game_root(executable_path, root)
     if not game_root.is_dir():
         raise ValueError(f"local game folder was not found: {game_root}")
     try:
@@ -168,18 +176,9 @@ def add_local(
     if not game.app_key:
         raise ValueError("local game app key cannot be empty")
 
-    target = paths.data / "games" / f"{slug}.json"
-    if target.exists():
-        existing = Game.load(paths, slug)
-        if existing.executable_path.resolve() != executable_path:
-            raise ValueError(
-                f"{game_name!r} conflicts with existing game {existing.name!r}; "
-                "choose a different name"
-            )
+    _check_local_conflict(paths, slug, game_name, executable_path)
 
     if artwork is not None:
-        from .metadata import generate_artwork
-
         artwork_path = Path(artwork).expanduser().resolve()
         if not artwork_path.is_file():
             raise ValueError(f"local artwork was not found: {artwork_path}")

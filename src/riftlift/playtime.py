@@ -192,7 +192,6 @@ class PlaytimeSession:
             try:
                 self.checkpoint()
             except OSError:
-                # A later checkpoint or the exact final write can still recover.
                 continue
 
     def close(self) -> None:

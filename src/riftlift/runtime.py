@@ -698,9 +698,7 @@ def initialize_prefix(paths: Paths) -> Path:
     return prefix
 
 
-def install_meta_runtime(paths: Paths) -> Path:
-    prefix = initialize_prefix(paths)
-    support = prefix / "drive_c/Program Files/Oculus/Support"
+def _install_meta_packages(paths: Paths, support: Path) -> None:
     for package in META_PACKAGES:
         archive = download(
             package.url, paths.cache / "meta" / f"{package.name}.pkg", package.sha256
@@ -734,167 +732,90 @@ def install_meta_runtime(paths: Paths) -> Path:
             + "\n"
         )
 
-    patch_meta_client(support / "oculus-client")
 
+def _registry_add(
+    paths: Paths, key: str, name: str | None, kind: str, value: str
+) -> None:
+    name_arguments = ("/ve",) if name is None else ("/v", name)
+    proton(
+        paths,
+        "runinprefix",
+        "reg.exe",
+        "add",
+        key,
+        *name_arguments,
+        "/t",
+        kind,
+        "/d",
+        value,
+        "/f",
+    )
+
+
+def _configure_meta_registry(paths: Paths, support: Path) -> None:
+    marker = support / ".riftlift-registry-v4"
+    if marker.is_file():
+        return
+    base = r"C:\Program Files\Oculus"
+    roots = (
+        r"HKCU\Software\Oculus VR, LLC\Oculus",
+        r"HKLM\Software\Oculus VR, LLC\Oculus",
+        r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus",
+    )
+    for key in roots:
+        _registry_add(paths, key, "Base", "REG_SZ", base)
+        _registry_add(paths, key, "UseSystemProxy", "REG_DWORD", "0")
+    for key in roots[1:]:
+        _registry_add(paths, key, "Gestalt", "REG_DWORD", "1")
+
+    config_roots = tuple(f"{key}\\Config" for key in roots)
+    for key in config_roots:
+        _registry_add(paths, key, "UseSystemProxy", "REG_DWORD", "0")
+    wow_config = config_roots[-1]
+    for name, value in (
+        ("CldrLocaleCode", "en"),
+        ("FbtLocaleCode", "en_US"),
+        ("LanguageTag", "en-US"),
+    ):
+        _registry_add(paths, wow_config, name, "REG_SZ", value)
+    _registry_add(paths, wow_config, "HomeDemoMode", "REG_DWORD", "0")
+
+    protocol = (
+        r'"C:\Program Files\Oculus\Support\oculus-client\Client.exe" -- --url "%1"'
+    )
+    _registry_add(
+        paths,
+        r"HKCU\Software\Classes\oculus\shell\open\command",
+        None,
+        "REG_SZ",
+        protocol,
+    )
+    service = r"HKLM\System\CurrentControlSet\Services\OVRService"
+    for name, kind, value in (
+        ("DisplayName", "REG_SZ", "Oculus VR Runtime Service"),
+        ("Description", "REG_SZ", "Oculus VR Runtime Service"),
+        (
+            "ImagePath",
+            "REG_EXPAND_SZ",
+            r'"C:\Program Files\Oculus\Support\oculus-runtime\OVRServiceLauncher.exe"',
+        ),
+        ("ObjectName", "REG_SZ", "LocalSystem"),
+        ("Type", "REG_DWORD", "16"),
+        ("Start", "REG_DWORD", "4"),
+        ("ErrorControl", "REG_DWORD", "1"),
+    ):
+        _registry_add(paths, service, name, kind, value)
+    marker.write_text("1\n")
+
+
+def install_meta_runtime(paths: Paths) -> Path:
+    prefix = initialize_prefix(paths)
+    support = prefix / "drive_c/Program Files/Oculus/Support"
+    _install_meta_packages(paths, support)
+    patch_meta_client(support / "oculus-client")
     patch_meta_runtime(support / "oculus-runtime")
     _install_meta_signing_root(paths, support)
-
-    registration = support / ".riftlift-registry-v4"
-    if not registration.is_file():
-        base = r"C:\Program Files\Oculus"
-        for key in (
-            r"HKCU\Software\Oculus VR, LLC\Oculus",
-            r"HKLM\Software\Oculus VR, LLC\Oculus",
-            r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus",
-        ):
-            proton(
-                paths,
-                "runinprefix",
-                "reg.exe",
-                "add",
-                key,
-                "/v",
-                "Base",
-                "/t",
-                "REG_SZ",
-                "/d",
-                base,
-                "/f",
-            )
-            proton(
-                paths,
-                "runinprefix",
-                "reg.exe",
-                "add",
-                key,
-                "/v",
-                "UseSystemProxy",
-                "/t",
-                "REG_DWORD",
-                "/d",
-                "0",
-                "/f",
-            )
-        for key in (
-            r"HKLM\Software\Oculus VR, LLC\Oculus",
-            r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus",
-        ):
-            proton(
-                paths,
-                "runinprefix",
-                "reg.exe",
-                "add",
-                key,
-                "/v",
-                "Gestalt",
-                "/t",
-                "REG_DWORD",
-                "/d",
-                "1",
-                "/f",
-            )
-        for key in (
-            r"HKCU\Software\Oculus VR, LLC\Oculus\Config",
-            r"HKLM\Software\Oculus VR, LLC\Oculus\Config",
-            r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus\Config",
-        ):
-            proton(
-                paths,
-                "runinprefix",
-                "reg.exe",
-                "add",
-                key,
-                "/v",
-                "UseSystemProxy",
-                "/t",
-                "REG_DWORD",
-                "/d",
-                "0",
-                "/f",
-            )
-        wow_config = r"HKLM\Software\WOW6432Node\Oculus VR, LLC\Oculus\Config"
-        for name, value in (
-            ("CldrLocaleCode", "en"),
-            ("FbtLocaleCode", "en_US"),
-            ("LanguageTag", "en-US"),
-        ):
-            proton(
-                paths,
-                "runinprefix",
-                "reg.exe",
-                "add",
-                wow_config,
-                "/v",
-                name,
-                "/t",
-                "REG_SZ",
-                "/d",
-                value,
-                "/f",
-            )
-        proton(
-            paths,
-            "runinprefix",
-            "reg.exe",
-            "add",
-            wow_config,
-            "/v",
-            "HomeDemoMode",
-            "/t",
-            "REG_DWORD",
-            "/d",
-            "0",
-            "/f",
-        )
-        protocol = (
-            r'"C:\Program Files\Oculus\Support\oculus-client\Client.exe" -- --url "%1"'
-        )
-        proton(
-            paths,
-            "runinprefix",
-            "reg.exe",
-            "add",
-            r"HKCU\Software\Classes\oculus\shell\open\command",
-            "/ve",
-            "/t",
-            "REG_SZ",
-            "/d",
-            protocol,
-            "/f",
-        )
-        service = r"HKLM\System\CurrentControlSet\Services\OVRService"
-        values = (
-            ("DisplayName", "REG_SZ", "Oculus VR Runtime Service"),
-            ("Description", "REG_SZ", "Oculus VR Runtime Service"),
-            (
-                "ImagePath",
-                "REG_EXPAND_SZ",
-                r'"C:\Program Files\Oculus\Support\oculus-runtime\OVRServiceLauncher.exe"',
-            ),
-            ("ObjectName", "REG_SZ", "LocalSystem"),
-            ("Type", "REG_DWORD", "16"),
-            # RiftLift supplies the VR runtime.  Letting Wine auto-start Meta's
-            # OVRService races the injected launcher on the first Proton run
-            # and can leave the game stuck in umu.exe before its process exists.
-            ("Start", "REG_DWORD", "4"),
-            ("ErrorControl", "REG_DWORD", "1"),
-        )
-        for name, kind, value in values:
-            proton(
-                paths,
-                "runinprefix",
-                "reg.exe",
-                "add",
-                service,
-                "/v",
-                name,
-                "/t",
-                kind,
-                "/d",
-                value,
-                "/f",
-            )
-        registration.write_text("1\n")
+    _configure_meta_registry(paths, support)
     return support
 
 

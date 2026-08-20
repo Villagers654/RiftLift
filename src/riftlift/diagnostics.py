@@ -448,16 +448,10 @@ def recent_launches(paths: Paths, limit: int = 5) -> list[dict[str, Any]]:
             launches[launch_id] = launch
             order.append(launch_id)
         elif launch_id in launches and event.get("event") == "finished":
-            # Keep `at` as the launch time for display and journal correlation.
-            # Older history only has `at`, so normalize it while reading rather
-            # than requiring a migration of users' JSONL files.
             finished = dict(event)
             finished["finished_at"] = event.get("finished_at", event.get("at", ""))
             finished.pop("at", None)
             launches[launch_id].update(finished)
 
     completed = [launches[item] for item in order if item in launches]
-    # Keep this section genuinely recent. Prioritizing every historical failure
-    # makes a repaired launch look broken forever and keeps stale remediation in
-    # future doctor reports.
     return list(reversed(completed[-limit:]))

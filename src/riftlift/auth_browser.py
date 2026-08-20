@@ -103,53 +103,90 @@ def _application_directories() -> list[Path]:
     return directories
 
 
+def _desktop_entry(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    active = False
+    for raw_line in path.read_text(errors="replace").splitlines():
+        line = raw_line.strip()
+        if line.startswith("["):
+            active = line == "[Desktop Entry]"
+            continue
+        if not active or not line or line.startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        if separator and key in {"Name", "Exec", "Icon"} and key not in values:
+            values[key] = value.strip()
+    return values
+
+
+def _desktop_command(
+    command_line: str, *, name: str, icon: str, desktop: Path
+) -> tuple[str, ...]:
+    command: list[str] = []
+    discarded = {"%f", "%F", "%u", "%U", "%d", "%D", "%n", "%N", "%v", "%m"}
+    for token in shlex.split(command_line):
+        if token == "--file-forwarding" or token.startswith("@@"):
+            continue
+        if token in discarded:
+            continue
+        if token == "%i":
+            if icon:
+                command.extend(("--icon", icon))
+            continue
+        token = (
+            token.replace("%%", "\0").replace("%c", name).replace("%k", str(desktop))
+        )
+        if re.search(r"%[A-Za-z]", token):
+            raise RiftLiftError(
+                "the default browser launcher has an invalid field code"
+            )
+        command.append(token.replace("\0", "%"))
+    return tuple(command)
+
+
+def _find_desktop_file(desktop_id: str) -> Path | None:
+    for root in _application_directories():
+        direct = root / desktop_id
+        if direct.is_file():
+            return direct
+        with contextlib.suppress(OSError):
+            for candidate in root.rglob("*.desktop"):
+                candidate_id = candidate.relative_to(root).as_posix().replace("/", "-")
+                if candidate_id == desktop_id:
+                    return candidate
+    return None
+
+
 def _desktop_browser(desktop_id: str) -> Browser:
     desktop_name = Path(desktop_id).name
     if desktop_name != desktop_id or not desktop_name.endswith(".desktop"):
         raise RiftLiftError("the default browser desktop entry is invalid")
-    desktop = next(
-        (
-            root / desktop_name
-            for root in _application_directories()
-            if (root / desktop_name).is_file()
-        ),
-        None,
-    )
+    desktop = _find_desktop_file(desktop_name)
     if desktop is None:
         raise RiftLiftError(
             f"could not find the default browser launcher {desktop_name}"
         )
 
-    name = desktop.stem
-    command_line = ""
-    in_desktop_entry = False
-    for raw_line in desktop.read_text(errors="replace").splitlines():
-        line = raw_line.strip()
-        if line.startswith("["):
-            in_desktop_entry = line == "[Desktop Entry]"
-        elif in_desktop_entry and line.startswith("Name=") and name == desktop.stem:
-            name = line.removeprefix("Name=").strip() or name
-        elif in_desktop_entry and line.startswith("Exec=") and not command_line:
-            command_line = line.removeprefix("Exec=").strip()
+    entry = _desktop_entry(desktop)
+    name = entry.get("Name") or desktop.stem
+    command_line = entry.get("Exec", "")
     if not command_line:
         raise RiftLiftError(f"the browser launcher {desktop_name} has no command")
-    command = []
-    for token in shlex.split(command_line):
-        if token == "--file-forwarding" or token.startswith("@@"):
-            continue
-        token = re.sub(r"%[fFuUdDnNickvm]", "", token)
-        if token:
-            command.append(token)
+    command = _desktop_command(
+        command_line,
+        name=name,
+        icon=entry.get("Icon", ""),
+        desktop=desktop,
+    )
     if not command:
         raise RiftLiftError(f"the browser launcher {desktop_name} has no executable")
     key = re.sub(r"[^a-z0-9_.-]+", "-", desktop.stem.lower()).strip("-.")
     identity = " ".join((desktop_name, name, *command)).lower()
     family = "firefox" if "firefox" in identity else "chromium"
-    return Browser(key or "default", name, family, tuple(command))
+    return Browser(key or "default", name, family, command)
 
 
 def default_browser() -> Browser:
-    """Resolve the actual default browser or a deterministic test override."""
     override = os.environ.get("RIFTLIFT_AUTH_BROWSER", "").strip().lower()
     if override:
         if override.endswith(".desktop"):

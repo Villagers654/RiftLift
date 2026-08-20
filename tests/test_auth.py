@@ -7,6 +7,7 @@ from riftlift.auth_browser import (
     META_LOGIN_URL,
     Browser,
     _command_uses_profile,
+    _desktop_browser,
     browser_home,
     default_browser,
     launch_browser_login,
@@ -91,6 +92,31 @@ def test_arbitrary_chromium_fork_uses_its_desktop_launcher(
     assert browser.name == "Nova Browser"
     assert browser.family == "chromium"
     assert browser.command == ("/opt/nova/Nova.AppImage",)
+
+
+def test_desktop_file_id_resolves_nested_entry_and_standard_field_codes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    launcher = tmp_path / "vendor/browser.desktop"
+    launcher.parent.mkdir()
+    launcher.write_text(
+        "[Desktop Entry]\n"
+        "Name=Nested Browser\n"
+        "Icon=nested-browser\n"
+        "Exec=/opt/browser --name=%c %i %U\n"
+    )
+    monkeypatch.setattr(
+        "riftlift.auth_browser._application_directories", lambda: [tmp_path]
+    )
+
+    browser = _desktop_browser("vendor-browser.desktop")
+
+    assert browser.command == (
+        "/opt/browser",
+        "--name=Nested Browser",
+        "--icon",
+        "nested-browser",
+    )
 
 
 def test_edge_login_uses_an_isolated_riftlift_profile(
