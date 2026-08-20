@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import time
 
@@ -14,7 +13,7 @@ from .auth_browser import (
 )
 from .config import Paths
 from .meta_auth import MetaAuthSession, clear_callback, record_callback
-from .util import RiftLiftError
+from .util import RiftLiftError, atomic_write_text
 
 _TOKEN_PATTERN = re.compile(rb"[A-Za-z0-9_.|-]{32,4096}")
 
@@ -67,11 +66,7 @@ def is_signed_in(paths: Paths) -> bool:
 
 def _save(paths: Paths, token: str) -> None:
     paths.create()
-    target = paths.config / "meta-access-token"
-    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w") as output:
-        output.write(token + "\n")
-    target.chmod(0o600)
+    atomic_write_text(paths.config / "meta-access-token", token + "\n")
 
 
 def runtime_access_token(paths: Paths, *, refresh: bool = False) -> str:

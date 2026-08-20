@@ -149,6 +149,7 @@ class AuthDialog(QtWidgets.QDialog):
 
     def show_error(self, error):
         self.timer.stop()
+        self.stop_browser()
         self.pending = None
         self.operation = "idle"
         self.status.setText(str(error))

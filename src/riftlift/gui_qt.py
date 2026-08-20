@@ -392,7 +392,10 @@ class Window(QtWidgets.QMainWindow):
 
         def operation():
             for game in installed:
-                populate_game_metadata(self.paths, game, refresh=True)
+                try:
+                    populate_game_metadata(self.paths, game, refresh=True)
+                except RiftLiftError as error:
+                    print(f"warning: could not refresh {game.name}: {error}")
             return preferred
 
         self.run_task(
@@ -405,11 +408,12 @@ class Window(QtWidgets.QMainWindow):
 
     def open_store(self):
         if (g := self.game()) and g.source != "local":
-            QtGui.QDesktopServices.openUrl(
-                QtCore.QUrl(
-                    g.store_url or f"https://www.meta.com/experiences/pcvr/{g.app_id}/"
-                )
+            fallback = (
+                f"https://store.steampowered.com/app/{g.steam_app_id or g.app_id}/"
+                if g.source == "steam"
+                else f"https://www.meta.com/experiences/pcvr/{g.app_id}/"
             )
+            QtGui.QDesktopServices.openUrl(QtCore.QUrl(g.store_url or fallback))
 
     def add_dialog(self):
         dialog = StoreGameDialog(self.local_dialog, self)

@@ -123,6 +123,77 @@ def test_gui_cannot_close_while_an_operation_is_running(tmp_path: Path) -> None:
     app.processEvents()
 
 
+def test_steam_store_fallback_never_opens_meta(tmp_path: Path, monkeypatch) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    game = Game(
+        "aircar",
+        "Aircar",
+        "1073390",
+        "steam.app.1073390",
+        str(tmp_path),
+        "Aircar.exe",
+        [],
+        steam_app_id=1073390,
+        source="steam",
+    )
+    game.save(paths)
+    opened = []
+    monkeypatch.setattr(
+        "riftlift.gui_qt.QtGui.QDesktopServices.openUrl",
+        lambda url: opened.append(url.toString()),
+    )
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+
+    window.open_store()
+
+    assert opened == ["https://store.steampowered.com/app/1073390/"]
+    window.close()
+    app.processEvents()
+
+
+def test_library_refresh_continues_after_one_catalog_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    for slug in ("first", "second"):
+        Game(slug, slug.title(), slug, slug, str(tmp_path), f"{slug}.exe", []).save(
+            paths
+        )
+    refreshed = []
+
+    def populate(_paths, game, *, refresh=False):
+        refreshed.append((game.slug, refresh))
+        if game.slug == "first":
+            raise RiftLiftError("catalog unavailable")
+
+    monkeypatch.setattr("riftlift.gui_qt.populate_game_metadata", populate)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+
+    window.refresh_library()
+    assert wait_until(app, lambda: not window.busy)
+
+    assert refreshed == [("first", True), ("second", True)]
+    assert window.status.text() == "Library refreshed"
+    window.close()
+    app.processEvents()
+
+
 def test_gui_debug_logging_toggle_persists_setting(tmp_path: Path) -> None:
     paths = Paths(
         tmp_path / "data",
@@ -352,6 +423,38 @@ def test_auth_dialog_detects_browser_completion_and_returns(
     assert dialog.completed
     assert stopped
     assert dialog.status.text() == "Signed in. Returning to RiftLift…"
+    dialog.close()
+    app.processEvents()
+
+
+def test_auth_dialog_closes_browser_after_login_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    stopped = []
+    process = SimpleNamespace(poll=lambda: None, terminate=lambda: stopped.append(True))
+    monkeypatch.setattr(
+        "riftlift.auth_ui.QtCore.QTimer.singleShot", lambda *_args: None
+    )
+    monkeypatch.setattr("riftlift.auth_browser._profile_processes", lambda _path: [])
+    dialog = AuthDialog(paths)
+    dialog.browser = Browser("edge", "Microsoft Edge", "chromium", ("edge",))
+    dialog.process = process
+
+    dialog.show_error("Meta rejected the token")
+
+    assert stopped
+    assert dialog.process is None
+    assert dialog.status.text() == "Meta rejected the token"
     dialog.close()
     app.processEvents()
 
