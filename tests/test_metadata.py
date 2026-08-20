@@ -3,8 +3,18 @@ from pathlib import Path
 
 from PIL import Image
 
+from riftlift import __version__
 from riftlift.config import Game, Paths
-from riftlift.metadata import generate_artwork, parse_catalog_html, parse_steam_catalog
+from riftlift.metadata import (
+    USER_AGENT,
+    generate_artwork,
+    parse_catalog_html,
+    parse_steam_catalog,
+)
+
+
+def test_user_agent_tracks_package_version() -> None:
+    assert USER_AGENT.startswith(f"RiftLift/{__version__} ")
 
 
 def test_parse_meta_json_ld_catalog() -> None:

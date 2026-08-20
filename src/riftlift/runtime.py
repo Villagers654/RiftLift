@@ -20,6 +20,7 @@ from pathlib import Path
 from . import __version__
 from .config import Paths, debug_logging_enabled
 from .diagnostics import prepare_debug_logs
+from .steam import steam_root
 from .util import (
     RiftLiftError,
     atomic_write_bytes,
@@ -181,39 +182,36 @@ META_RUNTIME_PATCHES = {
 }
 
 
-def patch_meta_runtime(runtime: Path) -> None:
-    """Apply tightly pinned Wine compatibility fixes to Meta 205.
+def _patch_meta_binary(target: Path, recipe: dict[str, object]) -> None:
+    payload = bytearray(target.read_bytes())
+    digest = hashlib.sha256(payload).hexdigest()
+    if digest == recipe["output"]:
+        return
+    if digest != recipe["input"]:
+        raise RiftLiftError(
+            f"unsupported {target.name} build ({digest[:12]}); refusing an unsafe patch"
+        )
+    changes = recipe["changes"]
+    if not isinstance(changes, tuple):
+        raise RiftLiftError(f"invalid compatibility patch for {target.name}")
+    for offset, before, after in changes:
+        if payload[offset : offset + len(before)] != before:
+            raise RiftLiftError(
+                f"{target.name} compatibility patch did not match at {offset}"
+            )
+        payload[offset : offset + len(before)] = after
+    if hashlib.sha256(payload).hexdigest() != recipe["output"]:
+        raise RiftLiftError(
+            f"{target.name} compatibility patch produced an unexpected result"
+        )
+    atomic_write_bytes(target, payload, mode=0o644)
 
-    The official binaries reject Wine's service context, OAF COM setup, and
-    Authenticode result before the actual runtime can initialize. Every edit is
-    guarded by both the complete input/output SHA-256 and exact original bytes,
-    so a Meta update fails closed instead of patching an unknown executable.
-    """
+
+def patch_meta_runtime(runtime: Path) -> None:
     for name, recipe in META_RUNTIME_PATCHES.items():
-        target = runtime / name
-        payload = bytearray(target.read_bytes())
-        digest = hashlib.sha256(payload).hexdigest()
-        if digest == recipe["output"]:
-            continue
-        if digest != recipe["input"]:
-            raise RiftLiftError(
-                f"unsupported {name} build ({digest[:12]}); refusing an unsafe patch"
-            )
-        for offset, before, after in recipe["changes"]:
-            if payload[offset : offset + len(before)] != before:
-                raise RiftLiftError(
-                    f"{name} compatibility patch did not match at {offset}"
-                )
-            payload[offset : offset + len(before)] = after
-        if hashlib.sha256(payload).hexdigest() != recipe["output"]:
-            raise RiftLiftError(
-                f"{name} compatibility patch produced an unexpected result"
-            )
-        atomic_write_bytes(target, payload, mode=0o644)
+        _patch_meta_binary(runtime / name, recipe)
 
     plugins = runtime / "server-plugins"
-    # Keep quarantined DLLs outside server-plugins: Meta scans that tree
-    # recursively, including dot-prefixed directories.
     disabled = runtime / ".riftlift-disabled-server-plugins"
     for name in ("Rift.dll", "RiftS.dll"):
         source = plugins / name
@@ -413,17 +411,6 @@ def patch_meta_client(client: Path) -> None:
         payload = payload.replace(old, new)
     atomic_write_bytes(archive, payload, mode=0o644)
     atomic_write_text(marker, "1\n")
-
-
-def steam_root() -> Path:
-    for candidate in (
-        Path.home() / ".local/share/Steam",
-        Path.home() / ".steam/steam",
-        Path.home() / ".var/app/com.valvesoftware.Steam/data/Steam",
-    ):
-        if candidate.is_dir():
-            return candidate.resolve()
-    raise RiftLiftError("Steam was not found; install and start Steam once, then retry")
 
 
 def proton_dir() -> Path:

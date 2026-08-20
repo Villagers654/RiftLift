@@ -13,6 +13,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
+from . import __version__
 from .config import Game, Paths
 from .util import RiftLiftError
 
@@ -22,7 +23,7 @@ STEAM_API_URL = (
 )
 STEAM_STORE_URL = "https://store.steampowered.com/app/{app_id}/"
 STEAM_CDN_URL = "https://cdn.cloudflare.steamstatic.com/steam/apps/{app_id}/{asset}"
-USER_AGENT = "RiftLift/0.2 (+https://github.com/Villagers654/RiftLift)"
+USER_AGENT = f"RiftLift/{__version__} (+https://github.com/Villagers654/RiftLift)"
 
 
 class _JsonLdParser(HTMLParser):

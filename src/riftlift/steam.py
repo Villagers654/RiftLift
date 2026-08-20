@@ -21,9 +21,9 @@ def steam_root() -> Path:
         Path.home() / ".var/app/com.valvesoftware.Steam/data/Steam",
     )
     for choice in choices:
-        if (choice / "userdata").is_dir():
+        if choice.is_dir():
             return choice.resolve()
-    raise RiftLiftError("Steam userdata was not found; start Steam once, then retry")
+    raise RiftLiftError("Steam was not found; install and start Steam once, then retry")
 
 
 def user_config(root: Path | None = None) -> Path:
