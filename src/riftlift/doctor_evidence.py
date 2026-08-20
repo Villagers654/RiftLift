@@ -13,6 +13,7 @@ from pathlib import Path
 from .config import Paths, xdg_cache_home
 from .diagnostics import launch_log_path, prepare_proton_logs, redact
 from .steam import steam_root
+from .util import RiftLiftError
 
 _ERROR_LINE = re.compile(
     r"(?i)\b(error|failed?|failure|fatal|panic|crash|exception|timed? out|"
@@ -496,7 +497,7 @@ def _recent_steam_log_errors(
         return []
     try:
         directory = steam_root() / "logs"
-    except Exception:
+    except RiftLiftError:
         return []
     try:
         candidates = sorted(

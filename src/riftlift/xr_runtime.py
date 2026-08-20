@@ -182,7 +182,14 @@ def xr_build_components() -> dict[str, str]:
                 else f"not selected ({runtime_name})"
             ),
         }
-    except Exception as error:
+    except (
+        RiftLiftError,
+        OSError,
+        json.JSONDecodeError,
+        KeyError,
+        AttributeError,
+        TypeError,
+    ) as error:
         result = {
             "openxr_manifest": f"unavailable: {error}",
             "openxr_runtime": "unavailable",

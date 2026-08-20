@@ -146,7 +146,14 @@ def _runtime_description() -> tuple[bool, str]:
                 f"environment={','.join(sorted(envision.environment)) or 'none'}"
             )
         return True, f"{redact(str(target))} ({name}; {library}{source})"
-    except Exception as error:
+    except (
+        RiftLiftError,
+        OSError,
+        json.JSONDecodeError,
+        KeyError,
+        AttributeError,
+        TypeError,
+    ) as error:
         return False, redact(str(error))
 
 
