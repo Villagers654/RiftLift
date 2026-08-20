@@ -178,6 +178,12 @@ class AuthDialog(QtWidgets.QDialog):
         self.retry.setVisible(True)
         self.status.setText("Signed out. Open your default browser when ready.")
 
+    def accept(self):
+        self.timer.stop()
+        self.stop_browser()
+        self.executor.shutdown(wait=False, cancel_futures=True)
+        super().accept()
+
     def reject(self):
         self.timer.stop()
         self.stop_browser()
