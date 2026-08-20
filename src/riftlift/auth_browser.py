@@ -285,7 +285,9 @@ def launch_browser_login(
             / browser.key
         )
         profile.mkdir(parents=True, exist_ok=True, mode=0o700)
-        (home / "external-profile").symlink_to(profile, target_is_directory=True)
+        marker = home / "external-profile"
+        marker.unlink(missing_ok=True)
+        marker.symlink_to(profile, target_is_directory=True)
     else:
         profile = home / "profile"
         profile.mkdir(parents=True, exist_ok=True, mode=0o700)

@@ -214,9 +214,11 @@ def test_snap_browser_profile_is_isolated_and_resettable(
     )
 
     launch_browser_login(paths, browser)
+    launch_browser_login(paths, browser)
 
     profile = tmp_path / "snap/firefox/common/riftlift-auth/firefox_firefox"
     assert str(profile) in launched[0]
+    assert str(profile) in launched[1]
     assert profile.is_dir()
     sign_out(paths)
     assert not profile.exists()
