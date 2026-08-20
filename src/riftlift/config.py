@@ -174,8 +174,10 @@ class Game:
                 else "meta"
             )
         allowed = {field.name for field in fields(cls)}
+        if unknown := sorted(value.keys() - allowed):
+            raise ValueError(f"game record contains unknown fields {unknown}: {target}")
         try:
-            return cls(**{key: item for key, item in value.items() if key in allowed})
+            return cls(**value)
         except (TypeError, ValueError) as error:
             raise ValueError(f"invalid game record {target}: {error}") from error
 

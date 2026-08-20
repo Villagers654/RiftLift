@@ -91,6 +91,28 @@ def test_game_records_do_not_silently_escape_or_disappear(tmp_path: Path) -> Non
         games(paths)
 
 
+def test_game_records_reject_unknown_fields(tmp_path: Path) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    game = Game(
+        "example", "Example", "123", "example-key", str(tmp_path), "game.exe", []
+    )
+    target = game.save(paths)
+    payload = target.read_text().replace(
+        '"source": "meta"', '"source": "meta",\n  "launch_argumants": []'
+    )
+    target.write_text(payload)
+
+    with pytest.raises(ValueError, match=r"unknown fields.*launch_argumants"):
+        Game.load(paths, "example")
+
+
 def test_debug_logging_setting_is_private_and_persistent(tmp_path: Path) -> None:
     paths = Paths(
         tmp_path / "data",
