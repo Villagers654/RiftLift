@@ -7,6 +7,7 @@
 #include <string.h>
 #include <Shlobj.h>
 #include <Shlwapi.h>
+#include <detours/detours.h>
 #include <openvr.h>
 
 extern FILE* g_LogFile;
@@ -155,6 +156,15 @@ public:
 		return strings.at(index);
 	}
 
+	std::vector<const char*> pointers() const
+	{
+		std::vector<const char*> result;
+		result.reserve(strings.size());
+		for (const auto& value : strings)
+			result.push_back(value.c_str());
+		return result;
+	}
+
 	bool empty()
 	{
 		return strings.empty();
@@ -168,29 +178,6 @@ public:
 private:
 	std::vector<std::string> strings;
 };
-
-bool InjectLibrary(HANDLE process, const std::string& path)
-{
-	SIZE_T size = path.size() + 1;
-	PVOID remotePath = VirtualAllocEx(process, NULL, size,
-		MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-	if (!remotePath || !WriteProcessMemory(process, remotePath, path.c_str(), size, NULL))
-		return false;
-	auto loadLibrary = reinterpret_cast<LPTHREAD_START_ROUTINE>(
-		GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryA"));
-	HANDLE thread = CreateRemoteThread(process, NULL, 0, loadLibrary, remotePath, 0, NULL);
-	if (!thread)
-	{
-		VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
-		return false;
-	}
-	WaitForSingleObject(thread, INFINITE);
-	DWORD module = 0;
-	GetExitCodeThread(thread, &module);
-	CloseHandle(thread);
-	VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
-	return module != 0;
-}
 
 int wmain(int argc, wchar_t *argv[]) {
 	if (argc < 2) {
@@ -340,35 +327,38 @@ int wmain(int argc, wchar_t *argv[]) {
 	}
 	SetEvent(connectedEvent);
 
-	if (!CreateProcessW(NULL, path, NULL, NULL, FALSE, CREATE_SUSPENDED,
-		NULL, (!workingDirOverride.empty() || (file && ext)) ? workingDir : NULL, &si, &pi))
+	auto dllPaths = dlls.pointers();
+	if (!DetourCreateProcessWithDllsW(NULL, path, NULL, NULL, FALSE,
+		debug ? CREATE_SUSPENDED | DEBUG_ONLY_THIS_PROCESS : 0,
+		NULL, (!workingDirOverride.empty() || (file && ext)) ? workingDir : NULL, &si, &pi,
+		static_cast<DWORD>(dllPaths.size()), dllPaths.data(), NULL))
 	{
-		LOG("Failed to create process (%lu)\n", GetLastError());
+		LOG("Failed to create and inject process (%lu)\n", GetLastError());
 		CloseHandle(connectedEvent);
 		return -1;
 	}
 
-	for (size_t index = 0; index < dlls.size(); ++index)
+	if (debug)
 	{
-		if (!InjectLibrary(pi.hProcess, dlls.at(index)))
+		if (!DebugActiveProcessStop(pi.dwProcessId))
 		{
-			LOG("Failed to inject %s (%lu)\n", dlls.at(index).c_str(), GetLastError());
+			LOG("Failed to stop debugging (%lu)\n", GetLastError());
 			TerminateProcess(pi.hProcess, static_cast<UINT>(-1));
 			CloseHandle(pi.hThread);
 			CloseHandle(pi.hProcess);
 			CloseHandle(connectedEvent);
 			return -1;
 		}
-	}
 
-	if (ResumeThread(pi.hThread) == static_cast<DWORD>(-1))
-	{
-		LOG("Failed to resume process (%lu)\n", GetLastError());
-		TerminateProcess(pi.hProcess, static_cast<UINT>(-1));
-		CloseHandle(pi.hThread);
-		CloseHandle(pi.hProcess);
-		CloseHandle(connectedEvent);
-		return -1;
+		if (ResumeThread(pi.hThread) == static_cast<DWORD>(-1))
+		{
+			LOG("Failed to resume process (%lu)\n", GetLastError());
+			TerminateProcess(pi.hProcess, static_cast<UINT>(-1));
+			CloseHandle(pi.hThread);
+			CloseHandle(pi.hProcess);
+			CloseHandle(connectedEvent);
+			return -1;
+		}
 	}
 
 	LOG("Succesfully injected!\n");
