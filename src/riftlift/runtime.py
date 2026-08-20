@@ -12,18 +12,14 @@ import struct
 import subprocess
 import tarfile
 import tempfile
-import time
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import __version__
-from .auth import complete_browser_login, sign_out
-from .auth_browser import default_browser, launch_browser_login, stop_browser
 from .config import Paths, debug_logging_enabled
 from .diagnostics import prepare_debug_logs
-from .meta_auth import MetaAuthSession, install_protocol_handler, record_callback
 from .util import (
     RiftLiftError,
     atomic_write_bytes,
@@ -1210,34 +1206,6 @@ def setup(paths: Paths) -> None:
         _write_openvr_path_registry(paths, steamvr)
     install_platform_compat(paths)
     shutdown_compat_prefix(paths, proton_root)
-
-
-def install_login_protocol_handler() -> Path:
-    """Register Meta's oculus:// browser callback with the host desktop."""
-    return install_protocol_handler()
-
-
-def complete_login(paths: Paths, callback_url: str) -> int:
-    """Hand a browser's oculus:// callback to RiftLift's active auth session."""
-    return record_callback(paths, callback_url)
-
-
-def login(paths: Paths) -> int:
-    """Run the browser-backed sign-in flow for command-line users."""
-    browser = default_browser()
-    sign_out(paths)
-    session = MetaAuthSession.begin(paths)
-    process = launch_browser_login(paths, browser, session.login_url)
-    print(f"Finish signing in to Meta in {browser.name}.")
-    while process.poll() is None:
-        if not session.callback_ready():
-            time.sleep(1)
-            continue
-        complete_browser_login(paths, session)
-        stop_browser(paths, browser, process)
-        print("RiftLift is signed in to Meta.")
-        return 0
-    raise RiftLiftError("the browser closed before Meta sign-in finished")
 
 
 def envision_profile() -> EnvisionProfile | None:

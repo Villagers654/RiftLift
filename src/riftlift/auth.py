@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import os
 import re
+import time
 
-from .auth_browser import cleanup_browser_profiles
+from .auth_browser import (
+    cleanup_browser_profiles,
+    default_browser,
+    launch_browser_login,
+    stop_browser,
+)
 from .config import Paths
-from .meta_auth import MetaAuthSession, clear_callback
+from .meta_auth import MetaAuthSession, clear_callback, record_callback
 from .util import RiftLiftError
 
 _TOKEN_PATTERN = re.compile(rb"[A-Za-z0-9_.|-]{32,4096}")
@@ -18,6 +24,29 @@ def complete_browser_login(paths: Paths, session: MetaAuthSession) -> str:
     token = session.complete()
     _save(paths, token)
     return token
+
+
+def complete_login(paths: Paths, callback_url: str) -> int:
+    """Hand a browser's custom-scheme callback to the active auth session."""
+    return record_callback(paths, callback_url)
+
+
+def login(paths: Paths) -> int:
+    """Run the browser-backed sign-in flow for command-line users."""
+    browser = default_browser()
+    sign_out(paths)
+    session = MetaAuthSession.begin(paths)
+    process = launch_browser_login(paths, browser, session.login_url)
+    print(f"Finish signing in to Meta in {browser.name}.")
+    while process.poll() is None:
+        if not session.callback_ready():
+            time.sleep(1)
+            continue
+        complete_browser_login(paths, session)
+        stop_browser(paths, browser, process)
+        print("RiftLift is signed in to Meta.")
+        return 0
+    raise RiftLiftError("the browser closed before Meta sign-in finished")
 
 
 def sign_out(paths: Paths) -> None:

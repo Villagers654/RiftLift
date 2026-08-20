@@ -88,15 +88,16 @@ def install_protocol_handler() -> Path:
     applications.mkdir(parents=True, exist_ok=True)
     desktop = applications / "riftlift-meta-login.desktop"
     executable = Path.home() / ".local/bin/riftlift"
-    desktop.write_text(
+    atomic_write_text(
+        desktop,
         "[Desktop Entry]\n"
         "Type=Application\n"
         "Name=RiftLift Meta Login\n"
         "NoDisplay=true\n"
         f"Exec={executable} callback %u\n"
-        "MimeType=x-scheme-handler/oculus;x-scheme-handler/oculus-client;\n"
+        "MimeType=x-scheme-handler/oculus;x-scheme-handler/oculus-client;\n",
+        mode=0o755,
     )
-    desktop.chmod(0o755)
     if update_database := shutil.which("update-desktop-database"):
         run((update_database, str(applications)))
     if xdg_mime := shutil.which("xdg-mime"):

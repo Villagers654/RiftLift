@@ -8,13 +8,14 @@ from meta_pcvr_downloader.auth import AuthenticationError
 from meta_pcvr_downloader.download import DownloadError
 
 from . import __version__
+from .auth import complete_login, login
 from .config import Game, Paths, games
 from .doctor import doctor
 from .launch import launch
 from .library import add, add_local
 from .metadata import populate_game_metadata
 from .playtime import playtime, playtime_label
-from .runtime import complete_login, login, setup
+from .runtime import setup
 from .steam import sync_with_restart
 from .steam_oculus import steam_oculus_game, steam_oculus_games
 from .util import RiftLiftError

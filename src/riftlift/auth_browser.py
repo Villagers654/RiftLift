@@ -191,17 +191,6 @@ def _snap_application(command: tuple[str, ...]) -> str:
     return ""
 
 
-def _link_cookie_profile(home: Path, profile: Path, family: str) -> None:
-    cookie_home = home / "cookie-home"
-    if family == "firefox":
-        link = cookie_home / ".mozilla/firefox/riftlift.default"
-    else:
-        link = cookie_home / ".config/chromium"
-    link.parent.mkdir(parents=True, exist_ok=True)
-    if not link.exists() and not link.is_symlink():
-        link.symlink_to(profile, target_is_directory=True)
-
-
 def _prepare_firefox_profile(profile: Path) -> None:
     """Disable Firefox onboarding inside RiftLift's disposable profile."""
     preferences = {
@@ -269,7 +258,6 @@ def launch_browser_login(
     )
     if flatpak_run is not None:
         launch_command.insert(flatpak_run + 2, f"--filesystem={home}")
-    _link_cookie_profile(home, profile, browser.family)
     if browser.family == "chromium":
         _prepare_chromium_profile(profile)
         arguments = [
