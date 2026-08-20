@@ -380,7 +380,15 @@ def test_meta_runtime_repairs_a_corrupt_signed_loader(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         "riftlift.runtime.META_PACKAGES",
-        (MetaPackage("oculus-runtime", "test", package_hash),),
+        (
+            MetaPackage(
+                "oculus-runtime",
+                "test",
+                package_hash,
+                ("LibOVRRT64_1.dll",),
+                verify_signed_runtime=True,
+            ),
+        ),
     )
     monkeypatch.setattr(
         "riftlift.runtime.META_RUNTIME_SIGNED_FILES",
@@ -464,7 +472,12 @@ def test_incomplete_meta_package_preserves_installed_payload(
     archive = tmp_path / "incomplete.pkg"
     with zipfile.ZipFile(archive, "w") as bundle:
         bundle.writestr("unrelated.txt", "bad")
-    package = MetaPackage("oculus-platform-runtime", "test", "test-sha")
+    package = MetaPackage(
+        "oculus-platform-runtime",
+        "test",
+        "test-sha",
+        ("FBCapture.dll", "manifest.json", "oculus-platform-runtime.exe"),
+    )
     monkeypatch.setattr("riftlift.runtime.META_PACKAGES", (package,))
     monkeypatch.setattr("riftlift.runtime.download", lambda *_args: archive)
 

@@ -81,30 +81,36 @@ class MetaPackage:
     name: str
     binary_id: str
     sha256: str
+    required_files: tuple[str, ...] = ()
+    verify_signed_runtime: bool = False
 
     @property
     def url(self) -> str:
         return f"https://securecdn-atl3-3.oculus.com/binaries/download/?id={self.binary_id}"
 
 
+META_RUNTIME_SIGNED_FILES = {
+    "LibOVRRT32_1.dll": "e6435a297861f781d952ba21fdf009bc7d36fdaad0f96e0d39d3b419e1783983",
+    "LibOVRRT64_1.dll": "f6941275692026b18666bb856d71fe1b19462017b2b2e556fe8df82461f493f5",
+}
+
 META_PACKAGES = (
     MetaPackage(
         "oculus-runtime",
         "3766757683456363",
         "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009",
+        tuple(META_RUNTIME_SIGNED_FILES),
+        verify_signed_runtime=True,
     ),
     MetaPackage(
         "oculus-platform-runtime",
         "28039291642329992",
         "69a6dedbf6f997459038e9b9e54d6562431c1a107bec17637d59626ab0d36892",
+        ("FBCapture.dll", "manifest.json", "oculus-platform-runtime.exe"),
     ),
 )
 META_VERSION = "205.0"
 
-META_RUNTIME_SIGNED_FILES = {
-    "LibOVRRT32_1.dll": "e6435a297861f781d952ba21fdf009bc7d36fdaad0f96e0d39d3b419e1783983",
-    "LibOVRRT64_1.dll": "f6941275692026b18666bb856d71fe1b19462017b2b2e556fe8df82461f493f5",
-}
 META_SIGNING_ROOT_THUMBPRINT = "0563B8630D62D75ABBC8AB1E4BDFB5A899B24D43"
 META_SIGNING_ROOT_SUBJECT_KEY_ID = "45EBA2AFF492CB82312D518BA7A7219DF36DC80F"
 META_SIGNING_ROOT_REGISTRY_KEY = (
@@ -619,19 +625,14 @@ def _install_meta_packages(paths: Paths, support: Path) -> None:
         )
         destination = support / package.name
         marker = destination / ".riftlift-package.json"
-        required = (
-            tuple(META_RUNTIME_SIGNED_FILES)
-            if package.name == "oculus-runtime"
-            else ("LibOVRPlatformImpl64_1.dll",)
-        )
         if marker.is_file():
             try:
                 current_package = json.loads(marker.read_text()).get(
                     "sha256"
                 ) == package.sha256 and all(
-                    (destination / name).is_file() for name in required
+                    (destination / name).is_file() for name in package.required_files
                 )
-                if package.name == "oculus-runtime":
+                if package.verify_signed_runtime:
                     current_package = current_package and _signed_meta_runtime_current(
                         destination
                     )
@@ -642,7 +643,7 @@ def _install_meta_packages(paths: Paths, support: Path) -> None:
         staging = Path(tempfile.mkdtemp(prefix=f".{package.name}-unpack-", dir=support))
         try:
             _safe_zip(archive, staging)
-            if not all((staging / name).is_file() for name in required):
+            if not all((staging / name).is_file() for name in package.required_files):
                 raise RiftLiftError(f"Meta package {package.name} is incomplete")
             atomic_write_text(
                 staging / ".riftlift-package.json",
