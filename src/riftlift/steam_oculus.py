@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -12,37 +11,35 @@ from .detection import (
 )
 from .library import slugify
 from .steam import steam_root
+from .steam_vdf import VdfError, loads_text
 from .util import RiftLiftError
 
 
-def _quoted_pairs(path: Path) -> list[tuple[str, str]]:
+def _vdf_section(path: Path, name: str) -> dict:
     try:
-        text = path.read_text(errors="replace")
-    except OSError:
-        return []
-    return re.findall(r'"([^"\\]+)"\s+"([^"\\]*(?:\\.[^"\\]*)*)"', text)
-
-
-def _quoted_fields(path: Path) -> dict[str, str]:
-    return dict(_quoted_pairs(path))
+        section = loads_text(path.read_text(errors="replace")).get(name, {})
+    except (OSError, VdfError):
+        return {}
+    return section if isinstance(section, dict) else {}
 
 
 def steam_library_roots(root: Path | None = None) -> list[Path]:
     root = (root or steam_root()).resolve()
     result = [root]
-    for key, value in _quoted_pairs(root / "steamapps/libraryfolders.vdf"):
-        if key != "path" and not key.isdecimal():
+    libraries = _vdf_section(root / "steamapps/libraryfolders.vdf", "libraryfolders")
+    for value in libraries.values():
+        if not isinstance(value, dict) or not isinstance(value.get("path"), str):
             continue
-        candidate = Path(value.replace("\\\\", "\\")).expanduser().resolve()
+        candidate = Path(value["path"]).expanduser().resolve()
         if (candidate / "steamapps").is_dir() and candidate not in result:
             result.append(candidate)
     return result
 
 
 def _game_from_manifest(manifest: Path) -> Game | None:
-    fields = _quoted_fields(manifest)
-    app_id = fields.get("appid", "")
-    install_dir = fields.get("installdir", "")
+    fields = _vdf_section(manifest, "AppState")
+    app_id = str(fields.get("appid", ""))
+    install_dir = str(fields.get("installdir", ""))
     if not app_id.isdecimal() or not install_dir:
         return None
     directory = manifest.parent / "common" / install_dir
@@ -52,7 +49,7 @@ def _game_from_manifest(manifest: Path) -> Game | None:
         executable = best_windows_executable(directory)
     except ValueError:
         return None
-    name = fields.get("name") or install_dir
+    name = str(fields.get("name") or install_dir)
     return Game(
         slug=slugify(name),
         name=name,
@@ -61,7 +58,7 @@ def _game_from_manifest(manifest: Path) -> Game | None:
         directory=str(directory.resolve()),
         executable=executable.relative_to(directory.resolve()).as_posix(),
         arguments=["-vr"] if is_unreal_shipping(executable) else [],
-        version=fields.get("buildid", ""),
+        version=str(fields.get("buildid", "")),
         platform_shim=False,
         store_url=f"https://store.steampowered.com/app/{app_id}/",
         steam_app_id=int(app_id),
