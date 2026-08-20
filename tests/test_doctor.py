@@ -158,19 +158,6 @@ def test_likely_cause_identifies_unavailable_runtime_service() -> None:
     assert "runtime service was unavailable" in cause[0]
 
 
-def test_likely_cause_identifies_process_lost_during_doctor() -> None:
-    cause = _likely_cause(
-        [
-            "Doctor safety observation:",
-            "Processes present when System was pressed but absent after inspection: "
-            "monado-service",
-        ],
-        [],
-    )
-
-    assert "XR processes disappeared while doctor was inspecting" in cause[0]
-
-
 def test_likely_cause_treats_vr_initialization_error_as_primary() -> None:
     cause = _likely_cause(
         [

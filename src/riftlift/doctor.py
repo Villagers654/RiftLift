@@ -350,15 +350,6 @@ def _relevant_processes() -> list[str]:
     return result[-12:]
 
 
-def _process_names(processes: list[str]) -> set[str]:
-    names: set[str] = set()
-    for line in processes:
-        fields = line.split(maxsplit=2)
-        if len(fields) == 3:
-            names.add(fields[2].casefold())
-    return names
-
-
 _CHECK_RECOMMENDATIONS = (
     (
         {"Active OpenXR runtime"},
@@ -536,11 +527,6 @@ def _debug_capture_summary(paths: Paths, enabled: bool) -> list[str]:
 
 
 _CAUSE_RULES = (
-    (
-        ("doctor safety observation",),
-        "High confidence: one or more XR processes disappeared while doctor was "
-        "inspecting the system.",
-    ),
     (
         ("riftlift: patched 0 executable runtime imports",),
         "High confidence: RiftLift loaded but could not intercept the game's Oculus "
@@ -1054,26 +1040,6 @@ def _collect_evidence(
     return evidence, journal_since
 
 
-def _finish_process_inspection(
-    processes_at_start: list[str], evidence: list[str]
-) -> list[str]:
-    processes_at_end = _relevant_processes()
-    disappeared = _process_names(processes_at_start) - _process_names(processes_at_end)
-    if disappeared:
-        evidence.extend(
-            [
-                "Doctor safety observation:",
-                "  Processes present when System was pressed but absent after "
-                "inspection: " + ", ".join(sorted(disappeared)),
-            ]
-        )
-    return [
-        "",
-        "[Relevant processes after inspection]",
-        *(processes_at_end or ["none detected"]),
-    ]
-
-
 def _summary_lines(
     checks: list[Check],
     launches: list[dict[str, object]],
@@ -1181,7 +1147,6 @@ def build_report(paths: Paths) -> tuple[str, bool]:
                 f"Doctor RiftLift build: {__version__}",
             ]
         )
-    lines.extend(_finish_process_inspection(processes_at_start, evidence))
     lines.extend(["", "[Likely cause]", *_likely_cause(evidence, launches)])
     recommendations = _recommendations(
         checks, launches, debug_logging, evidence, current_components
