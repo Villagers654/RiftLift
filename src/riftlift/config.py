@@ -23,6 +23,16 @@ def _xdg(name: str, fallback: Path) -> Path:
     return Path(value).expanduser() if value else fallback
 
 
+def xdg_data_home() -> Path:
+    """Return the freedesktop user data directory."""
+    return _xdg("XDG_DATA_HOME", Path.home() / ".local/share")
+
+
+def xdg_config_home() -> Path:
+    """Return the freedesktop user configuration directory."""
+    return _xdg("XDG_CONFIG_HOME", Path.home() / ".config")
+
+
 @dataclass(slots=True)
 class Paths:
     data: Path
@@ -35,9 +45,9 @@ class Paths:
     @classmethod
     def defaults(cls) -> Paths:
         home = Path.home()
-        data = _xdg("XDG_DATA_HOME", home / ".local/share") / "riftlift"
+        data = xdg_data_home() / "riftlift"
         cache = _xdg("XDG_CACHE_HOME", home / ".cache") / "riftlift"
-        config = _xdg("XDG_CONFIG_HOME", home / ".config") / "riftlift"
+        config = xdg_config_home() / "riftlift"
         games = Path(os.environ.get("RIFTLIFT_GAMES_DIR", home / "Games/RiftLift"))
         return cls(data, cache, config, games, data / "compatdata", data / "tools")
 

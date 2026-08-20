@@ -61,6 +61,16 @@ def test_protocol_handler_uses_the_installed_command(tmp_path, monkeypatch) -> N
     assert f"Exec={executable} callback %u" in desktop.read_text()
 
 
+def test_protocol_handler_honors_xdg_data_home(tmp_path, monkeypatch) -> None:
+    data_home = tmp_path / "share"
+    monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
+    monkeypatch.setattr("riftlift.meta_auth.shutil.which", lambda _name: None)
+
+    desktop = install_protocol_handler()
+
+    assert desktop == data_home / "applications/riftlift-meta-login.desktop"
+
+
 def test_verified_callback_is_exchanged_for_oculus_token(tmp_path, monkeypatch) -> None:
     paths = paths_in(tmp_path)
     request_token = "request-token"

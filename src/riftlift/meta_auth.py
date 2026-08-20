@@ -12,7 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-from .config import Paths
+from .config import Paths, xdg_data_home
 from .util import RiftLiftError, atomic_write_text, installed_command, run
 
 FRL_APP_ID = "512466987071624"
@@ -84,7 +84,7 @@ def record_callback(paths: Paths, callback_url: str) -> int:
 
 def install_protocol_handler() -> Path:
     """Register RiftLift as the host handler for Meta's browser callback."""
-    applications = Path.home() / ".local/share/applications"
+    applications = xdg_data_home() / "applications"
     applications.mkdir(parents=True, exist_ok=True)
     desktop = applications / "riftlift-meta-login.desktop"
     executable = installed_command("riftlift")

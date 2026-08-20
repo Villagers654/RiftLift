@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import Paths
+from .config import Paths, xdg_config_home, xdg_data_home
 from .util import RiftLiftError
 
 
@@ -26,8 +26,8 @@ class EnvisionProfile:
 
 def envision_profile() -> EnvisionProfile | None:
     """Read Envision's selection without requiring RiftLift to be its child."""
-    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+    config_home = xdg_config_home()
+    data_home = xdg_data_home()
     config_path = config_home / "envision/envision.json"
     try:
         payload = json.loads(config_path.read_text())
@@ -99,8 +99,7 @@ def active_runtime_json() -> Path:
             )
         return target.resolve()
 
-    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    candidate = config_home.expanduser() / "openxr/1/active_runtime.json"
+    candidate = xdg_config_home() / "openxr/1/active_runtime.json"
     if candidate.is_file():
         return candidate.resolve()
     raise RiftLiftError(
@@ -111,7 +110,7 @@ def active_runtime_json() -> Path:
 
 def _envision_version() -> str:
     """Read Envision's installed metadata without starting the application."""
-    data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+    data_home = xdg_data_home()
     directories = [
         data_home / "metainfo",
         data_home / "appdata",
