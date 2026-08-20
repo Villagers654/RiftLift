@@ -124,6 +124,8 @@ jobs:
             /tmp/riftlift-installer.sh
           bash -n /tmp/riftlift-installer.sh
           grep -F "wheel_sha256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'" /tmp/riftlift-installer.sh
+          grep -F "desktop_base64='$(base64 -w0 assets/io.github.villagers654.RiftLift.desktop)'" /tmp/riftlift-installer.sh
+          grep -F "icon_base64='$(base64 -w0 assets/io.github.villagers654.RiftLift.svg)'" /tmp/riftlift-installer.sh
           touch riftlift-0.0.0-py3-none-any.whl
           scripts/generate-release-installer.sh \
             v0.0.0 \
