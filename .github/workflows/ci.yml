@@ -99,9 +99,10 @@ jobs:
           python-version: "3.12"
       - name: Ensure EGL runtime is available
         run: dpkg-query -W libegl1 >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y libegl1)
-      - run: python -m pip install black pytest "cryptography>=42" .
+      - run: python -m pip install pytest ruff "cryptography>=42" .
       - run: pytest -q
-      - run: black --check src tests
+      - run: ruff check src tests
+      - run: ruff format --check src tests
       - run: python -m compileall -q src
       - run: bash -n install.sh scripts/*.sh
       - name: Verify release installer generation
