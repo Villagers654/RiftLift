@@ -430,14 +430,15 @@ def install_dxvk_compat(paths: Paths, proton: Path) -> Path:
             DXVK_SHA256,
         )
 
-    paths.tools.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=".dxvk-unpack-", dir=paths.tools))
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".dxvk-unpack-", dir=destination.parent))
     try:
         _safe_tar(archive, staging)
         source = staging / "dxvk"
-        file_hashes = _install_dxvk_files(source, destination)
+        staged_destination = staging / "installed"
+        file_hashes = _install_dxvk_files(source, staged_destination)
         atomic_write_text(
-            marker,
+            staged_destination / ".riftlift-dxvk.json",
             json.dumps(
                 {
                     "version": DXVK_VERSION,
@@ -449,6 +450,7 @@ def install_dxvk_compat(paths: Paths, proton: Path) -> Path:
             )
             + "\n",
         )
+        _replace_directory(staged_destination, destination)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     return destination

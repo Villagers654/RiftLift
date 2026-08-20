@@ -111,6 +111,35 @@ def test_dxvk_compat_installs_both_architectures_and_repairs_changes(
     assert x64.read_bytes() == b"MZpatched-x64-d3d11"
 
 
+def test_incomplete_dxvk_archive_preserves_installed_payload(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    proton = tmp_path / "proton"
+    destination = proton / "files/lib/wine/dxvk"
+    destination.mkdir(parents=True)
+    (destination / "working.txt").write_text("keep")
+    archive = tmp_path / "incomplete-dxvk.tar.gz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        payload = b"not a complete package"
+        info = tarfile.TarInfo("dxvk/x64/d3d11.dll")
+        info.size = len(payload)
+        bundle.addfile(info, io.BytesIO(payload))
+    monkeypatch.setenv("RIFTLIFT_DXVK_ARCHIVE", str(archive))
+
+    with pytest.raises(RiftLiftError, match="payload is incomplete"):
+        install_dxvk_compat(paths, proton)
+
+    assert (destination / "working.txt").read_text() == "keep"
+
+
 def test_runtime_payload_is_reused_only_for_current_version(tmp_path, monkeypatch):
     paths = Paths(
         tmp_path / "data",
