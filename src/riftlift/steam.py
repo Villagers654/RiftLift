@@ -114,7 +114,7 @@ def _existing_by_slug(shortcuts: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def _shortcut_games(paths: Paths) -> list[Game]:
-    return [game for game in games(paths) if not game.app_key.startswith("steam.app.")]
+    return [game for game in games(paths) if game.source != "steam"]
 
 
 def _install_artwork(game: Game, app_id: int, config: Path) -> None:

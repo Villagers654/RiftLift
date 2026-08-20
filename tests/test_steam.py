@@ -73,11 +73,38 @@ def test_native_steam_games_do_not_create_duplicate_shortcuts(tmp_path: Path) ->
         "/games/steam",
         "game.exe",
         [],
+        source="steam",
     )
     rift.save(paths)
     steam.save(paths)
 
     assert _shortcut_games(paths) == [rift]
+
+
+def test_local_game_with_steam_style_app_key_still_gets_a_shortcut(
+    tmp_path: Path,
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    local = Game(
+        "local-game",
+        "Local Game",
+        "",
+        "steam.app.custom",
+        "/games/local",
+        "game.exe",
+        [],
+        source="local",
+    )
+    local.save(paths)
+
+    assert _shortcut_games(paths) == [local]
 
 
 def test_process_discovery_ignores_other_users(tmp_path: Path, monkeypatch) -> None:
