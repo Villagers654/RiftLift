@@ -20,7 +20,10 @@ def _game_record(paths: Paths, slug: str) -> Path:
 
 def _xdg(name: str, fallback: Path) -> Path:
     value = os.environ.get(name)
-    return Path(value).expanduser() if value else fallback
+    if not value:
+        return fallback
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else fallback
 
 
 def xdg_data_home() -> Path:

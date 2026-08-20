@@ -42,6 +42,19 @@ def test_default_paths_treat_empty_xdg_values_as_unset(
     assert paths.config == tmp_path / ".config/riftlift"
 
 
+def test_default_paths_ignore_relative_xdg_values(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", "relative-data")
+    monkeypatch.setenv("XDG_CACHE_HOME", "relative-cache")
+    monkeypatch.setenv("XDG_CONFIG_HOME", "relative-config")
+
+    paths = Paths.defaults()
+
+    assert paths.data == tmp_path / ".local/share/riftlift"
+    assert paths.cache == tmp_path / ".cache/riftlift"
+    assert paths.config == tmp_path / ".config/riftlift"
+
+
 def test_game_records_reject_unsafe_slugs_and_non_objects(tmp_path: Path) -> None:
     paths = Paths(
         tmp_path / "data",
