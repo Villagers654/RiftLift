@@ -119,104 +119,132 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
+def _run_gui(_paths: Paths, _arguments: argparse.Namespace) -> int:
+    from .gui import main as gui_main
+
+    return gui_main()
+
+
+def _run_setup(paths: Paths, arguments: argparse.Namespace) -> int:
+    setup(paths)
+    print("RiftLift compatibility stack is ready.")
+    return login(paths) if arguments.login else 0
+
+
+def _run_login(paths: Paths, _arguments: argparse.Namespace) -> int:
+    return login(paths)
+
+
+def _run_callback(paths: Paths, arguments: argparse.Namespace) -> int:
+    return complete_login(paths, arguments.url or "")
+
+
+def _run_add(paths: Paths, arguments: argparse.Namespace) -> int:
+    game = add(
+        paths,
+        arguments.app,
+        build_selector=arguments.build,
+        executable=arguments.executable,
+        arguments=arguments.arguments,
+        jobs=arguments.jobs,
+    )
+    print(f"Installed {game.name} as {game.slug}.")
+    if not arguments.no_steam:
+        print(f"Added to Steam ({sync_with_restart(paths)}).")
+    return 0
+
+
+def _run_add_local(paths: Paths, arguments: argparse.Namespace) -> int:
+    game = add_local(
+        paths,
+        arguments.executable,
+        name=arguments.name,
+        root=arguments.root,
+        arguments=arguments.arguments,
+        app_key=arguments.app_key,
+        artwork=arguments.artwork,
+        version=arguments.game_version,
+    )
+    print(f"Added local game {game.name} as {game.slug}.")
+    if not arguments.no_steam:
+        print(f"Added to Steam ({sync_with_restart(paths)}).")
+    return 0
+
+
+def _run_steam_launch(paths: Paths, arguments: argparse.Namespace) -> int:
+    from .steam_oculus import game_from_steam_command
+
+    if arguments.steam_command in (["-h"], ["--help"]):
+        parser().parse_args(["launch-steam", "--help"])
+    discovered = steam_oculus_game(arguments.app_id)
+    return launch(
+        paths, game_from_steam_command(discovered, arguments.steam_command), []
+    )
+
+
+def _run_launch(paths: Paths, arguments: argparse.Namespace) -> int:
+    if arguments.arguments in (["-h"], ["--help"]):
+        parser().parse_args(["launch", "--help"])
+    return launch(paths, Game.load(paths, arguments.slug), arguments.arguments)
+
+
+def _run_steam_oculus_ids(_paths: Paths, _arguments: argparse.Namespace) -> int:
+    for game in steam_oculus_games():
+        print(game.app_id)
+    return 0
+
+
+def _run_list(paths: Paths, _arguments: argparse.Namespace) -> int:
+    installed = games(paths)
+    if not installed:
+        print(
+            "No games installed. Use 'riftlift add STORE_URL' or "
+            "'riftlift add-local GAME.exe'."
+        )
+    for game in installed:
+        played = playtime_label(playtime(paths, game.slug))
+        print(f"{game.slug:<36} {game.name} {game.version} [{played}]")
+    return 0
+
+
+def _run_metadata(paths: Paths, arguments: argparse.Namespace) -> int:
+    installed = [Game.load(paths, arguments.slug)] if arguments.slug else games(paths)
+    for game in installed:
+        populate_game_metadata(paths, game, refresh=arguments.refresh)
+        print(f"Updated metadata for {game.name}.")
+    return 0
+
+
+def _run_steam_sync(paths: Paths, _arguments: argparse.Namespace) -> int:
+    print(sync_with_restart(paths))
+    return 0
+
+
+def _run_doctor(paths: Paths, arguments: argparse.Namespace) -> int:
+    return doctor(paths, paste=not arguments.no_paste)
+
+
 def run(arguments: argparse.Namespace) -> int:
-    paths = Paths.defaults()
-    if arguments.command == "gui":
-        from .gui import main as gui_main
-
-        return gui_main()
-    if arguments.command == "setup":
-        setup(paths)
-        print("RiftLift compatibility stack is ready.")
-        return login(paths) if arguments.login else 0
-    if arguments.command == "login":
-        return login(paths)
-    if arguments.command == "callback":
-        import os
-
-        url = arguments.url or os.environ.get("RIFTLIFT_CALLBACK_URL", "")
-        return complete_login(paths, url)
-    if arguments.command == "add":
-        game = add(
-            paths,
-            arguments.app,
-            build_selector=arguments.build,
-            executable=arguments.executable,
-            arguments=arguments.arguments,
-            jobs=arguments.jobs,
-        )
-        print(f"Installed {game.name} as {game.slug}.")
-        if not arguments.no_steam:
-            target = sync_with_restart(paths)
-            print(f"Added to Steam ({target}).")
-        return 0
-    if arguments.command == "add-local":
-        game = add_local(
-            paths,
-            arguments.executable,
-            name=arguments.name,
-            root=arguments.root,
-            arguments=arguments.arguments,
-            app_key=arguments.app_key,
-            artwork=arguments.artwork,
-            version=arguments.game_version,
-        )
-        print(f"Added local game {game.name} as {game.slug}.")
-        if not arguments.no_steam:
-            target = sync_with_restart(paths)
-            print(f"Added to Steam ({target}).")
-        return 0
-    if arguments.command == "launch":
-        return launch(paths, Game.load(paths, arguments.slug), arguments.arguments)
-    if arguments.command == "launch-steam":
-        from .steam_oculus import game_from_steam_command
-
-        discovered = steam_oculus_game(arguments.app_id)
-        game = game_from_steam_command(discovered, arguments.steam_command)
-        return launch(paths, game, [])
-    if arguments.command == "steam-oculus-ids":
-        for game in steam_oculus_games():
-            print(game.app_id)
-        return 0
-    if arguments.command == "list":
-        installed = games(paths)
-        if not installed:
-            print(
-                "No games installed. Use 'riftlift add STORE_URL' or "
-                "'riftlift add-local GAME.exe'."
-            )
-        for game in installed:
-            played = playtime_label(playtime(paths, game.slug))
-            print(f"{game.slug:<36} {game.name} {game.version} [{played}]")
-        return 0
-    if arguments.command == "steam-sync":
-        print(sync_with_restart(paths))
-        return 0
-    if arguments.command == "metadata":
-        installed = (
-            [Game.load(paths, arguments.slug)] if arguments.slug else games(paths)
-        )
-        for game in installed:
-            populate_game_metadata(paths, game, refresh=arguments.refresh)
-            print(f"Updated metadata for {game.name}.")
-        return 0
-    if arguments.command == "doctor":
-        return doctor(paths, paste=not arguments.no_paste)
-    raise AssertionError(arguments.command)
+    handlers = {
+        "gui": _run_gui,
+        "setup": _run_setup,
+        "login": _run_login,
+        "callback": _run_callback,
+        "add": _run_add,
+        "add-local": _run_add_local,
+        "launch": _run_launch,
+        "launch-steam": _run_steam_launch,
+        "steam-oculus-ids": _run_steam_oculus_ids,
+        "list": _run_list,
+        "steam-sync": _run_steam_sync,
+        "metadata": _run_metadata,
+        "doctor": _run_doctor,
+    }
+    return handlers[arguments.command](Paths.defaults(), arguments)
 
 
 def main(argv: list[str] | None = None) -> int:
     values = list(sys.argv[1:] if argv is None else argv)
-    # REMAINDER intentionally forwards game switches, but an otherwise bare
-    # help flag after the required game identifier must still be CLI help. It
-    # is far too surprising for `riftlift launch-steam APP --help` to start a
-    # VR title. Games that genuinely need this argument can use `-- --help`.
-    if (
-        len(values) == 3
-        and values[0] in {"launch", "launch-steam"}
-        and values[2] in {"-h", "--help"}
-    ):
-        parser().parse_args([values[0], "--help"])
     try:
         return run(parser().parse_args(values))
     except KeyboardInterrupt:
