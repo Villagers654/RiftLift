@@ -7,6 +7,7 @@ from riftlift.config import Game, Paths
 from riftlift.steam_oculus import (
     add_steam_game,
     game_from_steam_command,
+    steam_library_roots,
     steam_oculus_game,
     steam_oculus_games,
 )
@@ -51,6 +52,22 @@ def test_discovers_unity_oculus_game_without_title_or_app_id_rules(
     assert game.app_key == "steam.app.1001"
     assert game.executable == "CanvasVR.exe"
     assert game.version == "8267878"
+
+
+def test_discovers_modern_nested_steam_library_paths(tmp_path: Path) -> None:
+    main = tmp_path / "main"
+    secondary = tmp_path / "secondary"
+    (main / "steamapps").mkdir(parents=True)
+    (secondary / "steamapps").mkdir(parents=True)
+    (main / "steamapps/libraryfolders.vdf").write_text(
+        '"libraryfolders"\n{\n'
+        '  "0" { "path" "' + str(main) + '" }\n'
+        '  "1" { "path" "' + str(secondary) + '" }\n'
+        '  "contentstatsid" "123"\n'
+        "}\n"
+    )
+
+    assert steam_library_roots(main) == [main.resolve(), secondary.resolve()]
 
 
 def test_discovers_unreal_oculus_game_and_shipping_binary(tmp_path: Path) -> None:

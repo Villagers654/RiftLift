@@ -15,23 +15,26 @@ from .steam import steam_root
 from .util import RiftLiftError
 
 
-def _quoted_fields(path: Path) -> dict[str, str]:
+def _quoted_pairs(path: Path) -> list[tuple[str, str]]:
     try:
         text = path.read_text(errors="replace")
     except OSError:
-        return {}
-    return dict(re.findall(r'"([^"\\]+)"\s+"([^"\\]*(?:\\.[^"\\]*)*)"', text))
+        return []
+    return re.findall(r'"([^"\\]+)"\s+"([^"\\]*(?:\\.[^"\\]*)*)"', text)
+
+
+def _quoted_fields(path: Path) -> dict[str, str]:
+    return dict(_quoted_pairs(path))
 
 
 def steam_library_roots(root: Path | None = None) -> list[Path]:
     root = (root or steam_root()).resolve()
     result = [root]
-    fields = _quoted_fields(root / "steamapps/libraryfolders.vdf")
-    for key, value in fields.items():
-        if not key.isdecimal():
+    for key, value in _quoted_pairs(root / "steamapps/libraryfolders.vdf"):
+        if key != "path" and not key.isdecimal():
             continue
         candidate = Path(value.replace("\\\\", "\\")).expanduser().resolve()
-        if candidate not in result:
+        if (candidate / "steamapps").is_dir() and candidate not in result:
             result.append(candidate)
     return result
 
