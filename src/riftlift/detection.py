@@ -4,6 +4,8 @@ import os
 import struct
 from pathlib import Path
 
+import pefile
+
 _OCULUS_FILENAMES = {
     "libovrrt64_1.dll",
     "oculusxrplugin.dll",
@@ -54,111 +56,30 @@ def _contains_any(path: Path, needles: tuple[bytes, ...]) -> bool:
 
 
 def _pe_imported_dlls(path: Path) -> set[str] | None:
-    """Read normal and delay-load DLL imports from a PE image.
-
-    Return ``None`` for malformed/non-PE input so callers can retain a safe
-    string-probe fallback for clients that load their graphics API dynamically.
-    """
-
+    """Read normal and delay-load DLL imports with the standard PE parser."""
+    directories = [
+        pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"],
+        pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT"],
+    ]
     try:
-        with path.open("rb") as stream:
-            dos = stream.read(64)
-            if len(dos) < 64 or dos[:2] != b"MZ":
-                return None
-            pe_offset = struct.unpack_from("<I", dos, 0x3C)[0]
-            stream.seek(pe_offset)
-            if stream.read(4) != b"PE\0\0":
-                return None
-            coff = stream.read(20)
-            if len(coff) != 20:
-                return None
-            section_count = struct.unpack_from("<H", coff, 2)[0]
-            optional_size = struct.unpack_from("<H", coff, 16)[0]
-            optional = stream.read(optional_size)
-            if len(optional) != optional_size or len(optional) < 120:
-                return None
-            magic = struct.unpack_from("<H", optional)[0]
-            if magic == 0x20B:
-                directories_offset = 112
-                image_base = struct.unpack_from("<Q", optional, 24)[0]
-            elif magic == 0x10B:
-                directories_offset = 96
-                image_base = struct.unpack_from("<I", optional, 28)[0]
-            else:
-                return None
-
-            def directory(index: int) -> tuple[int, int]:
-                offset = directories_offset + index * 8
-                if offset + 8 > len(optional):
-                    return 0, 0
-                return struct.unpack_from("<II", optional, offset)
-
-            import_directory = directory(1)
-            delay_directory = directory(13)
-            sections = []
-            for _ in range(section_count):
-                section = stream.read(40)
-                if len(section) != 40:
-                    return None
-                virtual_size, virtual_address, raw_size, raw_offset = (
-                    struct.unpack_from("<IIII", section, 8)
-                )
-                sections.append(
-                    (virtual_address, max(virtual_size, raw_size), raw_offset, raw_size)
-                )
-
-            def file_offset(rva: int) -> int | None:
-                for virtual_address, span, raw_offset, raw_size in sections:
-                    delta = rva - virtual_address
-                    if 0 <= delta < span and delta < raw_size:
-                        return raw_offset + delta
-                return None
-
-            def dll_name(rva: int) -> str | None:
-                offset = file_offset(rva)
-                if offset is None:
-                    return None
-                stream.seek(offset)
-                payload = stream.read(512).split(b"\0", 1)[0]
-                try:
-                    return payload.decode("ascii").casefold()
-                except UnicodeDecodeError:
-                    return None
-
-            result: set[str] = set()
-
-            import_rva, import_size = import_directory
-            import_offset = file_offset(import_rva)
-            if import_offset is not None:
-                stream.seek(import_offset)
-                for _ in range(min(import_size // 20 + 1, 4096)):
-                    descriptor = stream.read(20)
-                    if len(descriptor) != 20 or descriptor == bytes(20):
-                        break
-                    name = dll_name(struct.unpack_from("<I", descriptor, 12)[0])
-                    if name:
-                        result.add(name)
-                    stream.seek(import_offset + 20 * (_ + 1))
-
-            delay_rva, delay_size = delay_directory
-            delay_offset = file_offset(delay_rva)
-            if delay_offset is not None:
-                stream.seek(delay_offset)
-                for _ in range(min(delay_size // 32 + 1, 4096)):
-                    descriptor = stream.read(32)
-                    if len(descriptor) != 32 or descriptor == bytes(32):
-                        break
-                    attributes, name_address = struct.unpack_from("<II", descriptor)
-                    name_rva = (
-                        name_address if attributes & 1 else name_address - image_base
-                    )
-                    name = dll_name(name_rva) if name_rva >= 0 else None
-                    if name:
-                        result.add(name)
-                    stream.seek(delay_offset + 32 * (_ + 1))
-            return result
-    except (OSError, struct.error, ValueError):
+        image = pefile.PE(str(path), fast_load=True)
+    except (OSError, pefile.PEFormatError):
         return None
+    try:
+        image.parse_data_directories(directories=directories, import_dllnames_only=True)
+        entries = [
+            *getattr(image, "DIRECTORY_ENTRY_IMPORT", ()),
+            *getattr(image, "DIRECTORY_ENTRY_DELAY_IMPORT", ()),
+        ]
+        return {
+            entry.dll.decode("ascii").casefold()
+            for entry in entries
+            if isinstance(getattr(entry, "dll", None), bytes)
+        }
+    except (OSError, pefile.PEFormatError, UnicodeDecodeError):
+        return None
+    finally:
+        image.close()
 
 
 def _walk(directory: Path):

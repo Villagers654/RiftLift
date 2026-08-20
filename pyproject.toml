@@ -20,6 +20,7 @@ classifiers = [
 ]
 dependencies = [
   "meta-pcvr-downloader @ git+https://github.com/Villagers654/meta-pcvr-downloader.git@v0.1.1",
+  "pefile>=2024.8.26",
   "Pillow>=10",
   "PySide6-Essentials>=6.7,<7",
 ]
