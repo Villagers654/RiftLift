@@ -250,6 +250,7 @@ def test_store_action_matches_the_selected_game_source(tmp_path: Path) -> None:
 
     window.show_game(steam)
     assert window.store_link.text() == "Open in Steam ↗"
+    assert window.meta.text().startswith("Steam app 456")
     window.show_game(rift)
     assert window.store_link.text() == "Open in Rift Store ↗"
     local = Game(

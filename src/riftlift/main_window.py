@@ -364,9 +364,12 @@ class Window(QtWidgets.QMainWindow):
             if value
         ]
         if not details:
-            details.append(
-                "Local game" if game.source == "local" else f"Meta app {game.app_id}"
-            )
+            fallback = {
+                "local": "Local game",
+                "steam": f"Steam app {game.steam_app_id or game.app_id}",
+                "meta": f"Meta app {game.app_id}",
+            }
+            details.append(fallback[game.source])
         details.append(playtime_label(playtime(self.paths, game.slug)))
         self.meta.setText(" • ".join(details))
         self.detail.set_artwork(game.artwork.get("portrait", ""))
