@@ -60,6 +60,14 @@ def test_steamvr_build_identity_uses_valve_version_file(tmp_path: Path) -> None:
     assert _installed_openvr_build(steamvr, "steamvr") == "SteamVR 1781734990"
 
 
+def test_missing_bundled_xrizer_is_not_reported_as_external(tmp_path: Path) -> None:
+    assert _installed_openvr_build(tmp_path / "xrizer", "xrizer") == "missing"
+    assert (
+        _installed_openvr_build(tmp_path / "custom-runtime", "external")
+        == "external-unversioned:custom-runtime"
+    )
+
+
 def test_steamvr_build_is_expected_as_captured_not_as_bundled_xrizer() -> None:
     components = {"openvr_runtime": "SteamVR 1781734990"}
 

@@ -233,7 +233,7 @@ def _installed_openvr_build(path: Path, kind: str) -> str:
             build = ""
         return f"SteamVR {build[:160]}" if build else "SteamVR (build unknown)"
     installed = _installed_build(path)
-    if installed == "missing" and str(path):
+    if kind == "external" and installed == "missing":
         return f"external-unversioned:{path.name}"
     return installed
 
