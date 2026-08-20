@@ -39,6 +39,7 @@ from .runtime import (
     DXVK_VERSION,
     META_CLIENT_COMPAT_MARKER,
     META_PACKAGES,
+    META_VERSION,
     OPENVR_RUNTIME_VERSION,
     PROTON_VERSION,
     RUNTIME_VERSION,
@@ -85,7 +86,7 @@ _EXPECTED_BUILD_COMPONENTS = {
     "proton": PROTON_VERSION,
     "dxvk": f"{DXVK_VERSION} sha256:{DXVK_SHA256[:12]}",
     **{
-        f"meta_{package.name.replace('-', '_')}": f"205.0 sha256:{package.sha256[:12]}"
+        f"meta_{package.name.replace('-', '_')}": f"{META_VERSION} sha256:{package.sha256[:12]}"
         for package in META_PACKAGES
     },
     "meta_client_patch": META_CLIENT_COMPAT_MARKER,
@@ -244,7 +245,7 @@ def _installed_meta_builds(paths: Paths) -> dict[str, str]:
         except (OSError, json.JSONDecodeError):
             sha256 = ""
         result[f"meta_{package.name.replace('-', '_')}"] = (
-            f"205.0 sha256:{sha256[:12]}" if sha256 else "missing/unknown"
+            f"{META_VERSION} sha256:{sha256[:12]}" if sha256 else "missing/unknown"
         )
     patch = support / "oculus-client" / META_CLIENT_COMPAT_MARKER
     result["meta_client_patch"] = (

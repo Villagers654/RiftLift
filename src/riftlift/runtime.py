@@ -18,6 +18,7 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import __version__
 from .auth import complete_browser_login, sign_out
 from .auth_browser import default_browser, launch_browser_login, stop_browser
 from .config import Paths, debug_logging_enabled
@@ -29,13 +30,16 @@ PROTON_VERSION = "GE-Proton11-3"
 PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{PROTON_VERSION}/{PROTON_VERSION}.tar.gz"
 PROTON_SHA256 = "861c2edc8d40d051fb1e7a692deb953be52bd339c46d90f2b7dde50ddad91266"
 DXVK_VERSION = "3.0.2-riftlift.1"
-DXVK_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.10.1/riftlift-dxvk.tar.gz"
+RELEASE_URL = (
+    f"https://github.com/Villagers654/RiftLift/releases/download/v{__version__}"
+)
+DXVK_URL = f"{RELEASE_URL}/riftlift-dxvk.tar.gz"
 DXVK_SHA256 = "15d2625b9a7f0d01f5096c17211ff8e98ba238ddc0d39de03bb58c2277d7eedc"
-RUNTIME_VERSION = "riftlift-0.10.1"
-RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.10.1/riftlift-compat.zip"
+RUNTIME_VERSION = f"riftlift-{__version__}"
+RUNTIME_URL = f"{RELEASE_URL}/riftlift-compat.zip"
 RUNTIME_SHA256 = "49f3a588cd8e7feb59c2bf93719d4d234ac16371677c3ded66eb14f13a315985"
-OPENVR_RUNTIME_VERSION = "riftlift-0.10.1"
-OPENVR_RUNTIME_URL = "https://github.com/Villagers654/RiftLift/releases/download/v0.10.1/riftlift-xrizer.tar.gz"
+OPENVR_RUNTIME_VERSION = RUNTIME_VERSION
+OPENVR_RUNTIME_URL = f"{RELEASE_URL}/riftlift-xrizer.tar.gz"
 OPENVR_RUNTIME_SHA256 = (
     "f4a48981b88927b2c0c65d861b663fa851d306f5973b5f376d70ef7747217b5b"
 )
@@ -110,6 +114,7 @@ META_PACKAGES = (
         "69a6dedbf6f997459038e9b9e54d6562431c1a107bec17637d59626ab0d36892",
     ),
 )
+META_VERSION = "205.0"
 
 META_CLIENT_COMPAT_MARKER = ".riftlift-client-compat-v11"
 

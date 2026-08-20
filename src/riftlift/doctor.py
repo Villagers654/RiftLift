@@ -40,6 +40,7 @@ from .runtime import (
     META_PACKAGES,
     META_RUNTIME_SIGNED_FILES,
     META_SIGNING_ROOT_THUMBPRINT,
+    META_VERSION,
     OPENVR_RUNTIME_VERSION,
     PROTON_VERSION,
     RUNTIME_VERSION,
@@ -270,7 +271,7 @@ def _current_components(paths: Paths) -> dict[str, str]:
         except (OSError, json.JSONDecodeError):
             sha256 = ""
         meta_builds[f"meta_{package.name.replace('-', '_')}"] = (
-            f"205.0 sha256:{sha256[:12]}" if sha256 else "missing/unknown"
+            f"{META_VERSION} sha256:{sha256[:12]}" if sha256 else "missing/unknown"
         )
     client_patch = support / "oculus-client" / META_CLIENT_COMPAT_MARKER
     meta_builds["meta_client_patch"] = (
@@ -316,7 +317,7 @@ def _expected_components() -> dict[str, str]:
         "proton": PROTON_VERSION,
         "dxvk": f"{DXVK_VERSION} sha256:{DXVK_SHA256[:12]}",
         **{
-            f"meta_{package.name.replace('-', '_')}": f"205.0 sha256:{package.sha256[:12]}"
+            f"meta_{package.name.replace('-', '_')}": f"{META_VERSION} sha256:{package.sha256[:12]}"
             for package in META_PACKAGES
         },
         "meta_client_patch": META_CLIENT_COMPAT_MARKER,
@@ -1564,7 +1565,7 @@ def build_report(paths: Paths) -> tuple[str, bool]:
     )
     lines.extend(
         [
-            f"Pinned Meta Horizon Link packages: {len(META_PACKAGES)} (version 205.0)",
+            f"Pinned Meta Horizon Link packages: {len(META_PACKAGES)} (version {META_VERSION})",
             "",
             f"[Library: {len(installed)} games]",
             *(game_lines or ["No games registered."]),
