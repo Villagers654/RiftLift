@@ -82,7 +82,7 @@ cat >"$applications_root/io.github.villagers654.RiftLift.desktop" <<EOF
 Type=Application
 Name=RiftLift
 Comment=Run owned Meta Rift games on Linux OpenXR
-Exec=$bin_root/riftlift-gui
+Exec="$bin_root/riftlift-gui"
 Icon=io.github.villagers654.RiftLift
 Terminal=false
 Categories=Game;Utility;

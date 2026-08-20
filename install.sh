@@ -22,8 +22,13 @@ ln -sfn "$venv/bin/riftlift-gui" "$bin_root/riftlift-gui"
 applications_root=${XDG_DATA_HOME:-$HOME/.local/share}/applications
 icons_root=${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps
 mkdir -p "$applications_root" "$icons_root"
-cp "$repo_root/assets/io.github.villagers654.RiftLift.desktop" "$applications_root/"
+sed "s|^Exec=.*|Exec=\"$bin_root/riftlift-gui\"|" \
+  "$repo_root/assets/io.github.villagers654.RiftLift.desktop" \
+  >"$applications_root/io.github.villagers654.RiftLift.desktop"
 cp "$repo_root/assets/io.github.villagers654.RiftLift.svg" "$icons_root/"
+if command -v update-desktop-database >/dev/null; then
+  update-desktop-database "$applications_root" >/dev/null 2>&1 || true
+fi
 
 echo "Installed RiftLift at $bin_root/riftlift"
 "$bin_root/riftlift" setup
