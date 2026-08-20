@@ -1,5 +1,4 @@
 #include <string>
-#include <codecvt>
 #include <vector>
 
 #include <Windows.h>
@@ -16,6 +15,20 @@ extern FILE* g_LogFile;
 					fflush(g_LogFile);
 
 FILE* g_LogFile = NULL;
+
+bool WideToUtf8(const wchar_t* value, std::string& result)
+{
+	int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, -1,
+		NULL, 0, NULL, NULL);
+	if (size <= 0)
+		return false;
+	std::vector<char> buffer(static_cast<size_t>(size));
+	if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, -1,
+		buffer.data(), size, NULL, NULL) <= 0)
+		return false;
+	result.assign(buffer.data(), static_cast<size_t>(size - 1));
+	return true;
+}
 
 bool GetOculusBasePath(PWCHAR path, DWORD length)
 {
@@ -146,16 +159,6 @@ public:
 		strings.push_back(str);
 	}
 
-	void clear()
-	{
-		strings.clear();
-	}
-
-	const std::string& at(size_t index) const
-	{
-		return strings.at(index);
-	}
-
 	std::vector<const char*> pointers() const
 	{
 		std::vector<const char*> result;
@@ -168,11 +171,6 @@ public:
 	bool empty()
 	{
 		return strings.empty();
-	}
-
-	size_t size()
-	{
-		return strings.size();
 	}
 
 private:
@@ -234,7 +232,18 @@ int wmain(int argc, wchar_t *argv[]) {
 		}
 		else if (wcscmp(argv[i], L"/app") == 0)
 		{
-			appKey = "riftlift.app." + std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t>().to_bytes(argv[++i]);
+			if (++i >= argc)
+			{
+				LOG("Missing value for /app (%lu)\n", ERROR_INVALID_PARAMETER);
+				return -1;
+			}
+			std::string key;
+			if (!WideToUtf8(argv[i], key))
+			{
+				LOG("Invalid UTF-16 value for /app (%lu)\n", GetLastError());
+				return -1;
+			}
+			appKey = "riftlift.app." + key;
 		}
 		else if (wcscmp(argv[i], L"/base") == 0)
 		{
