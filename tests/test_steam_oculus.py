@@ -109,6 +109,25 @@ def test_steam_expanded_command_selects_actual_executable_and_arguments(
     assert selected.arguments == ["-mode", "vr"]
 
 
+def test_steam_command_does_not_treat_an_argument_as_the_game(
+    tmp_path: Path,
+) -> None:
+    directory = _manifest(tmp_path, "ToolArgument", "1005")
+    game_executable = directory / "Game.exe"
+    helper = directory / "Tools/Configurator.exe"
+    _pe64(game_executable, b"\0LibOVRRT64_1.dll\0")
+    _pe64(helper)
+    game = steam_oculus_games(tmp_path)[0]
+
+    selected = game_from_steam_command(
+        game,
+        ["--", str(game_executable), "--configuration-tool", str(helper)],
+    )
+
+    assert selected.executable == "Game.exe"
+    assert selected.arguments == ["--configuration-tool", str(helper)]
+
+
 def test_rejects_unknown_or_non_oculus_game(tmp_path: Path) -> None:
     _manifest(tmp_path, "DesktopGame", "123")
     _pe64(tmp_path / "steamapps/common/DesktopGame/DesktopGame.exe")

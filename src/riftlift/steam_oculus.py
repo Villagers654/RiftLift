@@ -90,6 +90,7 @@ def game_from_steam_command(game: Game, command: list[str]) -> Game:
             continue
         if candidate.is_file():
             selected = (index, candidate)
+            break
     if selected is None:
         return game
     index, executable = selected
