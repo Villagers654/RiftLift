@@ -219,6 +219,9 @@ jobs:
         run: |
           $archive = Join-Path $env:RUNNER_TEMP 'oculus-sdk.zip'
           Invoke-WebRequest 'https://securecdn.oculus.com/binaries/download/?id=4377593722298679' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '3c8aeb66c822af731a8d1f1cb1cf97ab706100bf0bd003ef126f4bb9812906b3') {
+            throw 'Oculus PC SDK checksum mismatch'
+          }
           Expand-Archive $archive -DestinationPath Externals -Force
       - name: Restore vcpkg binary cache
         uses: actions/cache@v4
