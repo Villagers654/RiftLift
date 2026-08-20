@@ -20,6 +20,7 @@ jobs:
       runtime: ${{ steps.filter.outputs.runtime }}
       xrizer: ${{ steps.filter.outputs.xrizer }}
       dxvk: ${{ steps.filter.outputs.dxvk }}
+      compatibility: ${{ steps.filter.outputs.compatibility }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -36,12 +37,14 @@ jobs:
           runtime=false
           xrizer=false
           dxvk=false
+          compatibility=false
 
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
             app=true
             runtime=true
             xrizer=true
             dxvk=true
+            compatibility=true
           else
             base="$BEFORE_SHA"
             if [[ "$EVENT_NAME" == pull_request ]]; then
@@ -53,6 +56,7 @@ jobs:
               runtime=true
               xrizer=true
               dxvk=true
+              compatibility=true
             else
               while IFS= read -r path; do
                 case "$path" in
@@ -61,8 +65,12 @@ jobs:
                     runtime=true
                     xrizer=true
                     dxvk=true
+                    compatibility=true
                     ;;
-                  src/*|tests/*|scripts/*|install.sh|pyproject.toml)
+                  compat/*|scripts/build-platform-shim.sh)
+                    compatibility=true
+                    ;;
+                  src/*|tests/*|scripts/*|assets/*|install.sh|pyproject.toml)
                     app=true
                     ;;
                   runtime/*)
@@ -87,6 +95,7 @@ jobs:
           echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
           echo "xrizer=$xrizer" >> "$GITHUB_OUTPUT"
           echo "dxvk=$dxvk" >> "$GITHUB_OUTPUT"
+          echo "compatibility=$compatibility" >> "$GITHUB_OUTPUT"
 
   test:
     needs: changes
@@ -168,6 +177,23 @@ jobs:
           git clone --filter=blob:none https://github.com/doitsujin/dxvk.git "$RUNNER_TEMP/dxvk-source"
           git -C "$RUNNER_TEMP/dxvk-source" checkout 3a4c6fa3cb1548d56a90a38dd8f526b6c13e63fd
           git -C "$RUNNER_TEMP/dxvk-source" apply --check "$GITHUB_WORKSPACE/components/dxvk/monotonic-fence-signals.patch"
+
+  platform-shim:
+    needs: changes
+    if: needs.changes.outputs.compatibility == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install PE tooling
+        run: sudo apt-get update && sudo apt-get install -y llvm mingw-w64 unzip
+      - name: Build the platform compatibility shim
+        shell: bash
+        run: |
+          curl --fail --location --output platform.pkg \
+            "https://securecdn-atl3-3.oculus.com/binaries/download/?id=3766757683456363"
+          echo "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009  platform.pkg" | sha256sum -c -
+          unzip -q platform.pkg LibOVRPlatformImpl64_1.dll
+          scripts/build-platform-shim.sh LibOVRPlatformImpl64_1.dll RiftLiftPlatformShim.dll
 
   runtime-windows-bridge:
     needs: changes
