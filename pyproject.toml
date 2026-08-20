@@ -52,6 +52,7 @@ line-length = 88
 select = [
   "B",    # likely bugs and unsafe constructs
   "C4",   # unnecessary collection transformations
+  "C90",  # excessive branch complexity
   "E4",   # import errors
   "E7",   # statement errors
   "E9",   # runtime and syntax errors

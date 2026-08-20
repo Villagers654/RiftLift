@@ -321,6 +321,74 @@ def _install_meta_signing_root(paths: Paths, support: Path) -> None:
     marker.write_text(f"{META_SIGNING_ROOT_THUMBPRINT}\n")
 
 
+_META_CLIENT_REPLACEMENTS = (
+    (b'showBehavior:"whenSignaled"', b'showBehavior:"whenLoaded"  ', 2),
+    (
+        b'show:!1,title:"Meta Horizon Link Client"',
+        b'show:!0,title:"Meta Horizon Link Client"',
+        2,
+    ),
+    # OAF FastIPC never returns /auth/gettoken under Wine. Keep the token in
+    # RiftLift's isolated Electron profile, which persists with the prefix.
+    (
+        b'fetchAccessToken:async()=>(0,i.default)(r.default.GET_AUTH_TOKEN),invalidateAccessToken:async()=>{throw new Error("invalidateAccessToken not implemented")}',
+        b'fetchAccessToken:async()=>localStorage.getItem("riftlift-token")||"",invalidateAccessToken:async()=>0                                                      ',
+        3,
+    ),
+    # Proton has a valid built-in en-US locale, but OAF's language request
+    # hangs for a fresh prefix. Initialize FBT with Meta's own compiled-in
+    # locale before releasing readiness; this preserves every translation
+    # invariant without depending on the broken IPC response.
+    (
+        b't.initialize=async()=>{const e=await r.default.fetchLanguageTag(f);f(e,"never",!0),h.set()}',
+        b't.initialize=()=>{f(o.LANGUAGE_TAG,"never",!0),h.set()}                                    ',
+        2,
+    ),
+    # OAF consumes these token writes but its Wine FastIPC server does not
+    # acknowledge them. Do not deadlock the login state machine waiting for
+    # acknowledgements; the calls still run and the primary access token is
+    # also committed to the renderer's token store immediately afterward.
+    (
+        b"t.setAccessToken=async(e,t)=>{await(0,d.default)(c.default.SET_AUTH_TOKEN,{token:e}),r.default.set(e),t.initialize&&await(0,p.initialize)(!0)};",
+        b't.setAccessToken=async(e,t)=>{localStorage.setItem("riftlift-token",e),r.default.set(e),t.initialize&&await(0,p.initialize)(!0)};              ',
+        1,
+    ),
+    (
+        b"await(0,d.default)(c.default.SET_FRL_AUTH_TOKEN,{token:e})",
+        b"void (0,d.default)(c.default.SET_FRL_AUTH_TOKEN,{token:e})",
+        1,
+    ),
+    (
+        b"await(0,d.default)(c.default.SET_AUTH_META_TOKEN,{metatoken:e})",
+        b"void (0,d.default)(c.default.SET_AUTH_META_TOKEN,{metatoken:e})",
+        1,
+    ),
+    (
+        b"await(0,d.default)(c.default.SET_AUTH_TOKENTYPE,{tokentype:e})",
+        b"void (0,d.default)(c.default.SET_AUTH_TOKENTYPE,{tokentype:e})",
+        1,
+    ),
+    # Session initialization fans out across account state plus many
+    # Windows-only hardware/social helpers. Preserve every initializer and
+    # its failures, but prevent any missing OAF acknowledgement from
+    # holding the entire authenticated session indefinitely.
+    (
+        b'const _=async e=>{try{await e()}catch(e){throw(0,i.logUnexpectedError)("Skyline",e),e}};',
+        b"const _=e=>Promise.race([e(),new Promise(e=>setTimeout(e,5e3))]);                       ",
+        1,
+    ),
+    # Wine's optional native focus helper expects a Windows HWND string but
+    # receives Electron's integer pipe response. The callback URL has
+    # already been sent at this point; skip only the cosmetic focus call so
+    # the helper exits cleanly instead of reporting a false login failure.
+    (
+        b"A&&A.giveFocus(e.readUInt32LE(0))",
+        b"0&&A.giveFocus(e.readUInt32LE(0))",
+        1,
+    ),
+)
+
+
 def patch_meta_client(client: Path) -> None:
     """Apply deterministic installer and Wine IPC compatibility fixes."""
     resources = client / "resources"
@@ -339,73 +407,7 @@ def patch_meta_client(client: Path) -> None:
     if marker.is_file():
         return
     payload = archive.read_bytes()
-    replacements = (
-        (b'showBehavior:"whenSignaled"', b'showBehavior:"whenLoaded"  ', 2),
-        (
-            b'show:!1,title:"Meta Horizon Link Client"',
-            b'show:!0,title:"Meta Horizon Link Client"',
-            2,
-        ),
-        # OAF FastIPC never returns /auth/gettoken under Wine. Keep the token in
-        # RiftLift's isolated Electron profile, which persists with the prefix.
-        (
-            b'fetchAccessToken:async()=>(0,i.default)(r.default.GET_AUTH_TOKEN),invalidateAccessToken:async()=>{throw new Error("invalidateAccessToken not implemented")}',
-            b'fetchAccessToken:async()=>localStorage.getItem("riftlift-token")||"",invalidateAccessToken:async()=>0                                                      ',
-            3,
-        ),
-        # Proton has a valid built-in en-US locale, but OAF's language request
-        # hangs for a fresh prefix. Initialize FBT with Meta's own compiled-in
-        # locale before releasing readiness; this preserves every translation
-        # invariant without depending on the broken IPC response.
-        (
-            b't.initialize=async()=>{const e=await r.default.fetchLanguageTag(f);f(e,"never",!0),h.set()}',
-            b't.initialize=()=>{f(o.LANGUAGE_TAG,"never",!0),h.set()}                                    ',
-            2,
-        ),
-        # OAF consumes these token writes but its Wine FastIPC server does not
-        # acknowledge them. Do not deadlock the login state machine waiting for
-        # acknowledgements; the calls still run and the primary access token is
-        # also committed to the renderer's token store immediately afterward.
-        (
-            b"t.setAccessToken=async(e,t)=>{await(0,d.default)(c.default.SET_AUTH_TOKEN,{token:e}),r.default.set(e),t.initialize&&await(0,p.initialize)(!0)};",
-            b't.setAccessToken=async(e,t)=>{localStorage.setItem("riftlift-token",e),r.default.set(e),t.initialize&&await(0,p.initialize)(!0)};              ',
-            1,
-        ),
-        (
-            b"await(0,d.default)(c.default.SET_FRL_AUTH_TOKEN,{token:e})",
-            b"void (0,d.default)(c.default.SET_FRL_AUTH_TOKEN,{token:e})",
-            1,
-        ),
-        (
-            b"await(0,d.default)(c.default.SET_AUTH_META_TOKEN,{metatoken:e})",
-            b"void (0,d.default)(c.default.SET_AUTH_META_TOKEN,{metatoken:e})",
-            1,
-        ),
-        (
-            b"await(0,d.default)(c.default.SET_AUTH_TOKENTYPE,{tokentype:e})",
-            b"void (0,d.default)(c.default.SET_AUTH_TOKENTYPE,{tokentype:e})",
-            1,
-        ),
-        # Session initialization fans out across account state plus many
-        # Windows-only hardware/social helpers. Preserve every initializer and
-        # its failures, but prevent any missing OAF acknowledgement from
-        # holding the entire authenticated session indefinitely.
-        (
-            b'const _=async e=>{try{await e()}catch(e){throw(0,i.logUnexpectedError)("Skyline",e),e}};',
-            b"const _=e=>Promise.race([e(),new Promise(e=>setTimeout(e,5e3))]);                       ",
-            1,
-        ),
-        # Wine's optional native focus helper expects a Windows HWND string but
-        # receives Electron's integer pipe response. The callback URL has
-        # already been sent at this point; skip only the cosmetic focus call so
-        # the helper exits cleanly instead of reporting a false login failure.
-        (
-            b"A&&A.giveFocus(e.readUInt32LE(0))",
-            b"0&&A.giveFocus(e.readUInt32LE(0))",
-            1,
-        ),
-    )
-    for old, new, expected in replacements:
+    for old, new, expected in _META_CLIENT_REPLACEMENTS:
         count = payload.count(old)
         if count != expected:
             raise RiftLiftError(
@@ -463,16 +465,56 @@ def install_proton(paths: Paths) -> Path:
     return target
 
 
+_DXVK_FILES = {
+    "x64/d3d11.dll": "x86_64-windows/d3d11.dll",
+    "x64/dxgi.dll": "x86_64-windows/dxgi.dll",
+    "x32/d3d11.dll": "i386-windows/d3d11.dll",
+    "x32/dxgi.dll": "i386-windows/dxgi.dll",
+}
+
+
+def _dxvk_current(marker: Path, destination: Path, artifact_sha256: str) -> bool:
+    try:
+        installed = json.loads(marker.read_text())
+        installed_files = installed.get("files", {})
+        return (
+            installed.get("version") == DXVK_VERSION
+            and installed.get("artifact_sha256") == artifact_sha256
+            and all(
+                installed_files.get(relative) == sha256(destination / relative)
+                for relative in _DXVK_FILES.values()
+            )
+        )
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return False
+
+
+def _install_dxvk_files(source: Path, destination: Path) -> dict[str, str]:
+    try:
+        packaged_version = (source / "VERSION").read_text().strip()
+    except OSError as error:
+        raise RiftLiftError("RiftLift DXVK payload is incomplete") from error
+    if packaged_version != DXVK_VERSION:
+        raise RiftLiftError(
+            f"RiftLift DXVK payload has unexpected version {packaged_version!r}"
+        )
+    file_hashes: dict[str, str] = {}
+    for packaged, installed_path in _DXVK_FILES.items():
+        try:
+            payload = (source / packaged).read_bytes()
+        except OSError as error:
+            raise RiftLiftError("RiftLift DXVK payload is incomplete") from error
+        if payload[:2] != b"MZ":
+            raise RiftLiftError("RiftLift DXVK payload is incomplete")
+        target = destination / installed_path
+        atomic_write_bytes(target, payload, mode=0o644)
+        file_hashes[installed_path] = sha256(target)
+    return file_hashes
+
+
 def install_dxvk_compat(paths: Paths, proton: Path) -> Path:
-    """Install RiftLift's generic D3D fence fix into its dedicated Proton."""
     destination = proton / "files/lib/wine/dxvk"
     marker = destination / ".riftlift-dxvk.json"
-    required = {
-        "x64/d3d11.dll": "x86_64-windows/d3d11.dll",
-        "x64/dxgi.dll": "x86_64-windows/dxgi.dll",
-        "x32/d3d11.dll": "i386-windows/d3d11.dll",
-        "x32/dxgi.dll": "i386-windows/dxgi.dll",
-    }
     override = os.environ.get("RIFTLIFT_DXVK_ARCHIVE")
     if override:
         archive = Path(override).expanduser()
@@ -482,20 +524,8 @@ def install_dxvk_compat(paths: Paths, proton: Path) -> Path:
             raise RiftLiftError("RiftLift DXVK release checksum is not configured")
         artifact_sha256 = DXVK_SHA256
 
-    try:
-        installed = json.loads(marker.read_text())
-        installed_files = installed.get("files", {})
-        if (
-            installed.get("version") == DXVK_VERSION
-            and installed.get("artifact_sha256") == artifact_sha256
-            and all(
-                installed_files.get(relative) == sha256(destination / relative)
-                for relative in required.values()
-            )
-        ):
-            return destination
-    except (OSError, json.JSONDecodeError, AttributeError):
-        pass
+    if _dxvk_current(marker, destination, artifact_sha256):
+        return destination
 
     if not override:
         archive = download(
@@ -509,26 +539,7 @@ def install_dxvk_compat(paths: Paths, proton: Path) -> Path:
     try:
         _safe_tar(archive, staging)
         source = staging / "dxvk"
-        try:
-            packaged_version = (source / "VERSION").read_text().strip()
-        except OSError as error:
-            raise RiftLiftError("RiftLift DXVK payload is incomplete") from error
-        if packaged_version != DXVK_VERSION:
-            raise RiftLiftError(
-                f"RiftLift DXVK payload has unexpected version {packaged_version!r}"
-            )
-
-        file_hashes: dict[str, str] = {}
-        for packaged, installed_path in required.items():
-            source_file = source / packaged
-            if not source_file.is_file() or source_file.read_bytes()[:2] != b"MZ":
-                raise RiftLiftError("RiftLift DXVK payload is incomplete")
-            target = destination / installed_path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            atomic_write_bytes(target, source_file.read_bytes(), mode=0o644)
-            file_hashes[installed_path] = sha256(target)
-
-        marker.parent.mkdir(parents=True, exist_ok=True)
+        file_hashes = _install_dxvk_files(source, destination)
         atomic_write_text(
             marker,
             json.dumps(
