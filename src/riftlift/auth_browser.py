@@ -48,15 +48,17 @@ def _flatpak_installed(application_id: str) -> bool:
     flatpak = shutil.which("flatpak")
     if flatpak is None:
         return False
-    return (
-        subprocess.run(
+    try:
+        result = subprocess.run(
             (flatpak, "info", application_id),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            timeout=5,
             check=False,
-        ).returncode
-        == 0
-    )
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
 
 
 def _alias_browser(alias: str) -> Browser | None:
@@ -199,12 +201,16 @@ def default_browser() -> Browser:
     xdg_settings = shutil.which("xdg-settings")
     if xdg_settings is None:
         raise RiftLiftError("could not detect the system default browser")
-    result = subprocess.run(
-        (xdg_settings, "get", "default-web-browser"),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            (xdg_settings, "get", "default-web-browser"),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RiftLiftError("could not query the system default browser") from error
     desktop_id = result.stdout.strip()
     if not desktop_id:
         raise RiftLiftError("no system default browser is configured")

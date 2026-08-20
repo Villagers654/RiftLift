@@ -23,6 +23,14 @@ META_AUTH_URL = "https://auth.meta.com/native_sso/confirm"
 PROFILE_TOKEN_DOCUMENT = "24112177345042346"
 
 
+def _desktop_exec_argument(value: str) -> str:
+    """Quote one literal argument using the Desktop Entry specification."""
+    escaped = value.replace("%", "%%").replace("\\", "\\\\\\\\")
+    for reserved in ('"', "`", "$"):
+        escaped = escaped.replace(reserved, "\\\\" + reserved)
+    return f'"{escaped}"'
+
+
 def _multipart(fields: dict[str, str]) -> tuple[bytes, str]:
     boundary = f"----RiftLift{secrets.token_hex(16)}"
     body = bytearray()
@@ -88,15 +96,16 @@ def install_protocol_handler() -> Path:
     applications.mkdir(parents=True, exist_ok=True)
     desktop = applications / "riftlift-meta-login.desktop"
     executable = installed_command("riftlift")
+    command = _desktop_exec_argument(str(executable))
     atomic_write_text(
         desktop,
         "[Desktop Entry]\n"
         "Type=Application\n"
         "Name=RiftLift Meta Login\n"
         "NoDisplay=true\n"
-        f"Exec={executable} callback %u\n"
+        f"Exec={command} callback %u\n"
         "MimeType=x-scheme-handler/oculus;x-scheme-handler/oculus-client;\n",
-        mode=0o755,
+        mode=0o644,
     )
     if update_database := shutil.which("update-desktop-database"):
         run((update_database, str(applications)))

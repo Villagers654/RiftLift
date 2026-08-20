@@ -269,7 +269,7 @@ def sync(
         _install_artwork(game, game.steam_app_id, target.parent)
         _install_wayvr_metadata(game, game.steam_app_id)
     if target.is_file():
-        backup = target.with_name(f"shortcuts.vdf.riftlift-{int(time.time())}.bak")
+        backup = target.with_name("shortcuts.vdf.riftlift.bak")
         shutil.copy2(target, backup)
     atomic_write_bytes(target, dumps(document))
     return target
@@ -284,12 +284,18 @@ def sync_with_restart(paths: Paths, launcher: Path | None = None) -> Path:
                 "Steam is running but its launcher is not on PATH; exit it and retry"
             )
         print("Restarting Steam once so it can safely import the RiftLift shortcut...")
-        subprocess.run(
-            (steam, "-shutdown"),
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        try:
+            subprocess.run(
+                (steam, "-shutdown"),
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=20,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RiftLiftError(
+                "Steam did not respond to its shutdown command"
+            ) from error
         for _ in range(100):
             if not _steam_running():
                 break

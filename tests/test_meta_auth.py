@@ -48,7 +48,7 @@ def test_session_creates_a_native_sso_challenge(tmp_path, monkeypatch) -> None:
 
 
 def test_protocol_handler_uses_the_installed_command(tmp_path, monkeypatch) -> None:
-    executable = tmp_path / "bin/riftlift"
+    executable = tmp_path / "bin with spaces/riftlift"
     executable.parent.mkdir()
     executable.touch()
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -58,7 +58,8 @@ def test_protocol_handler_uses_the_installed_command(tmp_path, monkeypatch) -> N
 
     desktop = install_protocol_handler()
 
-    assert f"Exec={executable} callback %u" in desktop.read_text()
+    assert f'Exec="{executable}" callback %u' in desktop.read_text()
+    assert desktop.stat().st_mode & 0o777 == 0o644
 
 
 def test_protocol_handler_honors_xdg_data_home(tmp_path, monkeypatch) -> None:
