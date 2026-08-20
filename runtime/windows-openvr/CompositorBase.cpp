@@ -131,13 +131,7 @@ ovrResult CompositorBase::WaitToBeginFrame(ovrSession session, long long frameIn
 {
 	MICROPROFILE_SCOPE(WaitToBeginFrame);
 
-	// Wine/Proton + xrizer already waits through the host OpenXR frame loop.
-	// Calling WaitGetPoses here can deadlock before the first submitted frame.
-	// Keep upstream behavior everywhere else and make the compatibility path an
-	// explicit launcher opt-in.
-	vr::VRCompositorError error = vr::VRCompositorError_None;
-	if (!GetEnvironmentVariableW(L"RIFTLIFT_XRIZER", nullptr, 0))
-		error = vr::VRCompositor()->WaitGetPoses(nullptr, 0, nullptr, 0);
+	vr::VRCompositorError error = vr::VRCompositor()->WaitGetPoses(nullptr, 0, nullptr, 0);
 	session->FrameIndex = frameIndex;
 	session->Input->UpdateInputState();
 	return CompositorErrorToOvrError(error);
@@ -394,11 +388,16 @@ vr::VRCompositorError CompositorBase::SubmitLayer(ovrSession session, const ovrL
 		// Shrink the bounds to account for the overlapping fov
 		vr::VRTextureBounds_t fovBounds = FovPortToTextureBounds(desc.Fov, fov);
 
-		// Combine the fov bounds with the viewport bounds
-		bounds.uMin += fovBounds.uMin * (bounds.uMax - bounds.uMin);
-		bounds.uMax = bounds.uMin + fovBounds.uMax * (bounds.uMax - bounds.uMin);
-		bounds.vMin += fovBounds.vMin * (bounds.vMax - bounds.vMin);
-		bounds.vMax = bounds.vMin + fovBounds.vMax * (bounds.vMax - bounds.vMin);
+		// Map the requested FOV into the original viewport. Calculate every
+		// endpoint from the same span: changing the minimum first also changed
+		// the span used for the maximum and could produce invalid texture bounds.
+		const vr::VRTextureBounds_t viewportBounds = bounds;
+		const float viewportWidth = viewportBounds.uMax - viewportBounds.uMin;
+		const float viewportHeight = viewportBounds.vMax - viewportBounds.vMin;
+		bounds.uMin = std::clamp(viewportBounds.uMin + fovBounds.uMin * viewportWidth, 0.0f, 1.0f);
+		bounds.uMax = std::clamp(viewportBounds.uMin + fovBounds.uMax * viewportWidth, 0.0f, 1.0f);
+		bounds.vMin = std::clamp(viewportBounds.vMin + fovBounds.vMin * viewportHeight, 0.0f, 1.0f);
+		bounds.vMax = std::clamp(viewportBounds.vMin + fovBounds.vMax * viewportHeight, 0.0f, 1.0f);
 
 		unsigned int submitFlags = vr::Submit_Default;
 		union
