@@ -56,7 +56,7 @@ jobs:
             else
               while IFS= read -r path; do
                 case "$path" in
-                  .github/workflows/ci.yml)
+                  .github/workflows/*)
                     app=true
                     runtime=true
                     xrizer=true

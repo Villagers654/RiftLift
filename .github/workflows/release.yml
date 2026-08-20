@@ -120,7 +120,9 @@ jobs:
         run: |
           mkdir -p ../../out/xrizer
           cp target/release/libxrizer.so LICENSE ../../out/xrizer/
-          tar -C ../../out -czf ../../riftlift-xrizer.tar.gz xrizer
+          find ../../out/xrizer -type f -exec touch -d '@0' {} +
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -C ../../out -cf - xrizer \
+            | gzip -n -9 > ../../riftlift-xrizer.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: riftlift-xrizer
