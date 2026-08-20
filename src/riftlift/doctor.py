@@ -12,6 +12,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -635,12 +636,7 @@ def _launch_end_epoch(launches: list[dict[str, object]]) -> float | None:
     return min(datetime.now(timezone.utc).timestamp(), started + 6 * 60 * 60) + 5
 
 
-def _recent_game_log_errors(
-    paths: Paths, launches: list[dict[str, object]]
-) -> list[str]:
-    users = paths.prefix / "pfx/drive_c/users"
-    if not users.is_dir():
-        return []
+def _game_log_candidates(users: Path) -> list[Path]:
     candidates: list[Path] = []
     try:
         for root, directories, files in os.walk(users):
@@ -659,44 +655,60 @@ def _recent_game_log_errors(
                 break
     except OSError:
         return []
+    return candidates
 
-    earliest = _launch_epoch(launches)
-    latest = _launch_end_epoch(launches)
+
+def _files_in_window(
+    candidates: list[Path], earliest: float | None, latest: float | None
+) -> list[tuple[float, Path]]:
+    if earliest is None or latest is None:
+        return []
     recent: list[tuple[float, Path]] = []
     for candidate in candidates:
         try:
             modified = candidate.stat().st_mtime
-            if (
-                earliest is not None
-                and latest is not None
-                and earliest <= modified <= latest
-            ):
-                recent.append((modified, candidate))
-        except OSError:
-            pass
-    result = []
-    include_diagnostic_tail = any(_failed_launch(launch) for launch in launches)
-    for _, candidate in sorted(recent, reverse=True)[:3]:
-        try:
-            lines = _tail_lines(candidate)[-500:]
         except OSError:
             continue
-        matches = [
-            redact(line.strip())[:600]
-            for line in lines
-            if _ERROR_LINE.search(line) and not _noisy_evidence(line)
-        ]
-        if matches:
-            result.append(f"{redact(str(candidate))}:")
-            result.extend(f"  {line}" for line in matches[-6:])
-        elif include_diagnostic_tail and candidate.name.casefold() in {
-            "riftliftlauncher.txt",
-            "riftlift-runtime-trace.log",
-        }:
-            tail = [redact(line.strip())[:600] for line in lines[-12:] if line.strip()]
-            if tail:
-                result.append(f"{redact(str(candidate))}:")
-                result.extend(f"  {line}" for line in tail)
+        if earliest <= modified <= latest:
+            recent.append((modified, candidate))
+    return recent
+
+
+def _game_log_evidence(candidate: Path, *, include_tail: bool) -> list[str]:
+    try:
+        lines = _tail_lines(candidate)[-500:]
+    except OSError:
+        return []
+    matches = [
+        redact(line.strip())[:600]
+        for line in lines
+        if _ERROR_LINE.search(line) and not _noisy_evidence(line)
+    ]
+    if matches:
+        return [f"{redact(str(candidate))}:", *(f"  {line}" for line in matches[-6:])]
+    trace_names = {"riftliftlauncher.txt", "riftlift-runtime-trace.log"}
+    if not include_tail or candidate.name.casefold() not in trace_names:
+        return []
+    tail = [redact(line.strip())[:600] for line in lines[-12:] if line.strip()]
+    if not tail:
+        return []
+    return [f"{redact(str(candidate))}:", *(f"  {line}" for line in tail)]
+
+
+def _recent_game_log_errors(
+    paths: Paths, launches: list[dict[str, object]]
+) -> list[str]:
+    users = paths.prefix / "pfx/drive_c/users"
+    if not users.is_dir():
+        return []
+
+    earliest = _launch_epoch(launches)
+    latest = _launch_end_epoch(launches)
+    candidates = _files_in_window(_game_log_candidates(users), earliest, latest)
+    include_tail = any(_failed_launch(launch) for launch in launches)
+    result: list[str] = []
+    for _, candidate in sorted(candidates, reverse=True)[:3]:
+        result.extend(_game_log_evidence(candidate, include_tail=include_tail))
     return result
 
 
@@ -899,11 +911,9 @@ def _envision_log_directories() -> list[Path]:
     return list(dict.fromkeys(candidates))
 
 
-def _recent_envision_log_errors(
-    launches: list[dict[str, object]], doctor_started: float
-) -> list[str]:
-    earliest = _launch_epoch(launches)
-    latest = _launch_end_epoch(launches)
+def _envision_log_candidates(
+    earliest: float | None, latest: float | None, doctor_started: float
+) -> list[tuple[float, Path, bool]]:
     candidates: list[tuple[float, Path, bool]] = []
     for directory in _envision_log_directories():
         try:
@@ -923,32 +933,57 @@ def _recent_envision_log_errors(
             during_doctor = modified >= doctor_started - 5
             if during_launch or during_doctor:
                 candidates.append((modified, item, during_doctor))
+    return candidates
 
+
+def _envision_timestamp(line: str) -> float | None:
+    try:
+        value = json.loads(line).get("timestamp")
+        return (
+            datetime.fromisoformat(value).timestamp()
+            if isinstance(value, str)
+            else None
+        )
+    except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _envision_lines_in_window(
+    lines: list[str],
+    earliest: float | None,
+    latest: float | None,
+    doctor_started: float,
+) -> list[str]:
+    correlated = []
+    for line in lines:
+        timestamp = _envision_timestamp(line)
+        launch_match = (
+            timestamp is not None
+            and earliest is not None
+            and latest is not None
+            and earliest <= timestamp <= latest
+        )
+        doctor_match = (
+            timestamp is not None and doctor_started - 5 <= timestamp <= time.time() + 5
+        )
+        if timestamp is None or launch_match or doctor_match:
+            correlated.append(line)
+    return correlated
+
+
+def _recent_envision_log_errors(
+    launches: list[dict[str, object]], doctor_started: float
+) -> list[str]:
+    earliest = _launch_epoch(launches)
+    latest = _launch_end_epoch(launches)
+    candidates = _envision_log_candidates(earliest, latest, doctor_started)
     result: list[str] = []
     for _modified, target, during_doctor in sorted(candidates, reverse=True)[:2]:
         try:
             lines = _tail_lines(target)[-1000:]
         except OSError:
             continue
-        correlated: list[str] = []
-        for line in lines:
-            timestamp = None
-            try:
-                value = json.loads(line).get("timestamp")
-                if isinstance(value, str):
-                    timestamp = datetime.fromisoformat(value).timestamp()
-            except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
-                pass
-            if (
-                timestamp is None
-                or (
-                    earliest is not None
-                    and latest is not None
-                    and earliest <= timestamp <= latest
-                )
-                or doctor_started - 5 <= timestamp <= time.time() + 5
-            ):
-                correlated.append(line)
+        correlated = _envision_lines_in_window(lines, earliest, latest, doctor_started)
         matches = [
             redact(line.strip())[:600]
             for line in correlated
@@ -1201,9 +1236,16 @@ _CAUSE_RULES = (
 
 def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> list[str]:
     joined = "\n".join(evidence).casefold()
-    for signatures, message in _CAUSE_RULES:
-        if any(signature in joined for signature in signatures):
-            return [message]
+    matched = next(
+        (
+            message
+            for signatures, message in _CAUSE_RULES
+            if any(signature in joined for signature in signatures)
+        ),
+        None,
+    )
+    if matched is not None:
+        return [matched]
     vr_initialization_failed = bool(
         re.search(
             r"failed to initialize.{0,100}(?:oculus|ovr|openxr|vr (?:api|library|runtime|session))"
@@ -1218,38 +1260,47 @@ def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> lis
             if bridge_loaded
             else "The game started, but "
         )
-        return [
+        cause = (
             "High confidence: "
             + detail
             + "the game reported that VR runtime initialization failed. Treat "
             "that initialization error as primary; a later access violation or "
             "crash reporter is likely secondary. The selected evidence below "
             "preserves the game's original error text."
-        ]
-    if "coredump" in joined or "segfault" in joined or "fatal" in joined:
-        return ["Strong lead: a relevant process crashed during the launch window."]
-    if "xr_error" in joined or ("openxr" in joined and "failed" in joined):
-        return ["Strong lead: OpenXR runtime or session initialization failed."]
-    if "not found" in joined or "failed to load" in joined:
-        return ["Strong lead: a required runtime module or game file failed to load."]
-    if any(
+        )
+    elif "coredump" in joined or "segfault" in joined or "fatal" in joined:
+        cause = "Strong lead: a relevant process crashed during the launch window."
+    elif "xr_error" in joined or ("openxr" in joined and "failed" in joined):
+        cause = "Strong lead: OpenXR runtime or session initialization failed."
+    elif "not found" in joined or "failed to load" in joined:
+        cause = "Strong lead: a required runtime module or game file failed to load."
+    elif any(
         not _cancelled_launch(item)
         and (item.get("event") != "finished" or item.get("exit_code") is None)
         for item in launches
     ):
-        return [
+        cause = (
             "Launch state is incomplete: RiftLift has no completion record yet. The "
             "game may still be running, or RiftLift was terminated during the launch."
-        ]
-    if evidence:
-        return [
+        )
+    elif evidence:
+        cause = (
             "No single signature is decisive; the most relevant correlated errors "
             "are listed below."
-        ]
-    return ["No correlated failure signature was found in the retained sources."]
+        )
+    else:
+        cause = "No correlated failure signature was found in the retained sources."
+    return [cause]
 
 
 Check = tuple[str, bool, str]
+
+
+@dataclass(slots=True)
+class ComponentState:
+    current: dict[str, str]
+    expected: dict[str, str]
+    cached_vulkan: str | None = None
 
 
 def _record_check(
@@ -1266,13 +1317,13 @@ def _record_check(
 def _component_state(
     paths: Paths,
     launches: list[dict[str, object]],
-) -> tuple[dict[str, str], dict[str, str], str | None]:
+) -> ComponentState:
     current = _current_components(paths)
     expected = _expected_components()
     cached_vulkan = None
     captured = launches[0].get("components") if launches else None
     if not isinstance(captured, dict):
-        return current, expected, cached_vulkan
+        return ComponentState(current, expected)
     vulkan = captured.get("system_vulkan")
     if isinstance(vulkan, str) and vulkan not in {"", "unavailable"}:
         cached_vulkan = vulkan
@@ -1284,7 +1335,7 @@ def _component_state(
         and envision
     ):
         current["envision"] = envision
-    return current, expected, cached_vulkan
+    return ComponentState(current, expected, cached_vulkan)
 
 
 def _runtime_checks(paths: Paths, installed: list[Game]) -> list[Check]:
@@ -1326,9 +1377,18 @@ def _runtime_checks(paths: Paths, installed: list[Game]) -> list[Check]:
         for backend in [_safe_runtime_backend(game)]
         if backend is not None
     }
-    for backend in ("openxr", "openvr"):
-        if backend == "openvr" and backend not in required_backends:
-            continue
+    backends = ["openxr"]
+    if "openvr" in required_backends:
+        backends.append("openvr")
+    checks.extend(_native_bridge_checks(proton, backends))
+    if "openvr" in required_backends:
+        checks.extend(_openvr_checks(paths))
+    return checks
+
+
+def _native_bridge_checks(proton: Path | None, backends: list[str]) -> list[Check]:
+    checks: list[Check] = []
+    for backend in backends:
         if proton is None:
             checks.append(
                 (f"Native {backend.upper()} unixlib", False, "GE-Proton unavailable")
@@ -1341,8 +1401,6 @@ def _runtime_checks(paths: Paths, installed: list[Game]) -> list[Check]:
             checks.append((f"Native {backend.upper()} unixlib", False, str(error)))
         else:
             checks.append((f"Native {backend.upper()} unixlib", True, detail))
-    if "openvr" in required_backends:
-        checks.extend(_openvr_checks(paths))
     return checks
 
 
@@ -1472,9 +1530,7 @@ def _game_checks(installed: list[Game]) -> tuple[list[Check], list[str]]:
 
 def _system_report_lines(
     paths: Paths,
-    current_components: dict[str, str],
-    expected_components: dict[str, str],
-    cached_vulkan: str | None,
+    components: ComponentState,
     debug_logging: bool,
     processes: list[str],
 ) -> list[str]:
@@ -1494,13 +1550,13 @@ def _system_report_lines(
         "VKD3D_FILTER_DEVICE_NAME",
     )
     component_lines = [
-        f"{'OK' if _component_matches(name, current_components[name], expected) else 'MISMATCH':8} "
-        f"{name}: installed={current_components[name]}; expected={expected}"
-        for name, expected in expected_components.items()
+        f"{'OK' if _component_matches(name, components.current[name], expected) else 'MISMATCH':8} "
+        f"{name}: installed={components.current[name]}; expected={expected}"
+        for name, expected in components.expected.items()
     ]
     vulkan = (
-        f"{cached_vulkan} (latest launch snapshot; active probe skipped)"
-        if cached_vulkan
+        f"{components.cached_vulkan} (latest launch snapshot; active probe skipped)"
+        if components.cached_vulkan
         else "active probe skipped; no launch snapshot available"
     )
     return [
@@ -1641,25 +1697,92 @@ def _collect_evidence(
     return evidence, journal_since
 
 
+def _finish_process_inspection(
+    processes_at_start: list[str], evidence: list[str]
+) -> list[str]:
+    processes_at_end = _relevant_processes()
+    disappeared = _process_names(processes_at_start) - _process_names(processes_at_end)
+    if disappeared:
+        evidence.extend(
+            [
+                "Doctor safety observation:",
+                "  Processes present when System was pressed but absent after "
+                "inspection: " + ", ".join(sorted(disappeared)),
+            ]
+        )
+    return [
+        "",
+        "[Relevant processes after inspection]",
+        *(processes_at_end or ["none detected"]),
+    ]
+
+
+def _summary_lines(
+    checks: list[Check],
+    launches: list[dict[str, object]],
+    current: dict[str, str],
+    expected: dict[str, str],
+) -> tuple[list[str], list[str]]:
+    passed = sum(ok for _, ok, _ in checks)
+    failed = len(checks) - passed
+    cancelled = sum(_cancelled_launch(item) for item in launches)
+    unsuccessful = sum(_failed_launch(item) for item in launches)
+    successful = len(launches) - unsuccessful - cancelled
+    stale = [
+        name
+        for name, expected_version in expected.items()
+        if not _component_matches(name, current[name], expected_version)
+    ]
+    return (
+        [
+            "",
+            f"[Summary] checks: {passed} passed, {failed} failed; "
+            f"component builds: {len(stale)} mismatched; "
+            f"shown launches: {successful} successful, "
+            f"{cancelled} cancelled, {unsuccessful} failed/incomplete",
+        ],
+        stale,
+    )
+
+
+def _evidence_lines(
+    evidence: list[str], launches: list[dict[str, object]]
+) -> list[str]:
+    if evidence:
+        content = evidence
+    elif launches:
+        content = ["No matching errors found during the recorded launch window."]
+    else:
+        content = [
+            "Journal scan skipped: no RiftLift launch window exists to distinguish "
+            "game failures from unrelated Steam OpenXR probes."
+        ]
+    return ["", "[Recent error evidence]", *content]
+
+
+def _bounded_report(lines: list[str]) -> str:
+    report = redact("\n".join(lines).strip() + "\n")
+    if len(report.encode()) <= _MAX_REPORT:
+        return report
+    encoded = report.encode()[: _MAX_REPORT - 100]
+    return encoded.decode(errors="ignore") + "\n[report truncated]\n"
+
+
 def build_report(paths: Paths) -> tuple[str, bool]:
     doctor_started = time.time()
     processes_at_start = _relevant_processes()
     installed = games(paths)
     launches = recent_launches(paths)
-    current_components, expected_components, cached_vulkan = _component_state(
-        paths, launches
-    )
+    components = _component_state(paths, launches)
+    current_components = components.current
+    expected_components = components.expected
     debug_logging = debug_logging_active(paths)
     game_checks, game_lines = _game_checks(installed)
     checks = [*_runtime_checks(paths, installed), *_meta_checks(paths), *game_checks]
     width = max(len(label) for label, _, _ in checks)
-    passed = sum(ok for _, ok, _ in checks)
-    failed = len(checks) - passed
     lines = _system_report_lines(
         paths,
-        current_components,
-        expected_components,
-        cached_vulkan,
+        components,
         debug_logging,
         processes_at_start,
     )
@@ -1701,23 +1824,7 @@ def build_report(paths: Paths) -> tuple[str, bool]:
                 f"Doctor RiftLift build: {__version__}",
             ]
         )
-    processes_at_end = _relevant_processes()
-    disappeared = _process_names(processes_at_start) - _process_names(processes_at_end)
-    if disappeared:
-        evidence.extend(
-            [
-                "Doctor safety observation:",
-                "  Processes present when System was pressed but absent after "
-                "inspection: " + ", ".join(sorted(disappeared)),
-            ]
-        )
-    lines.extend(
-        [
-            "",
-            "[Relevant processes after inspection]",
-            *(processes_at_end or ["none detected"]),
-        ]
-    )
+    lines.extend(_finish_process_inspection(processes_at_start, evidence))
     lines.extend(["", "[Likely cause]", *_likely_cause(evidence, launches)])
     recommendations = _recommendations(
         checks, launches, debug_logging, evidence, current_components
@@ -1725,38 +1832,13 @@ def build_report(paths: Paths) -> tuple[str, bool]:
     if recommendations:
         lines.extend(["", "[Recommended next steps]"])
         lines.extend(f"- {item}" for item in recommendations)
-    cancelled_launches = sum(_cancelled_launch(item) for item in launches)
-    unsuccessful_launches = sum(_failed_launch(item) for item in launches)
-    successful_launches = len(launches) - unsuccessful_launches - cancelled_launches
-    stale_components = [
-        name
-        for name, expected in expected_components.items()
-        if not _component_matches(name, current_components[name], expected)
-    ]
-    lines.extend(
-        [
-            "",
-            f"[Summary] checks: {passed} passed, {failed} failed; "
-            f"component builds: {len(stale_components)} mismatched; "
-            f"shown launches: {successful_launches} successful, "
-            f"{cancelled_launches} cancelled, "
-            f"{unsuccessful_launches} failed/incomplete",
-        ]
+    summary, stale_components = _summary_lines(
+        checks, launches, current_components, expected_components
     )
-    lines.extend(["", "[Recent error evidence]"])
-    if evidence:
-        lines.extend(evidence)
-    elif launches:
-        lines.append("No matching errors found during the recorded launch window.")
-    else:
-        lines.append(
-            "Journal scan skipped: no RiftLift launch window exists to distinguish "
-            "game failures from unrelated Steam OpenXR probes."
-        )
-    report = redact("\n".join(lines).strip() + "\n")
-    if len(report.encode()) > _MAX_REPORT:
-        encoded = report.encode()[: _MAX_REPORT - 100]
-        report = encoded.decode(errors="ignore") + "\n[report truncated]\n"
+    lines.extend(summary)
+    lines.extend(_evidence_lines(evidence, launches))
+    report = _bounded_report(lines)
+    failed = sum(not ok for _, ok, _ in checks)
     latest_failed = bool(launches) and _failed_launch(launches[0])
     return report, failed == 0 and not stale_components and not latest_failed
 

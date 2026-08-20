@@ -96,50 +96,56 @@ class AuthDialog(QtWidgets.QDialog):
         self.timer.start()
 
     def check_login(self):
-        if self.operation == "begin":
-            if self.pending is None or not self.pending.done():
-                return
-            try:
-                self.session = self.pending.result()
-                self.process = launch_browser_login(
-                    self.paths, self.browser, self.session.login_url
-                )
-            except Exception as error:
-                self.show_error(error)
-                return
-            self.pending = None
-            self.operation = "waiting"
-            self.status.setText(f"Waiting for Meta in {self.browser.name}…")
+        handler = {
+            "begin": self._finish_session_start,
+            "waiting": self._check_callback,
+            "complete": self._finish_login,
+        }.get(self.operation)
+        if handler is not None:
+            handler()
+
+    def _finish_session_start(self):
+        if self.pending is None or not self.pending.done():
             return
-        if self.operation == "waiting":
-            if self.session is not None and self.session.callback_ready():
-                self.operation = "complete"
-                self.pending = self.executor.submit(
-                    complete_browser_login, self.paths, self.session
-                )
-                self.status.setText("Finishing sign-in securely…")
-                return
-            if self.process is not None and self.process.poll() is not None:
-                self.show_error(
-                    "The browser closed before sign-in finished. Try again when ready."
-                )
+        try:
+            self.session = self.pending.result()
+            self.process = launch_browser_login(
+                self.paths, self.browser, self.session.login_url
+            )
+        except Exception as error:
+            self.show_error(error)
             return
-        if self.operation != "complete" or self.pending is None:
-            return
-        if not self.pending.done():
+        self.pending = None
+        self.operation = "waiting"
+        self.status.setText(f"Waiting for Meta in {self.browser.name}…")
+
+    def _check_callback(self):
+        if self.session is not None and self.session.callback_ready():
+            self.operation = "complete"
+            self.pending = self.executor.submit(
+                complete_browser_login, self.paths, self.session
+            )
+            self.status.setText("Finishing sign-in securely…")
+        elif self.process is not None and self.process.poll() is not None:
+            self.show_error(
+                "The browser closed before sign-in finished. Try again when ready."
+            )
+
+    def _finish_login(self):
+        if self.pending is None or not self.pending.done():
             return
         try:
             self.pending.result()
         except Exception as error:
             self.show_error(error)
-            return
-        self.timer.stop()
-        self.operation = "idle"
-        self.pending = None
-        self.completed = True
-        self.status.setText("Signed in. Returning to RiftLift…")
-        self.stop_browser()
-        QtCore.QTimer.singleShot(500, self.accept)
+        else:
+            self.timer.stop()
+            self.operation = "idle"
+            self.pending = None
+            self.completed = True
+            self.status.setText("Signed in. Returning to RiftLift…")
+            self.stop_browser()
+            QtCore.QTimer.singleShot(500, self.accept)
 
     def show_error(self, error):
         self.timer.stop()
