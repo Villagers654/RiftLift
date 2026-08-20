@@ -70,8 +70,10 @@ def test_doctor_component_snapshot_skips_active_vulkan_probe(
             "envision": "not installed/unknown",
         }
 
-    monkeypatch.setattr("riftlift.doctor.system_build_components", system_components)
-    monkeypatch.setattr("riftlift.doctor.xr_build_components", xr_components)
+    monkeypatch.setattr(
+        "riftlift.doctor_components.system_build_components", system_components
+    )
+    monkeypatch.setattr("riftlift.doctor_components.xr_build_components", xr_components)
 
     from riftlift.doctor import _current_components
 
@@ -94,7 +96,9 @@ def test_doctor_reports_selected_steamvr_and_bundled_xrizer_separately(
     manifest.write_text(
         '{"runtime":{"name":"SteamVR","VALVE_runtime_is_steamvr":true}}'
     )
-    monkeypatch.setattr("riftlift.doctor.active_runtime_json", lambda: manifest)
+    monkeypatch.setattr(
+        "riftlift.doctor_components.active_runtime_json", lambda: manifest
+    )
 
     from riftlift.doctor import _current_components, _expected_components
 
@@ -491,9 +495,9 @@ def test_runtime_description_reports_selected_envision_profile(
         },
     )()
     monkeypatch.setattr(
-        "riftlift.doctor.active_runtime_json", lambda: manifest.resolve()
+        "riftlift.doctor_system.active_runtime_json", lambda: manifest.resolve()
     )
-    monkeypatch.setattr("riftlift.doctor.envision_profile", lambda: profile)
+    monkeypatch.setattr("riftlift.doctor_system.envision_profile", lambda: profile)
 
     from riftlift.doctor import _runtime_description
 
@@ -717,7 +721,7 @@ def test_build_report_does_not_attribute_unrelated_journal_errors_without_launch
     )
     monkeypatch.setattr("riftlift.doctor.steam_root", lambda: tmp_path / "steam")
     monkeypatch.setattr(
-        "riftlift.doctor.proton_dir",
+        "riftlift.doctor_components.proton_dir",
         lambda: (_ for _ in ()).throw(RiftLiftError("Steam is unavailable")),
     )
     monkeypatch.setattr("riftlift.doctor._gpu_summary", lambda: "Test GPU")

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __version__
+from . import __version__, doctor_components, doctor_system
 from .auth import is_signed_in
 from .config import Game, Paths, games
 from .detection import (
@@ -27,13 +27,11 @@ from .detection import (
 from .diagnostics import (
     recent_launches,
     redact,
-    system_build_components,
     utc_now,
 )
 from .doctor_evidence import (
     _cancelled_launch,
     _capped_journal_until,
-    _command,
     _failed_launch,
     _recent_coredumps,
     _recent_debug_file_errors,
@@ -47,15 +45,10 @@ from .doctor_evidence import (
 )
 from .launch import runtime_backend
 from .runtime import (
-    DXVK_SHA256,
-    DXVK_VERSION,
     META_PACKAGES,
     META_RUNTIME_SIGNED_FILES,
     META_SIGNING_ROOT_THUMBPRINT,
     META_VERSION,
-    OPENVR_RUNTIME_VERSION,
-    PROTON_VERSION,
-    RUNTIME_VERSION,
     debug_logging_active,
     meta_signing_root_installed,
     native_xr_bridge,
@@ -64,299 +57,28 @@ from .runtime import (
 )
 from .steam import steam_root
 from .util import RiftLiftError
-from .xr_runtime import active_runtime_json, envision_profile, xr_build_components
+from .xr_runtime import active_runtime_json
 
 PASTE_URL = "https://paste.rs/"
 _MAX_REPORT = 48 * 1024
 
-
-def _os_name() -> str:
-    try:
-        values = {}
-        for line in Path("/etc/os-release").read_text().splitlines():
-            key, separator, value = line.partition("=")
-            if separator:
-                values[key] = value.strip().strip('"')
-        return values.get("PRETTY_NAME", values.get("NAME", "unknown"))
-    except OSError:
-        return "unknown"
-
-
-def _cpu_name() -> str:
-    try:
-        for line in Path("/proc/cpuinfo").read_text(errors="replace").splitlines():
-            if line.casefold().startswith("model name"):
-                return line.partition(":")[2].strip()
-    except OSError:
-        pass
-    return platform.processor() or "unknown"
-
-
-def _memory() -> str:
-    try:
-        for line in Path("/proc/meminfo").read_text().splitlines():
-            if line.startswith("MemTotal:"):
-                gib = int(line.split()[1]) / 1024 / 1024
-                return f"{gib:.1f} GiB"
-    except (OSError, ValueError, IndexError):
-        pass
-    return "unknown"
-
-
-def _gpu_summary() -> str:
-    output = _command(["lspci", "-nnk"], timeout=3)
-    lines = output.splitlines()
-    devices: list[str] = []
-    for index, line in enumerate(lines):
-        if "VGA compatible controller" not in line and "3D controller" not in line:
-            continue
-        detail = [line.strip()]
-        for extra in lines[index + 1 : index + 5]:
-            if extra and not extra[0].isspace():
-                break
-            if "Kernel driver in use:" in extra:
-                detail.append(extra.strip())
-        devices.append("; ".join(detail))
-    return " | ".join(devices[:3]) or "not detected"
-
-
-def _service_state(name: str) -> str:
-    load_state = _command(
-        ["systemctl", "--user", "show", name, "-p", "LoadState", "--value"],
-        timeout=2,
-    )
-    if load_state != "loaded":
-        return "not installed"
-    state = _command(["systemctl", "--user", "is-active", name], timeout=2)
-    return state or "unknown"
-
-
-def _runtime_description() -> tuple[bool, str]:
-    try:
-        target = active_runtime_json()
-        payload = json.loads(target.read_text())
-        runtime = payload.get("runtime", {})
-        name = runtime.get("name", "unnamed")
-        library = Path(str(runtime.get("library_path", "unknown"))).name
-        envision = envision_profile()
-        source = ""
-        if envision is not None and envision.manifest == target:
-            source = (
-                f"; Envision profile {envision.name} [{envision.uuid}], "
-                f"environment={','.join(sorted(envision.environment)) or 'none'}"
-            )
-        return True, f"{redact(str(target))} ({name}; {library}{source})"
-    except (
-        RiftLiftError,
-        OSError,
-        json.JSONDecodeError,
-        KeyError,
-        AttributeError,
-        TypeError,
-    ) as error:
-        return False, redact(str(error))
-
-
-def _file_identity(path: Path) -> str:
-    if not path.is_file():
-        return "missing"
-    try:
-        hasher = hashlib.sha256()
-        with path.open("rb") as stream:
-            while chunk := stream.read(1024 * 1024):
-                hasher.update(chunk)
-        digest = hasher.hexdigest()[:12]
-        return f"present, {path.stat().st_size // 1024} KiB, sha256 {digest}"
-    except OSError as error:
-        return f"unreadable: {error}"
-
-
-def _proton_version(path: Path) -> str:
-    for candidate in (path / "version", path / "files/version"):
-        try:
-            value = candidate.read_text(errors="replace").strip()
-        except OSError:
-            continue
-        if value:
-            return value[:160]
-    return path.name
-
-
-def _installed_marker(path: Path) -> str:
-    try:
-        value = (path / ".riftlift-version").read_text(errors="replace").strip()
-    except OSError:
-        return "missing"
-    return value[:160] or "unknown"
-
-
-def _installed_dxvk(path: Path) -> tuple[bool, str]:
-    marker = path / "files/lib/wine/dxvk/.riftlift-dxvk.json"
-    try:
-        payload = json.loads(marker.read_text())
-        version = str(payload.get("version", ""))
-        expected_files = payload.get("files", {})
-        if not isinstance(expected_files, dict) or not expected_files:
-            raise ValueError("file manifest is empty")
-        damaged = []
-        for relative, expected in expected_files.items():
-            target = marker.parent / str(relative)
-            if (
-                not target.is_file()
-                or hashlib.sha256(target.read_bytes()).hexdigest() != expected
-            ):
-                damaged.append(str(relative))
-        if damaged:
-            return (
-                False,
-                f"{version or 'unknown'}; missing or changed: {', '.join(damaged)}",
-            )
-        artifact = str(payload.get("artifact_sha256", ""))[:12]
-        return (
-            version == DXVK_VERSION and artifact == DXVK_SHA256[:12],
-            f"{version} sha256:{artifact or 'unknown'}",
-        )
-    except (OSError, json.JSONDecodeError, AttributeError, ValueError) as error:
-        return False, f"missing or unreadable: {error}"
-
-
-def _current_components(paths: Paths) -> dict[str, str]:
-    try:
-        proton = proton_dir()
-        proton_build = (
-            _proton_version(proton) if (proton / "proton").is_file() else "missing"
-        )
-    except RiftLiftError:
-        proton = None
-        proton_build = "missing"
-    if proton is None:
-        dxvk_build = "missing"
-    else:
-        dxvk_ok, dxvk_detail = _installed_dxvk(proton)
-        dxvk_build = dxvk_detail if dxvk_ok else f"invalid ({dxvk_detail})"
-    runtime_build = _installed_marker(paths.tools / "rift-runtime")
-    support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
-    meta_builds: dict[str, str] = {}
-    for package in META_PACKAGES:
-        marker = support / package.name / ".riftlift-package.json"
-        try:
-            sha256 = str(json.loads(marker.read_text()).get("sha256", ""))
-        except (OSError, json.JSONDecodeError):
-            sha256 = ""
-        meta_builds[f"meta_{package.name.replace('-', '_')}"] = (
-            f"{META_VERSION} sha256:{sha256[:12]}" if sha256 else "missing/unknown"
-        )
-    bundled_xrizer = _installed_marker(paths.tools / "openvr-runtime")
-    selected_openvr = bundled_xrizer
-    openvr_transport = f"XRizer {bundled_xrizer} -> active OpenXR runtime"
-    try:
-        steamvr = steamvr_runtime_for_openxr(active_runtime_json())
-    except RiftLiftError:
-        steamvr = None
-    if steamvr is not None:
-        try:
-            steamvr_build = (steamvr / "bin/version.txt").read_text().strip()
-        except OSError:
-            steamvr_build = "unknown"
-        selected_openvr = f"SteamVR {steamvr_build[:160]}"
-        openvr_transport = "SteamVR direct (no XRizer)"
-    return {
-        "riftlift": __version__,
-        "compat_runtime": runtime_build,
-        "bundled_xrizer": bundled_xrizer,
-        "openvr_runtime": selected_openvr,
-        "openvr_transport": openvr_transport,
-        "proton": proton_build,
-        "dxvk": dxvk_build,
-        **meta_builds,
-        "platform_bridge": f"compat-runtime:{runtime_build}",
-        **system_build_components(probe_vulkan=False),
-        **xr_build_components(),
-    }
-
-
-def _expected_components() -> dict[str, str]:
-    return {
-        "riftlift": __version__,
-        "compat_runtime": RUNTIME_VERSION,
-        "bundled_xrizer": OPENVR_RUNTIME_VERSION,
-        "proton": PROTON_VERSION,
-        "dxvk": f"{DXVK_VERSION} sha256:{DXVK_SHA256[:12]}",
-        **{
-            f"meta_{package.name.replace('-', '_')}": f"{META_VERSION} sha256:{package.sha256[:12]}"
-            for package in META_PACKAGES
-        },
-        "platform_bridge": f"compat-runtime:{RUNTIME_VERSION}",
-    }
-
-
-def _component_matches(name: str, installed: str, expected: str) -> bool:
-    if name == "proton":
-        return installed == expected or installed.endswith(f" {expected}")
-    return installed == expected
-
-
-def _component_comparison(
-    launches: list[dict[str, object]], current: dict[str, str]
-) -> list[str]:
-    if not launches:
-        return ["No launch snapshot is available for comparison."]
-    newest = launches[0]
-    captured = newest.get("components")
-    if not isinstance(captured, dict):
-        legacy = newest.get("riftlift_version", "unknown")
-        return [
-            "LEGACY/UNKNOWN: this launch predates the complete component snapshot "
-            f"(captured RiftLift={legacy}; doctor RiftLift={__version__}). Reproduce "
-            "with the current build for a reliable comparison."
-        ]
-    lines: list[str] = []
-    names = list(_expected_components())
-    names.extend(
-        sorted(name for name in set(captured) | set(current) if name not in names)
-    )
-    for name in names:
-        before = str(captured.get(name, "unknown"))
-        now = current.get(name, "unknown")
-        if before.startswith("not-used("):
-            state = "NOT USED"
-        else:
-            state = "SAME" if before == now else "CHANGED"
-        lines.append(f"{state:7} {name}: launch={before}; doctor={now}")
-    return lines
-
-
-def _connected_inputs() -> str:
-    names = []
-    try:
-        lines = Path("/proc/bus/input/devices").read_text(errors="replace").splitlines()
-    except OSError:
-        lines = []
-    for line in lines:
-        if not line.startswith("N: Name="):
-            continue
-        name = line.partition("=")[2].strip('"')
-        if re.search(
-            r"(?i)(controller|gamepad|sense|oculus|vive|index|quest|vr2)", name
-        ):
-            names.append(name)
-    return ", ".join(dict.fromkeys(names)) or "none detected"
-
-
-def _relevant_processes() -> list[str]:
-    output = _command(["ps", "-eo", "pid=,etimes=,comm="], timeout=3)
-    result = []
-    for line in output.splitlines():
-        fields = line.split(maxsplit=1)
-        if fields and fields[0] == str(os.getpid()):
-            continue
-        if re.search(
-            r"(?i)(riftlift|wine|wineserver|proton|openxr|xrizer|wivrn|monado|"
-            r"steamvr|vrserver|vrcompositor|gamescope|envision)",
-            line,
-        ):
-            result.append(redact(line.strip())[:600])
-    return result[-12:]
+# Keep these private aliases local so report assembly remains easy to patch in
+# focused tests while their implementations live with the data they inspect.
+_component_comparison = doctor_components.component_comparison
+_component_matches = doctor_components.component_matches
+_current_components = doctor_components.current_components
+_expected_components = doctor_components.expected_components
+_file_identity = doctor_components.file_identity
+_installed_dxvk = doctor_components.installed_dxvk
+_proton_version = doctor_components.proton_version
+_connected_inputs = doctor_system.connected_inputs
+_cpu_name = doctor_system.cpu_name
+_gpu_summary = doctor_system.gpu_summary
+_memory = doctor_system.memory
+_os_name = doctor_system.os_name
+_relevant_processes = doctor_system.relevant_processes
+_runtime_description = doctor_system.runtime_description
+_service_state = doctor_system.service_state
 
 
 _CHECK_RECOMMENDATIONS = (
