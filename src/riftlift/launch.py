@@ -10,6 +10,7 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import __version__
@@ -43,6 +44,7 @@ from .runtime import (
     OPENVR_RUNTIME_VERSION,
     PROTON_VERSION,
     RUNTIME_VERSION,
+    NativeXrBridge,
     install_proton,
     install_rift_runtime,
     launch_environment,
@@ -126,10 +128,7 @@ def _run_game_process(
                 with suppress(ProcessLookupError):
                     os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
-        # Wine processes can detach from Proton and be reparented to the user
-        # manager. Every process in this launch inherits a unique marker, so
-        # clean up those detached descendants without touching another game or
-        # any other Wine prefix.
+        # Detached Wine children retain the launch marker after leaving Proton's group.
         remaining = _marked_launch_processes(launch_id)
         for pid in remaining:
             with suppress(ProcessLookupError):
@@ -310,12 +309,7 @@ def runtime_backend(game: Game) -> str:
             raise RiftLiftError("RIFTLIFT_RUNTIME_BACKEND must be 'openxr' or 'openvr'")
         return override
 
-    # Games shipping both Oculus and OpenVR integrations generally depend on
-    # the mature OpenVR compositor behavior. D3D12 Oculus clients and engines
-    # explicitly requesting their legacy OVR presentation mode also need that
-    # path because the direct OpenXR bridge does not implement every legacy
-    # compositor behavior. Other Oculus-only installs take the shorter OpenXR
-    # path. These are capability probes, not titles.
+    # The direct bridge does not implement D3D12 or every legacy OVR presentation path.
     legacy_ovr_presentation = any(
         argument.casefold() in {"-ovr", "-vr_presentation"}
         for argument in game.arguments
@@ -334,8 +328,7 @@ def oculus_launch_arguments(game: Game, extra_arguments: list[str]) -> list[str]
     arguments = [*game.arguments, *extra_arguments]
     lowered = [argument.casefold() for argument in arguments]
     if is_unreal_shipping(game.executable_path):
-        # Unreal's -vr starts stereo rendering while -oculus resolves installs
-        # that also ship an OpenVR plugin to the runtime RiftLift injected.
+        # Unreal needs both stereo rendering and an explicit Oculus plugin selection.
         arguments = [
             argument
             for argument in arguments
@@ -347,9 +340,7 @@ def oculus_launch_arguments(game: Game, extra_arguments: list[str]) -> list[str]
         if "-oculus" not in lowered:
             arguments.append("-oculus")
     elif is_unity_player(game.executable_path):
-        # Unity's engine-level selector is a two-argument option. Replace an
-        # inherited SteamVR/OpenVR choice rather than stacking contradictory
-        # runtime requests on the same process.
+        # Replace any inherited Unity runtime selector instead of stacking one.
         normalized: list[str] = []
         index = 0
         while index < len(arguments):
@@ -381,8 +372,7 @@ def _clear_stale_openvr_registry(paths: Paths, proton_root: Path) -> None:
             "WINEDEBUG": "-all",
         }
     )
-    # Host desktop injectors are unrelated to prefix maintenance and may not
-    # have a matching 32-bit build, which only adds misleading loader errors.
+    # Prefix maintenance may invoke 32-bit Wine without a matching host injector.
     environment.pop("LD_PRELOAD", None)
     try:
         subprocess.run(
@@ -497,21 +487,32 @@ def _game_capabilities(game: Game) -> list[str]:
     ]
 
 
-def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
+@dataclass(slots=True)
+class _LaunchPlan:
+    arguments: list[str]
+    environment: dict[str, str]
+    wrapper: list[str]
+    backend: str
+    openvr_runtime: str
+    openvr_kind: str
+    proton_root: Path
+    rift_runtime: Path
+    native_bridge: NativeXrBridge
+
+
+def _prepare_launch(
+    paths: Paths, game: Game, extra_arguments: list[str]
+) -> _LaunchPlan:
     if not game.executable_path.is_file():
         raise RiftLiftError(f"game executable is missing: {game.executable_path}")
     if game.source == "steam":
         ensure_steam_running()
     rift_runtime = install_rift_runtime(paths)
     proton_root = install_proton(paths)
-    proton = proton_root / "proton"
     backend = runtime_backend(game)
     native_bridge = native_xr_bridge(proton_root, backend)
-    game_arguments = oculus_launch_arguments(game, extra_arguments)
     arguments = [
-        str(proton),
-        # Use Proton's full game verb so it materializes the selected runtime
-        # and its graphics requirements consistently in the shared prefix.
+        str(proton_root / "proton"),
         "run",
         str(rift_runtime / "RiftLiftLauncher.exe"),
         "/wait",
@@ -521,9 +522,8 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         "/cwd",
         linux_to_windows(game.game_dir),
         linux_to_windows(game.executable_path),
-        *game_arguments,
+        *oculus_launch_arguments(game, extra_arguments),
     ]
-    verified_rift_download = game.source == "meta"
     openvr_runtime = ""
     openvr_registry: Path | None = None
     openvr_kind = "not-used"
@@ -534,30 +534,18 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         paths,
         game.game_dir,
         game.platform_shim,
-        game.platform_offline or verified_rift_download,
+        game.platform_offline or game.source == "meta",
     )
     _configure_steamvr_openxr_fallback(paths, backend, environment)
     if backend == "openvr":
         _disable_openxr_for_direct_openvr(environment, openvr_kind)
     if environment.get("PROTON_LOG") == "1":
         environment["RIFTLIFT_RUNTIME_TRACE"] = "1"
-        # The bridge writes a compact first-call trace in Wine's temp folder.
-        # Keep only the current reproduction so this cannot grow indefinitely
-        # or make doctor correlate an old game's calls with a new failure.
         clear_runtime_traces(paths)
     _configure_proton_identity(environment, game)
     if backend == "openxr":
-        # Proton records OpenVR's Vulkan requirements in the shared Wine
-        # prefix. DXVK otherwise consumes those stale requirements alongside
-        # WineOpenXR's and can request host-only extensions from Wine's Vulkan
-        # device, making D3D device creation fail before the title reaches XR.
-        # Keep the selected backend authoritative. Direct OpenVR must retain
-        # Proton's VR Vulkan extensions for texture sharing with SteamVR or
-        # XRizer; DXVK_NO_VR corrupts or suppresses that compositor path.
         environment["DXVK_NO_VR"] = "1"
-    if backend == "openvr":
-        if openvr_registry is None:
-            raise RiftLiftError("OpenVR launch has no selected path registry")
+    elif openvr_registry is not None:
         _configure_openvr_environment(
             paths,
             environment,
@@ -567,42 +555,66 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
             openvr_registry,
             openvr_kind,
         )
-    wrapper = _launch_wrapper()
-    print(
-        f"Launching {game.name} through "
-        f"RiftLift native {backend.upper()} runtime -> headset..."
-    )
-    capabilities = _game_capabilities(game)
-    launch_components = _launch_build_components(
-        paths,
+    else:
+        raise RiftLiftError("OpenVR launch has no selected path registry")
+    return _LaunchPlan(
+        arguments,
+        environment,
+        _launch_wrapper(),
+        backend,
+        openvr_runtime,
+        openvr_kind,
         proton_root,
         rift_runtime,
-        openvr_runtime,
-        backend,
-        openvr_kind,
+        native_bridge,
     )
+
+
+def _start_launch_record(
+    paths: Paths, game: Game, plan: _LaunchPlan
+) -> tuple[str, float, Path]:
+    print(
+        f"Launching {game.name} through "
+        f"RiftLift native {plan.backend.upper()} runtime -> headset..."
+    )
+    components = _launch_build_components(
+        paths,
+        plan.proton_root,
+        plan.rift_runtime,
+        plan.openvr_runtime,
+        plan.backend,
+        plan.openvr_kind,
+    )
+    debug_logging = plan.environment.get("PROTON_LOG", "0") != "0"
     launch_id, started = launch_started(
         paths,
         game,
-        backend,
-        wrapper=bool(wrapper),
-        capabilities=capabilities,
-        debug_logging=environment.get("PROTON_LOG", "0") != "0",
+        plan.backend,
+        wrapper=bool(plan.wrapper),
+        capabilities=_game_capabilities(game),
+        debug_logging=debug_logging,
         debug_settings={
-            key: environment[key]
+            key: plan.environment[key]
             for key in _DEBUG_ENVIRONMENT_KEYS
-            if key in environment and environment.get("PROTON_LOG", "0") != "0"
+            if key in plan.environment and debug_logging
         },
-        components=launch_components,
-        expected_components=_expected_launch_components(launch_components, openvr_kind),
+        components=components,
+        expected_components=_expected_launch_components(components, plan.openvr_kind),
     )
-    environment["RIFTLIFT_LAUNCH_ID"] = launch_id
+    plan.environment["RIFTLIFT_LAUNCH_ID"] = launch_id
     print(
         "Native XR bridge: "
-        f"{native_bridge.pe.name} -> {native_bridge.unix.name} (Wine unixlib)"
+        f"{plan.native_bridge.pe.name} -> {plan.native_bridge.unix.name} (Wine unixlib)"
     )
     log_path = prepare_launch_log(paths, launch_id)
     print(f"Launch log: {log_path}")
+    return launch_id, started, log_path
+
+
+def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
+    plan = _prepare_launch(paths, game, extra_arguments)
+    environment = plan.environment
+    launch_id, started, log_path = _start_launch_record(paths, game, plan)
     playtime_session: PlaytimeSession | None = None
     try:
         try:
@@ -621,10 +633,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
                 while not stop_log_maintenance.wait(1):
                     finish_launch_log(log_path)
                     trim_runtime_traces(paths)
-                    # These two streams are opened in append mode, so they can
-                    # be compacted safely while the game runs. DXVK and crash
-                    # writers may use positional writes; compact those only
-                    # after the child exits to avoid corrupting useful output.
+                    # Only append-mode streams are safe to compact while writers run.
                     prepare_proton_logs(paths)
 
             maintenance = None
@@ -638,7 +647,7 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
             try:
                 with _steam_appid_marker(game):
                     exit_code = _run_game_process(
-                        [*wrapper, *arguments],
+                        [*plan.wrapper, *plan.arguments],
                         launch_id=launch_id,
                         cwd=game.game_dir,
                         env=environment,
