@@ -394,10 +394,11 @@ vr::VRCompositorError CompositorBase::SubmitLayer(ovrSession session, const ovrL
 		const vr::VRTextureBounds_t viewportBounds = bounds;
 		const float viewportWidth = viewportBounds.uMax - viewportBounds.uMin;
 		const float viewportHeight = viewportBounds.vMax - viewportBounds.vMin;
-		bounds.uMin = std::clamp(viewportBounds.uMin + fovBounds.uMin * viewportWidth, 0.0f, 1.0f);
-		bounds.uMax = std::clamp(viewportBounds.uMin + fovBounds.uMax * viewportWidth, 0.0f, 1.0f);
-		bounds.vMin = std::clamp(viewportBounds.vMin + fovBounds.vMin * viewportHeight, 0.0f, 1.0f);
-		bounds.vMax = std::clamp(viewportBounds.vMin + fovBounds.vMax * viewportHeight, 0.0f, 1.0f);
+		const auto normalized = [](float value) { return std::max(0.0f, std::min(value, 1.0f)); };
+		bounds.uMin = normalized(viewportBounds.uMin + fovBounds.uMin * viewportWidth);
+		bounds.uMax = normalized(viewportBounds.uMin + fovBounds.uMax * viewportWidth);
+		bounds.vMin = normalized(viewportBounds.vMin + fovBounds.vMin * viewportHeight);
+		bounds.vMax = normalized(viewportBounds.vMin + fovBounds.vMax * viewportHeight);
 
 		unsigned int submitFlags = vr::Submit_Default;
 		union
