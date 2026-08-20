@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from riftlift.auth import complete_browser_login, login, sign_out
+from riftlift.auth import complete_browser_login, login, runtime_access_token, sign_out
 from riftlift.auth_browser import (
     META_LOGIN_URL,
     Browser,
@@ -249,6 +249,15 @@ def test_browser_login_imports_and_protects_the_token(
     target = paths.config / "meta-access-token"
     assert target.read_text().strip() == token
     assert target.stat().st_mode & 0o777 == 0o600
+
+
+def test_runtime_access_token_returns_the_persisted_login(tmp_path: Path) -> None:
+    paths = paths_in(tmp_path)
+    token = "FRL" + "a" * 176
+    paths.config.mkdir(parents=True)
+    (paths.config / "meta-access-token").write_text(token + "\n")
+
+    assert runtime_access_token(paths) == token
 
 
 def test_cli_login_always_stops_its_browser(tmp_path: Path, monkeypatch) -> None:

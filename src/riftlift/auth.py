@@ -72,16 +72,15 @@ def save_access_token(paths: Paths, token: str) -> None:
     atomic_write_text(paths.config / "meta-access-token", token + "\n")
 
 
-def runtime_access_token(paths: Paths, *, refresh: bool = False) -> str:
+def runtime_access_token(paths: Paths) -> str:
     """Return the Meta token imported by RiftLift's browser login flow."""
     target = paths.config / "meta-access-token"
-    if not refresh:
-        try:
-            token = target.read_text().strip()
-            if _TOKEN_PATTERN.fullmatch(token.encode("ascii")):
-                return token
-        except (FileNotFoundError, OSError, UnicodeError):
-            pass
+    try:
+        token = target.read_text().strip()
+        if _TOKEN_PATTERN.fullmatch(token.encode("ascii")):
+            return token
+    except (FileNotFoundError, OSError, UnicodeError):
+        pass
     raise RiftLiftError(
         "RiftLift is signed out. Open Sign In and finish Meta authentication."
     )
