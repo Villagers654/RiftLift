@@ -6,6 +6,7 @@ import hashlib
 import json
 import secrets
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -115,11 +116,29 @@ def install_protocol_handler() -> Path:
         "MimeType=x-scheme-handler/oculus;x-scheme-handler/oculus-client;\n",
         mode=0o644,
     )
-    if update_database := shutil.which("update-desktop-database"):
-        run((update_database, str(applications)))
-    if xdg_mime := shutil.which("xdg-mime"):
-        run((xdg_mime, "default", desktop.name, "x-scheme-handler/oculus"))
-        run((xdg_mime, "default", desktop.name, "x-scheme-handler/oculus-client"))
+    try:
+        if update_database := shutil.which("update-desktop-database"):
+            run((update_database, str(applications)), timeout=10)
+        if xdg_settings := shutil.which("xdg-settings"):
+            for scheme in ("oculus", "oculus-client"):
+                run(
+                    (
+                        xdg_settings,
+                        "set",
+                        "default-url-scheme-handler",
+                        scheme,
+                        desktop.name,
+                    ),
+                    timeout=10,
+                )
+        elif xdg_mime := shutil.which("xdg-mime"):
+            for scheme in ("oculus", "oculus-client"):
+                run(
+                    (xdg_mime, "default", desktop.name, f"x-scheme-handler/{scheme}"),
+                    timeout=10,
+                )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise RiftLiftError("could not register the Meta login callback") from error
     return desktop
 
 

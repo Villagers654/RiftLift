@@ -54,7 +54,7 @@ def test_protocol_handler_uses_the_installed_command(tmp_path, monkeypatch) -> N
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setenv("XDG_BIN_HOME", str(executable.parent))
     monkeypatch.setattr("riftlift.meta_auth.shutil.which", lambda _name: None)
-    monkeypatch.setattr("riftlift.meta_auth.run", lambda _arguments: None)
+    monkeypatch.setattr("riftlift.meta_auth.run", lambda _arguments, **_kwargs: None)
 
     desktop = install_protocol_handler()
 
@@ -73,6 +73,49 @@ def test_protocol_handler_honors_xdg_data_home(tmp_path, monkeypatch) -> None:
     desktop = install_protocol_handler()
 
     assert desktop == data_home / "applications/riftlift-meta-login.desktop"
+
+
+def test_protocol_handler_uses_url_scheme_registration(tmp_path, monkeypatch) -> None:
+    calls = []
+    executable = tmp_path / "riftlift"
+    executable.touch()
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))
+    monkeypatch.setattr(
+        "riftlift.meta_auth.installed_command", lambda _name: executable
+    )
+    monkeypatch.setattr(
+        "riftlift.meta_auth.shutil.which",
+        lambda name: "/usr/bin/xdg-settings" if name == "xdg-settings" else None,
+    )
+    monkeypatch.setattr(
+        "riftlift.meta_auth.run",
+        lambda arguments, **kwargs: calls.append((arguments, kwargs)),
+    )
+
+    install_protocol_handler()
+
+    assert calls == [
+        (
+            (
+                "/usr/bin/xdg-settings",
+                "set",
+                "default-url-scheme-handler",
+                "oculus",
+                "riftlift-meta-login.desktop",
+            ),
+            {"timeout": 10},
+        ),
+        (
+            (
+                "/usr/bin/xdg-settings",
+                "set",
+                "default-url-scheme-handler",
+                "oculus-client",
+                "riftlift-meta-login.desktop",
+            ),
+            {"timeout": 10},
+        ),
+    ]
 
 
 def test_verified_callback_is_exchanged_for_oculus_token(tmp_path, monkeypatch) -> None:
