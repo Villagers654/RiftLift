@@ -39,6 +39,7 @@ installing_venv=true
 python3 -m venv "$venv"
 "$venv/bin/python" -m pip install --quiet --upgrade pip
 "$venv/bin/python" -m pip install --quiet --upgrade "$repo_root"
+"$venv/bin/python" -m pip install --quiet --force-reinstall --no-deps "$repo_root"
 installing_venv=false
 rm -rf -- "$previous_venv"
 ln -sfn "$venv/bin/riftlift" "$bin_root/riftlift"
