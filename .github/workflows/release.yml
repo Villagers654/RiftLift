@@ -192,7 +192,12 @@ jobs:
           scripts/build-platform-shim.sh LibOVRPlatformImpl64_1.dll out/LibOVRPlatformImpl64_1.dll
           cp LICENSE out/RIFTLIFT-LICENSE
           find out -type f -exec touch -d '1980-01-01 00:00:00 UTC' {} +
-          (cd out && TZ=UTC zip -X -9 -r ../riftlift-compat.zip .)
+          (
+            cd out
+            export TZ=UTC
+            find . -type f -printf '%P\0' | sort -z \
+              | xargs -0 zip -X -9 ../riftlift-compat.zip
+          )
           sha256sum riftlift-compat.zip > riftlift-compat.zip.sha256
       - uses: actions/upload-artifact@v4
         with:
