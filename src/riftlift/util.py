@@ -49,9 +49,12 @@ def installed_command(name: str) -> Path:
     """Find a RiftLift entry point installed on PATH or in the XDG bin directory."""
     if value := shutil.which(name):
         return Path(value)
-    bin_home = Path(
-        os.environ.get("XDG_BIN_HOME", Path.home() / ".local/bin")
-    ).expanduser()
+    configured_bin_home = os.environ.get("XDG_BIN_HOME")
+    bin_home = (
+        Path(configured_bin_home).expanduser()
+        if configured_bin_home
+        else Path.home() / ".local/bin"
+    )
     target = bin_home / name
     if target.is_file():
         return target

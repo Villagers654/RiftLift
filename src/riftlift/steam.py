@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .config import Game, Paths, games
+from .config import Game, Paths, games, xdg_cache_home
 from .steam_vdf import VdfError, dumps, loads
 from .util import (
     RiftLiftError,
@@ -108,7 +108,7 @@ def _install_artwork(game: Game, app_id: int, config: Path) -> None:
 
 
 def _install_wayvr_metadata(game: Game, app_id: int) -> None:
-    cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "wayvr"
+    cache = xdg_cache_home() / "wayvr"
     if not cache.is_dir() and shutil.which("wayvr") is None:
         return
     cover = Path(game.artwork.get("portrait", ""))

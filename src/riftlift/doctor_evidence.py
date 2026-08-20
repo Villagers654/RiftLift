@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .config import Paths
+from .config import Paths, xdg_cache_home
 from .diagnostics import launch_log_path, prepare_proton_logs, redact
 from .steam import steam_root
 
@@ -566,7 +566,7 @@ def _recent_steam_log_errors(
 
 
 def _envision_log_directories() -> list[Path]:
-    cache_home = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    cache_home = xdg_cache_home()
     candidates = [cache_home / "envision/logs"]
     with contextlib.suppress(OSError):
         candidates.extend((Path.home() / ".var/app").glob("*/cache/envision/logs"))
