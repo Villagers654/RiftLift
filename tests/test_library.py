@@ -48,7 +48,7 @@ def test_manifest_executable_and_arguments_remain_authoritative_for_native_game(
     executable = _best_executable(tmp_path, manifest, None)
 
     assert executable == "NativeGame.exe"
-    assert _launch_arguments(tmp_path, executable, manifest, None) == ['"-mode=vr"']
+    assert _launch_arguments(tmp_path, executable, manifest, None) == ["-mode=vr"]
 
 
 def test_explicit_overrides_remain_available(tmp_path: Path) -> None:
@@ -61,6 +61,23 @@ def test_explicit_overrides_remain_available(tmp_path: Path) -> None:
     assert _launch_arguments(tmp_path, executable, manifest, "--custom value") == [
         "--custom",
         "value",
+    ]
+
+
+def test_launch_arguments_remove_grouping_quotes_and_keep_windows_paths(
+    tmp_path: Path,
+) -> None:
+    _pe64(tmp_path / "Game.exe")
+    manifest = {
+        "launchFile": "Game.exe",
+        "launchParameters": r'--region "US East" --config C:\Games\Rift\game.ini',
+    }
+
+    assert _launch_arguments(tmp_path, "Game.exe", manifest, None) == [
+        "--region",
+        "US East",
+        "--config",
+        r"C:\Games\Rift\game.ini",
     ]
 
 
@@ -89,7 +106,7 @@ def test_add_local_registers_existing_game_without_copying_it(tmp_path: Path) ->
     assert game.source == "local"
     assert game.game_dir == root.resolve()
     assert game.executable == "bin/win10/echovr.exe"
-    assert game.arguments == ["-noovr", "--region", '"US East"']
+    assert game.arguments == ["-noovr", "--region", "US East"]
     assert game.app_key == "ready-at-dawn-echo-arena"
     assert not game.platform_offline
     assert executable.is_file()
