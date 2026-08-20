@@ -14,11 +14,33 @@ python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10, 12))' || {
   echo "Python 3.10.12 or newer is required." >&2
   exit 1
 }
+command -v git >/dev/null || {
+  echo "Git is required to install RiftLift's pinned downloader dependency." >&2
+  exit 1
+}
 
 mkdir -p "$data_root" "$bin_root"
+previous_venv="$data_root/.venv-previous"
+installing_venv=false
+cleanup() {
+  if $installing_venv; then
+    rm -rf -- "$venv"
+  fi
+  if $installing_venv && [[ -e $previous_venv ]]; then
+    mv -- "$previous_venv" "$venv"
+  fi
+}
+trap cleanup EXIT
+rm -rf -- "$previous_venv"
+if [[ -e $venv ]]; then
+  cp -a -- "$venv" "$previous_venv"
+fi
+installing_venv=true
 python3 -m venv "$venv"
 "$venv/bin/python" -m pip install --quiet --upgrade pip
-"$venv/bin/python" -m pip install --quiet "$repo_root"
+"$venv/bin/python" -m pip install --quiet --upgrade "$repo_root"
+installing_venv=false
+rm -rf -- "$previous_venv"
 ln -sfn "$venv/bin/riftlift" "$bin_root/riftlift"
 ln -sfn "$venv/bin/riftlift-gui" "$bin_root/riftlift-gui"
 

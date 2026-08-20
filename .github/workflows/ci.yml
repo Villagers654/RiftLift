@@ -131,6 +131,19 @@ jobs:
           grep -F "wheel_sha256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'" /tmp/riftlift-installer.sh
           grep -F "desktop_base64='$(base64 -w0 assets/io.github.villagers654.RiftLift.desktop)'" /tmp/riftlift-installer.sh
           grep -F "icon_base64='$(base64 -w0 assets/io.github.villagers654.RiftLift.svg)'" /tmp/riftlift-installer.sh
+          install_home=$(mktemp -d)
+          mkdir -p "$install_home/data/riftlift/venv"
+          echo preserved > "$install_home/data/riftlift/venv/marker"
+          if HOME="$install_home/home" \
+            XDG_DATA_HOME="$install_home/data" \
+            XDG_BIN_HOME="$install_home/bin" \
+            RIFTLIFT_INSTALLER_WHEEL="$PWD/riftlift-0.0.0a0-py3-none-any.whl" \
+            /tmp/riftlift-installer.sh --no-setup; then
+            echo 'invalid wheel unexpectedly installed' >&2
+            exit 1
+          fi
+          grep -Fx preserved "$install_home/data/riftlift/venv/marker"
+          test ! -e "$install_home/data/riftlift/.venv-previous"
           touch riftlift-0.0.0-py3-none-any.whl
           scripts/generate-release-installer.sh \
             v0.0.0 \

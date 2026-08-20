@@ -43,7 +43,18 @@ command -v git >/dev/null || {
 }
 
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/riftlift-installer.XXXXXX")
-trap 'rm -rf -- "$temporary"' EXIT
+previous_venv="$data_root/.venv-previous"
+installing_venv=false
+cleanup() {
+  rm -rf -- "$temporary"
+  if $installing_venv; then
+    rm -rf -- "$venv"
+  fi
+  if $installing_venv && [[ -e $previous_venv ]]; then
+    mv -- "$previous_venv" "$venv"
+  fi
+}
+trap cleanup EXIT
 wheel="$temporary/$wheel_name"
 
 echo "Downloading RiftLift $version..."
@@ -76,9 +87,16 @@ if [[ $actual_sha256 != "$wheel_sha256" ]]; then
 fi
 
 mkdir -p "$data_root" "$bin_root" "$applications_root" "$icons_root"
+rm -rf -- "$previous_venv"
+if [[ -e $venv ]]; then
+  cp -a -- "$venv" "$previous_venv"
+fi
+installing_venv=true
 python3 -m venv "$venv"
 "$venv/bin/python" -m pip install --quiet --upgrade pip
 "$venv/bin/python" -m pip install --quiet --upgrade "$wheel"
+installing_venv=false
+rm -rf -- "$previous_venv"
 ln -sfn "$venv/bin/riftlift" "$bin_root/riftlift"
 ln -sfn "$venv/bin/riftlift-gui" "$bin_root/riftlift-gui"
 
