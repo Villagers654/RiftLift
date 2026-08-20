@@ -18,6 +18,7 @@ from riftlift.runtime import (
     OPENVR_RUNTIME_VERSION,
     RUNTIME_VERSION,
     MetaPackage,
+    _install_meta_packages,
     _install_meta_signing_root,
     _meta_signing_root_der,
     _meta_signing_root_registry_blob,
@@ -371,6 +372,34 @@ def test_meta_runtime_installs_required_signing_root(tmp_path, monkeypatch):
     assert (
         support / ".riftlift-meta-signing-root-v2"
     ).read_text().strip() == META_SIGNING_ROOT_THUMBPRINT
+
+
+def test_incomplete_meta_package_preserves_installed_payload(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    support = tmp_path / "support"
+    destination = support / "oculus-platform-runtime"
+    destination.mkdir(parents=True)
+    (destination / "working.txt").write_text("keep")
+    archive = tmp_path / "incomplete.pkg"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("unrelated.txt", "bad")
+    package = MetaPackage("oculus-platform-runtime", "test", "test-sha")
+    monkeypatch.setattr("riftlift.runtime.META_PACKAGES", (package,))
+    monkeypatch.setattr("riftlift.runtime.download", lambda *_args: archive)
+
+    with pytest.raises(RiftLiftError, match=r"package.*is incomplete"):
+        _install_meta_packages(paths, support)
+
+    assert (destination / "working.txt").read_text() == "keep"
 
 
 def test_meta_signing_root_matches_pinned_thumbprint() -> None:

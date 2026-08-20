@@ -596,16 +596,24 @@ def initialize_prefix(paths: Paths) -> Path:
 
 
 def _install_meta_packages(paths: Paths, support: Path) -> None:
+    support.mkdir(parents=True, exist_ok=True)
     for package in META_PACKAGES:
         archive = download(
             package.url, paths.cache / "meta" / f"{package.name}.pkg", package.sha256
         )
         destination = support / package.name
         marker = destination / ".riftlift-package.json"
+        required = (
+            tuple(META_RUNTIME_SIGNED_FILES)
+            if package.name == "oculus-runtime"
+            else ("LibOVRPlatformImpl64_1.dll",)
+        )
         if marker.is_file():
             try:
-                current_package = (
-                    json.loads(marker.read_text()).get("sha256") == package.sha256
+                current_package = json.loads(marker.read_text()).get(
+                    "sha256"
+                ) == package.sha256 and all(
+                    (destination / name).is_file() for name in required
                 )
                 if package.name == "oculus-runtime":
                     current_package = current_package and _signed_meta_runtime_current(
@@ -615,15 +623,23 @@ def _install_meta_packages(paths: Paths, support: Path) -> None:
                     continue
             except (OSError, json.JSONDecodeError):
                 pass
-        if destination.exists():
-            shutil.rmtree(destination)
-        _safe_zip(archive, destination)
-        marker.write_text(
-            json.dumps(
-                {"binary_id": package.binary_id, "sha256": package.sha256}, indent=2
+        staging = Path(tempfile.mkdtemp(prefix=f".{package.name}-unpack-", dir=support))
+        try:
+            _safe_zip(archive, staging)
+            if not all((staging / name).is_file() for name in required):
+                raise RiftLiftError(f"Meta package {package.name} is incomplete")
+            atomic_write_text(
+                staging / ".riftlift-package.json",
+                json.dumps(
+                    {"binary_id": package.binary_id, "sha256": package.sha256},
+                    indent=2,
+                )
+                + "\n",
             )
-            + "\n"
-        )
+            _replace_directory(staging, destination)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
 
 
 def _registry_add(
