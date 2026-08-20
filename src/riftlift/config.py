@@ -41,6 +41,16 @@ def xdg_cache_home() -> Path:
     return _xdg("XDG_CACHE_HOME", Path.home() / ".cache")
 
 
+def xdg_data_dirs() -> tuple[Path, ...]:
+    """Return absolute freedesktop system data directories in search order."""
+    value = os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
+    return tuple(
+        path
+        for item in value.split(":")
+        if item and (path := Path(item).expanduser()).is_absolute()
+    )
+
+
 @dataclass(slots=True)
 class Paths:
     data: Path

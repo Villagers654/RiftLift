@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import Paths, xdg_config_home, xdg_data_home
+from .config import Paths, xdg_config_home, xdg_data_dirs, xdg_data_home
 from .util import RiftLiftError
 
 
@@ -110,14 +110,9 @@ def active_runtime_json() -> Path:
 def _envision_version() -> str:
     """Read Envision's installed metadata without starting the application."""
     data_home = xdg_data_home()
-    directories = [
-        data_home / "metainfo",
-        data_home / "appdata",
-        Path("/usr/local/share/metainfo"),
-        Path("/usr/local/share/appdata"),
-        Path("/usr/share/metainfo"),
-        Path("/usr/share/appdata"),
-    ]
+    directories = [data_home / "metainfo", data_home / "appdata"]
+    for root in xdg_data_dirs():
+        directories.extend((root / "metainfo", root / "appdata"))
     for root in (data_home / "flatpak/app", Path("/var/lib/flatpak/app")):
         with contextlib.suppress(OSError):
             directories.extend(root.glob("*nvision*/*/*/active/files/share/metainfo"))

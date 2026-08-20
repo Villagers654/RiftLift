@@ -8,6 +8,7 @@ from riftlift.config import (
     debug_logging_enabled,
     games,
     set_debug_logging,
+    xdg_data_dirs,
 )
 
 
@@ -53,6 +54,12 @@ def test_default_paths_ignore_relative_xdg_values(tmp_path: Path, monkeypatch) -
     assert paths.data == tmp_path / ".local/share/riftlift"
     assert paths.cache == tmp_path / ".cache/riftlift"
     assert paths.config == tmp_path / ".config/riftlift"
+
+
+def test_xdg_data_dirs_ignore_relative_entries(monkeypatch) -> None:
+    monkeypatch.setenv("XDG_DATA_DIRS", "/opt/share:relative:/usr/share")
+
+    assert xdg_data_dirs() == (Path("/opt/share"), Path("/usr/share"))
 
 
 def test_game_records_reject_unsafe_slugs_and_non_objects(tmp_path: Path) -> None:

@@ -13,7 +13,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import Paths, xdg_data_home
+from .config import Paths, xdg_data_dirs, xdg_data_home
 from .util import RiftLiftError
 
 META_LOGIN_URL = "https://auth.meta.com/"
@@ -95,13 +95,7 @@ def _application_directories() -> list[Path]:
         Path("/var/lib/flatpak/exports/share/applications"),
         Path("/var/lib/snapd/desktop/applications"),
     ]
-    directories.extend(
-        Path(item) / "applications"
-        for item in os.environ.get(
-            "XDG_DATA_DIRS", "/usr/local/share:/usr/share"
-        ).split(":")
-        if item
-    )
+    directories.extend(path / "applications" for path in xdg_data_dirs())
     return directories
 
 
