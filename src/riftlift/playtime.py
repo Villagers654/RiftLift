@@ -6,10 +6,11 @@ import os
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .config import Paths
 
@@ -207,7 +208,7 @@ class PlaytimeSession:
             self.last_checkpoint = now
             self.closed = True
 
-    def __enter__(self) -> "PlaytimeSession":
+    def __enter__(self) -> PlaytimeSession:
         return self
 
     def __exit__(self, *_error: object) -> None:

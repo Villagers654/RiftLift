@@ -1,16 +1,16 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
-import json
 
 from riftlift.auth import complete_browser_login, sign_out
 from riftlift.auth_browser import (
-    Browser,
     META_LOGIN_URL,
+    Browser,
+    _command_uses_profile,
     browser_home,
     default_browser,
     launch_browser_login,
     stop_browser,
-    _command_uses_profile,
 )
 from riftlift.config import Paths
 

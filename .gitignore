@@ -6,3 +6,6 @@ build/
 dist/
 out/
 
+# Runtime artifacts written by launched games in the repository working tree.
+logs/
+logConfig.xml

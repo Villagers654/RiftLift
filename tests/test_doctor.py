@@ -10,8 +10,8 @@ from riftlift import __version__
 from riftlift.config import Game, Paths
 from riftlift.diagnostics import (
     collect_game_logs,
-    launch_log_path,
     launch_finished,
+    launch_log_path,
     launch_started,
     prune_diagnostic_logs,
     recent_launches,
@@ -39,7 +39,7 @@ def isolate_host_diagnostic_sources(monkeypatch) -> None:
         "_recent_envision_log_errors",
     ):
         monkeypatch.setattr(f"riftlift.doctor.{name}", lambda *_args: [])
-    monkeypatch.setattr("riftlift.doctor._relevant_processes", lambda: [])
+    monkeypatch.setattr("riftlift.doctor._relevant_processes", list)
 
 
 def test_doctor_component_snapshot_skips_active_vulkan_probe(

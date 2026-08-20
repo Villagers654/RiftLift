@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
 import shlex
-import os
 from pathlib import Path
 
 from meta_pcvr_downloader.api import list_builds, parse_app_id, select_build

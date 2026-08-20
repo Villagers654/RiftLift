@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 import re
-import signal
 import shlex
 import shutil
+import signal
 import subprocess
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -302,10 +303,8 @@ def stop_browser(paths: Paths, browser: Browser, process) -> None:
     except OSError:
         profile = home / "profile"
     for pid in _profile_processes(profile):
-        try:
+        with contextlib.suppress(OSError, ProcessLookupError):
             os.kill(pid, signal.SIGKILL)
-        except (OSError, ProcessLookupError):
-            pass
 
 
 def _profile_processes(profile: Path):

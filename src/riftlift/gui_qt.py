@@ -6,7 +6,7 @@ import contextlib
 import io
 import re
 import threading
-from typing import Callable
+from collections.abc import Callable
 from urllib.parse import urlparse
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -437,33 +437,33 @@ class Window(QtWidgets.QMainWindow):
         d.setWindowTitle("Add a Rift game")
         d.setMinimumWidth(560)
         d.setStyleSheet(STYLE)
-        l = QtWidgets.QVBoxLayout(d)
-        l.setContentsMargins(26, 24, 26, 24)
-        l.setSpacing(12)
-        l.addWidget(self.label("Add to your library", "game"))
+        layout = QtWidgets.QVBoxLayout(d)
+        layout.setContentsMargins(26, 24, 26, 24)
+        layout.setSpacing(12)
+        layout.addWidget(self.label("Add to your library", "game"))
         local = self.button(
             "Add a local game…", lambda: (d.reject(), self.local_dialog())
         )
         local.setObjectName("link")
-        l.addWidget(local, alignment=QtCore.Qt.AlignLeft)
-        l.addWidget(self.label("Meta Rift store URL", "section"))
+        layout.addWidget(local, alignment=QtCore.Qt.AlignLeft)
+        layout.addWidget(self.label("Meta Rift store URL", "section"))
         entry = QtWidgets.QLineEdit()
         entry.setPlaceholderText("https://www.meta.com/experiences/pcvr/…")
-        l.addWidget(entry)
+        layout.addWidget(entry)
         validation = self.label(
             "Paste a valid Meta Rift store link to continue.", "muted"
         )
-        l.addWidget(validation)
+        layout.addWidget(validation)
         steam = QtWidgets.QCheckBox("Add to Steam when finished")
         steam.setChecked(True)
-        l.addWidget(steam)
+        layout.addWidget(steam)
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
         buttons.button(QtWidgets.QDialogButtonBox.Cancel).setIcon(QtGui.QIcon())
         submit = buttons.addButton("Install", QtWidgets.QDialogButtonBox.AcceptRole)
         submit.setObjectName("primary")
         submit.setEnabled(False)
         buttons.rejected.connect(d.reject)
-        l.addWidget(buttons)
+        layout.addWidget(buttons)
 
         validation_timer = QtCore.QTimer(d)
         validation_timer.setSingleShot(True)
@@ -684,7 +684,9 @@ class Window(QtWidgets.QMainWindow):
                 self.refresh(
                     result
                     if isinstance(result, str)
-                    else refresh if isinstance(refresh, str) else self.slug
+                    else refresh
+                    if isinstance(refresh, str)
+                    else self.slug
                 )
 
     def closeEvent(self, event):
@@ -710,11 +712,11 @@ class Window(QtWidgets.QMainWindow):
         d.setWindowTitle("RiftLift activity")
         d.resize(800, 440)
         d.setStyleSheet(STYLE)
-        l = QtWidgets.QVBoxLayout(d)
-        l.addWidget(self.label("Activity", "game"))
+        layout = QtWidgets.QVBoxLayout(d)
+        layout.addWidget(self.label("Activity", "game"))
         view = QtWidgets.QTextEdit(readOnly=True)
         view.setPlainText(self.log or "No activity yet.\n")
-        l.addWidget(view)
+        layout.addWidget(view)
         self.log_views.append(view)
         d.finished.connect(
             lambda: self.log_views.remove(view) if view in self.log_views else None

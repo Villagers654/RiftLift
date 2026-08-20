@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -633,10 +634,8 @@ def _launch_epoch(launches: list[dict[str, object]]) -> float | None:
         value = launch.get("started_at", launch.get("at"))
         if not isinstance(value, str):
             continue
-        try:
+        with contextlib.suppress(ValueError):
             values.append(datetime.fromisoformat(value).timestamp())
-        except ValueError:
-            pass
     return max(values) - 5 if values else None
 
 
@@ -646,10 +645,8 @@ def _launch_end_epoch(launches: list[dict[str, object]]) -> float | None:
         value = launch.get("started_at", launch.get("at"))
         if not isinstance(value, str):
             continue
-        try:
+        with contextlib.suppress(ValueError):
             starts.append((datetime.fromisoformat(value).timestamp(), launch))
-        except ValueError:
-            pass
     if not starts:
         return None
     started, latest = max(starts, key=lambda item: item[0])
@@ -925,10 +922,8 @@ def _envision_log_directories() -> list[Path]:
     """Return known Envision log locations without invoking Envision."""
     cache_home = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
     candidates = [cache_home / "envision/logs"]
-    try:
+    with contextlib.suppress(OSError):
         candidates.extend((Path.home() / ".var/app").glob("*/cache/envision/logs"))
-    except OSError:
-        pass
     return list(dict.fromkeys(candidates))
 
 
@@ -1286,7 +1281,7 @@ def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> lis
         ]
     if "coredump" in joined or "segfault" in joined or "fatal" in joined:
         return ["Strong lead: a relevant process crashed during the launch window."]
-    if "xr_error" in joined or "openxr" in joined and "failed" in joined:
+    if "xr_error" in joined or ("openxr" in joined and "failed" in joined):
         return ["Strong lead: OpenXR runtime or session initialization failed."]
     if "not found" in joined or "failed to load" in joined:
         return ["Strong lead: a required runtime module or game file failed to load."]
@@ -1367,10 +1362,8 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         checks.append((label, not identity.startswith("missing"), identity))
     required_backends: set[str] = set()
     for game in installed:
-        try:
+        with contextlib.suppress(Exception):
             required_backends.add(runtime_backend(game))
-        except Exception:
-            pass
     for backend in ("openxr", "openvr"):
         if backend == "openvr" and backend not in required_backends:
             continue
@@ -1429,10 +1422,8 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         identity = _file_identity(target)
         current = ""
         if target.is_file():
-            try:
+            with contextlib.suppress(OSError):
                 current = hashlib.sha256(target.read_bytes()).hexdigest()
-            except OSError:
-                pass
         checks.append(
             (
                 f"Meta signed loader: {name}",

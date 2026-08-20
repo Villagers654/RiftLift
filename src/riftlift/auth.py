@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
 
 from .auth_browser import cleanup_browser_profiles
 from .config import Paths

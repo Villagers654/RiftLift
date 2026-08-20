@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import os
@@ -21,7 +22,7 @@ from .auth_browser import default_browser, launch_browser_login, stop_browser
 from .config import Paths, debug_logging_enabled
 from .diagnostics import prepare_debug_logs
 from .meta_auth import MetaAuthSession, install_protocol_handler, record_callback
-from .util import RiftLiftError, download, linux_to_windows, run, sha256
+from .util import RiftLiftError, download, run, sha256
 
 PROTON_VERSION = "GE-Proton11-3"
 PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{PROTON_VERSION}/{PROTON_VERSION}.tar.gz"
@@ -1457,10 +1458,8 @@ def _envision_version() -> str:
         Path("/usr/share/appdata"),
     ]
     for root in (data_home / "flatpak/app", Path("/var/lib/flatpak/app")):
-        try:
+        with contextlib.suppress(OSError):
             directories.extend(root.glob("*nvision*/*/*/active/files/share/metainfo"))
-        except OSError:
-            pass
     for directory in directories:
         try:
             candidates = list(directory.glob("*nvision*.xml"))

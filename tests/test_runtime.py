@@ -1,9 +1,9 @@
-from pathlib import Path
 import hashlib
-import json
-import zipfile
-import tarfile
 import io
+import json
+import tarfile
+import zipfile
+from pathlib import Path
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
@@ -11,25 +11,25 @@ from cryptography.hazmat.primitives import hashes
 from riftlift.config import Paths
 from riftlift.runtime import (
     DXVK_VERSION,
+    META_SIGNING_ROOT_PEM,
     META_SIGNING_ROOT_REGISTRY_KEY,
     META_SIGNING_ROOT_THUMBPRINT,
-    META_SIGNING_ROOT_PEM,
-    MetaPackage,
     OPENVR_RUNTIME_VERSION,
     RUNTIME_VERSION,
+    MetaPackage,
     _install_meta_signing_root,
     _meta_signing_root_der,
     _meta_signing_root_registry_blob,
-    install_openvr_runtime,
+    initialize_prefix,
     install_dxvk_compat,
     install_meta_runtime,
+    install_openvr_runtime,
     install_rift_runtime,
-    select_openvr_runtime,
-    steamvr_runtime_for_openxr,
-    initialize_prefix,
     meta_signing_root_installed,
     proton_environment,
+    select_openvr_runtime,
     shutdown_compat_prefix,
+    steamvr_runtime_for_openxr,
 )
 
 REQUIRED_RUNTIME_FILES = (

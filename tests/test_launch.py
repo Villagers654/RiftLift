@@ -746,7 +746,7 @@ def test_unbuilt_selected_envision_profile_has_actionable_error(
     from riftlift.runtime import active_runtime_json
 
     with pytest.raises(
-        RiftLiftError, match="selected profile 'Clean Monado'.*not built"
+        RiftLiftError, match=r"selected profile 'Clean Monado'.*not built"
     ):
         active_runtime_json()
 

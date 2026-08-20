@@ -1,13 +1,13 @@
 import struct
 from pathlib import Path
 
+from riftlift.config import Paths
 from riftlift.library import (
     _best_executable,
     _launch_arguments,
     add_local,
     default_download_workers,
 )
-from riftlift.config import Paths
 
 
 def test_download_workers_scale_with_available_cpus() -> None:

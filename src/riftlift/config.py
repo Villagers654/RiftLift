@@ -22,7 +22,7 @@ class Paths:
     tools: Path
 
     @classmethod
-    def defaults(cls) -> "Paths":
+    def defaults(cls) -> Paths:
         home = Path.home()
         data = _xdg("XDG_DATA_HOME", home / ".local/share") / "riftlift"
         cache = _xdg("XDG_CACHE_HOME", home / ".cache") / "riftlift"
@@ -81,7 +81,7 @@ class Game:
         return target
 
     @classmethod
-    def load(cls, paths: Paths, slug: str) -> "Game":
+    def load(cls, paths: Paths, slug: str) -> Game:
         target = paths.data / "games" / f"{slug}.json"
         try:
             value: dict[str, Any] = json.loads(target.read_text())

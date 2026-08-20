@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import json
 import os
@@ -53,10 +54,8 @@ def utc_now() -> str:
 def redact(value: str) -> str:
     """Remove credentials and user-specific paths from public diagnostics."""
     homes = {str(Path.home())}
-    try:
+    with contextlib.suppress(OSError):
         homes.add(str(Path.home().resolve()))
-    except OSError:
-        pass
     homes.update(f"/var{home}" for home in tuple(homes) if home.startswith("/home/"))
     result = value
     for home in sorted(homes, key=len, reverse=True):

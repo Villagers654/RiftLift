@@ -122,7 +122,7 @@ class MetaAuthSession:
     login_url: str
 
     @classmethod
-    def begin(cls, paths: Paths) -> "MetaAuthSession":
+    def begin(cls, paths: Paths) -> MetaAuthSession:
         install_protocol_handler()
         _callback_file(paths).unlink(missing_ok=True)
         response = _post("/webview_tokens_query", {"access_token": FRL_CLIENT_TOKEN})

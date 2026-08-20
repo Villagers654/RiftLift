@@ -1,19 +1,26 @@
 from __future__ import annotations
 
-import os
 import json
+import os
 import shlex
 import shutil
 import signal
 import subprocess
 import threading
 import time
-from contextlib import contextmanager
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import Iterator
 
 from . import __version__
 from .config import Game, Paths
+from .detection import (
+    is_unity_player,
+    is_unreal_shipping,
+    uses_d3d12_runtime,
+    uses_oculus_xr_plugin,
+    uses_openvr_runtime,
+)
 from .diagnostics import (
     clear_runtime_traces,
     collect_game_logs,
@@ -23,15 +30,8 @@ from .diagnostics import (
     prepare_debug_logs,
     prepare_launch_log,
     prepare_proton_logs,
-    trim_runtime_traces,
     system_build_components,
-)
-from .detection import (
-    is_unity_player,
-    is_unreal_shipping,
-    uses_d3d12_runtime,
-    uses_oculus_xr_plugin,
-    uses_openvr_runtime,
+    trim_runtime_traces,
 )
 from .playtime import PlaytimeSession
 from .runtime import (
@@ -117,17 +117,13 @@ def _run_game_process(
         return process.wait()
     except BaseException:
         if process.poll() is None:
-            try:
+            with suppress(ProcessLookupError):
                 os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
             try:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                try:
+                with suppress(ProcessLookupError):
                     os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
                 process.wait()
         # Wine processes can detach from Proton and be reparented to the user
         # manager. Every process in this launch inherits a unique marker, so
@@ -135,19 +131,15 @@ def _run_game_process(
         # any other Wine prefix.
         remaining = _marked_launch_processes(launch_id)
         for pid in remaining:
-            try:
+            with suppress(ProcessLookupError):
                 os.kill(pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
         deadline = time.monotonic() + 5
         while remaining and time.monotonic() < deadline:
             time.sleep(0.05)
             remaining = _marked_launch_processes(launch_id)
         for pid in remaining:
-            try:
+            with suppress(ProcessLookupError):
                 os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
         raise
 
 
