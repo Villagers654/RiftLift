@@ -129,7 +129,7 @@ def test_envision_version_is_read_from_metadata_without_starting_it(
     )
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))
 
-    from riftlift.runtime import _envision_version
+    from riftlift.xr_runtime import _envision_version
 
     assert _envision_version() == "Envision 4.2.1"
 

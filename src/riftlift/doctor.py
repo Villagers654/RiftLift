@@ -56,16 +56,14 @@ from .runtime import (
     OPENVR_RUNTIME_VERSION,
     PROTON_VERSION,
     RUNTIME_VERSION,
-    active_runtime_json,
     debug_logging_active,
-    envision_profile,
     meta_signing_root_installed,
     native_xr_bridge,
     proton_dir,
     steamvr_runtime_for_openxr,
-    xr_build_components,
 )
 from .steam import steam_root
+from .xr_runtime import active_runtime_json, envision_profile, xr_build_components
 
 PASTE_URL = "https://paste.rs/"
 _MAX_REPORT = 48 * 1024

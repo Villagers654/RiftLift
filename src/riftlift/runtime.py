@@ -25,24 +25,7 @@ from .util import (
     run,
     sha256,
 )
-from .xr_runtime import (
-    EnvisionProfile as EnvisionProfile,
-)
-from .xr_runtime import (
-    _envision_version as _envision_version,
-)
-from .xr_runtime import (
-    active_runtime_json as active_runtime_json,
-)
-from .xr_runtime import (
-    envision_profile as envision_profile,
-)
-from .xr_runtime import (
-    platform_user_id as platform_user_id,
-)
-from .xr_runtime import (
-    xr_build_components as xr_build_components,
-)
+from .xr_runtime import active_runtime_json, platform_user_id
 
 PROTON_VERSION = "GE-Proton11-3"
 PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{PROTON_VERSION}/{PROTON_VERSION}.tar.gz"

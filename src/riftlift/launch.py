@@ -49,10 +49,10 @@ from .runtime import (
     launch_environment,
     native_xr_bridge,
     select_openvr_runtime,
-    xr_build_components,
 )
 from .steam import ensure_steam_running
 from .util import RiftLiftError, linux_to_windows
+from .xr_runtime import xr_build_components
 
 _DEBUG_ENVIRONMENT_KEYS = (
     "PROTON_LOG",

@@ -535,7 +535,7 @@ def test_platform_shim_does_not_redirect_oculus_vr_runtime(
 def test_platform_identity_is_persistent_and_overrideable(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from riftlift.runtime import platform_user_id
+    from riftlift.xr_runtime import platform_user_id
 
     paths = Paths(
         tmp_path / "data",
@@ -563,7 +563,7 @@ def test_active_runtime_uses_explicit_standard_manifest(
     )
     monkeypatch.setenv("XR_RUNTIME_JSON", str(runtime))
 
-    from riftlift.runtime import active_runtime_json
+    from riftlift.xr_runtime import active_runtime_json
 
     assert active_runtime_json() == runtime.resolve()
 
@@ -577,7 +577,7 @@ def test_active_runtime_uses_xdg_active_manifest(tmp_path: Path, monkeypatch) ->
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
     monkeypatch.setenv("XDG_CONFIG_DIRS", str(tmp_path / "system-config"))
 
-    from riftlift.runtime import active_runtime_json
+    from riftlift.xr_runtime import active_runtime_json
 
     assert active_runtime_json() == manifest.resolve()
 
@@ -594,7 +594,7 @@ def test_active_runtime_does_not_override_runtime_manager_selection(
     monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
 
-    from riftlift.runtime import active_runtime_json
+    from riftlift.xr_runtime import active_runtime_json
 
     assert active_runtime_json() == active.resolve()
 
@@ -633,7 +633,7 @@ def test_explicit_runtime_selection_does_not_duplicate_loader_validation(
     )
     monkeypatch.setenv("XR_RUNTIME_JSON", str(runtime))
 
-    from riftlift.runtime import active_runtime_json
+    from riftlift.xr_runtime import active_runtime_json
 
     assert active_runtime_json() == runtime.resolve()
 
@@ -662,7 +662,7 @@ def test_active_runtime_does_not_guess_from_vendor_configuration(
     monkeypatch.setenv("XDG_CONFIG_DIRS", str(tmp_path / "system-config"))
     monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
 
-    from riftlift.runtime import active_runtime_json
+    from riftlift.xr_runtime import active_runtime_json
 
     with pytest.raises(RiftLiftError, match="no active OpenXR runtime"):
         active_runtime_json()
