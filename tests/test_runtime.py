@@ -16,16 +16,19 @@ from riftlift.runtime import (
     META_SIGNING_ROOT_REGISTRY_KEY,
     META_SIGNING_ROOT_THUMBPRINT,
     OPENVR_RUNTIME_VERSION,
+    PROTON_VERSION,
     RUNTIME_VERSION,
     MetaPackage,
     _install_meta_packages,
     _install_meta_signing_root,
     _meta_signing_root_der,
     _meta_signing_root_registry_blob,
+    _safe_tar,
     initialize_prefix,
     install_dxvk_compat,
     install_meta_runtime,
     install_openvr_runtime,
+    install_proton,
     install_rift_runtime,
     meta_signing_root_installed,
     proton_environment,
@@ -74,6 +77,46 @@ def _dxvk_archive(path: Path, content: bytes) -> Path:
             info.size = len(payload)
             bundle.addfile(info, io.BytesIO(payload))
     return archive
+
+
+def test_tar_extraction_rejects_special_files(tmp_path: Path) -> None:
+    archive = tmp_path / "special.tar"
+    with tarfile.open(archive, "w") as bundle:
+        device = tarfile.TarInfo("device")
+        device.type = tarfile.CHRTYPE
+        bundle.addfile(device)
+
+    with pytest.raises(RiftLiftError, match="unsafe entry"):
+        _safe_tar(archive, tmp_path / "unpacked")
+
+
+def test_incomplete_proton_archive_preserves_existing_install(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    target = tmp_path / "steam/compatibilitytools.d" / PROTON_VERSION
+    target.mkdir(parents=True)
+    (target / "working.txt").write_text("keep")
+    archive = tmp_path / "incomplete-proton.tar.gz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        payload = b"incomplete"
+        info = tarfile.TarInfo(f"{PROTON_VERSION}/version")
+        info.size = len(payload)
+        bundle.addfile(info, io.BytesIO(payload))
+    monkeypatch.setattr("riftlift.runtime.steam_root", lambda: tmp_path / "steam")
+    monkeypatch.setattr("riftlift.runtime.download", lambda *_args: archive)
+
+    with pytest.raises(RiftLiftError, match="expected launcher"):
+        install_proton(paths)
+
+    assert (target / "working.txt").read_text() == "keep"
 
 
 def test_dxvk_compat_installs_both_architectures_and_repairs_changes(

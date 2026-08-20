@@ -7,7 +7,7 @@ name = "riftlift"
 dynamic = ["version"]
 description = "Plug-and-play Meta Rift games for working Linux OpenXR runtimes"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10.12"
 license = "GPL-3.0-or-later"
 authors = [{name = "Villagers654"}]
 keywords = ["linux", "meta", "monado", "oculus", "openxr", "rift", "vr"]

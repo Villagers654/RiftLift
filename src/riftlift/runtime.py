@@ -312,7 +312,9 @@ def _safe_zip(archive: Path, destination: Path) -> None:
         source.extractall(destination)
 
 
-def _safe_tar(archive: Path, destination: Path) -> None:
+def _safe_tar(
+    archive: Path, destination: Path, *, allow_internal_links: bool = False
+) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     root = destination.resolve()
     with tarfile.open(archive) as source:
@@ -320,11 +322,16 @@ def _safe_tar(archive: Path, destination: Path) -> None:
             target = (destination / member.name).resolve()
             if target != root and root not in target.parents:
                 raise RiftLiftError(f"unsafe path in {archive.name}: {member.name}")
-            if member.issym() or member.islnk():
+            if not allow_internal_links and (member.issym() or member.islnk()):
                 raise RiftLiftError(
                     f"links are not allowed in {archive.name}: {member.name}"
                 )
-        source.extractall(destination, filter="data")
+        try:
+            source.extractall(destination, filter=tarfile.data_filter)
+        except tarfile.FilterError as error:
+            raise RiftLiftError(
+                f"unsafe entry in {archive.name}: {error.tarinfo.name}"
+            ) from error
 
 
 def _replace_directory(source: Path, destination: Path) -> None:
@@ -353,10 +360,17 @@ def install_proton(paths: Paths) -> Path:
         PROTON_URL, paths.cache / f"{PROTON_VERSION}.tar.gz", PROTON_SHA256
     )
     target.parent.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive) as source:
-        source.extractall(target.parent, filter="data")
-    if not (target / "proton").is_file():
-        raise RiftLiftError("GE-Proton archive did not contain the expected launcher")
+    staging = Path(tempfile.mkdtemp(prefix=".proton-unpack-", dir=target.parent))
+    try:
+        _safe_tar(archive, staging, allow_internal_links=True)
+        source = staging / PROTON_VERSION
+        if not (source / "proton").is_file():
+            raise RiftLiftError(
+                "GE-Proton archive did not contain the expected launcher"
+            )
+        _replace_directory(source, target)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     install_dxvk_compat(paths, target)
     return target
 

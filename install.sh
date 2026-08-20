@@ -9,9 +9,9 @@ bin_root=${XDG_BIN_HOME:-$HOME/.local/bin}
 data_root=$data_home/riftlift
 venv="$data_root/venv"
 
-command -v python3 >/dev/null || { echo "Python 3.10 or newer is required." >&2; exit 1; }
-python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))' || {
-  echo "Python 3.10 or newer is required." >&2
+command -v python3 >/dev/null || { echo "Python 3.10.12 or newer is required." >&2; exit 1; }
+python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10, 12))' || {
+  echo "Python 3.10.12 or newer is required." >&2
   exit 1
 }
 

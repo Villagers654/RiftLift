@@ -30,11 +30,11 @@ if (( $# )); then
 fi
 
 command -v python3 >/dev/null || {
-  echo "Python 3.10 or newer is required." >&2
+  echo "Python 3.10.12 or newer is required." >&2
   exit 1
 }
-python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))' || {
-  echo "Python 3.10 or newer is required." >&2
+python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10, 12))' || {
+  echo "Python 3.10.12 or newer is required." >&2
   exit 1
 }
 command -v git >/dev/null || {
