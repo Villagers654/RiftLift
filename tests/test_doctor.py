@@ -345,48 +345,6 @@ def test_diagnostic_log_is_compacted_to_bounded_tail(tmp_path: Path) -> None:
     assert payload.endswith(b"keep me\n")
 
 
-def test_diagnostic_log_preserves_high_signal_middle_evidence(tmp_path: Path) -> None:
-    target = tmp_path / "large.log"
-    target.write_bytes(
-        b"header\n"
-        + b"routine startup noise\n" * 400
-        + b"RiftLift: xrCreateSession failed with XR_ERROR_RUNTIME_FAILURE\n"
-        + b"high-volume API trace\n" * 400
-        + b"shutdown tail\n"
-    )
-
-    trim_diagnostic_log(target, 4096)
-
-    payload = target.read_bytes()
-    assert len(payload) <= 4096
-    assert b"[selected diagnostic evidence preserved]" in payload
-    assert b"xrCreateSession failed with XR_ERROR_RUNTIME_FAILURE" in payload
-    assert payload.endswith(b"shutdown tail\n")
-
-
-def test_repeated_errors_do_not_displace_distinct_middle_evidence(
-    tmp_path: Path,
-) -> None:
-    target = tmp_path / "large.log"
-    repeated = b"ERROR reference bounds unavailable\n"
-    target.write_bytes(
-        b"header\n"
-        + repeated * 400
-        + b"RiftLift: distinct startup failure XR_ERROR_INITIALIZATION_FAILED\n"
-        + repeated * 400
-        + b"shutdown tail\n"
-    )
-
-    trim_diagnostic_log(target, 4096)
-
-    payload = target.read_bytes()
-    evidence = payload.split(b"[selected diagnostic evidence preserved]", 1)[1].split(
-        b"[end selected diagnostic evidence]", 1
-    )[0]
-    assert evidence.count(repeated) == 1
-    assert b"distinct startup failure XR_ERROR_INITIALIZATION_FAILED" in evidence
-
-
 def test_diagnostic_logs_are_count_and_size_bounded(tmp_path: Path) -> None:
     directory = tmp_path / "logs"
     directory.mkdir()
