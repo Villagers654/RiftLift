@@ -113,7 +113,7 @@ def test_user_config_uses_steams_latest_signed_in_account(tmp_path: Path) -> Non
         '"users" { '
         '"76561197960265851" { "Timestamp" "20" } '
         '"76561197960266184" { "Timestamp" "30" } '
-        '}'
+        "}"
     )
 
     assert user_config(tmp_path) == current

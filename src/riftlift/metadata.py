@@ -160,9 +160,7 @@ def fetch_catalog_metadata(app_id: str) -> CatalogMetadata:
             charset = response.headers.get_content_charset() or "utf-8"
             payload = read_limited(
                 response, _MAX_METADATA_BYTES, "Meta catalog metadata"
-            ).decode(
-                charset, errors="replace"
-            )
+            ).decode(charset, errors="replace")
     except (OSError, TimeoutError) as error:
         raise RiftLiftError(f"could not read Meta catalog metadata: {error}") from error
     return parse_catalog_html(payload, app_id)
@@ -219,9 +217,7 @@ def fetch_steam_catalog_metadata(app_id: str) -> CatalogMetadata:
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             payload = json.loads(
-                read_limited(
-                    response, _MAX_METADATA_BYTES, "Steam catalog metadata"
-                )
+                read_limited(response, _MAX_METADATA_BYTES, "Steam catalog metadata")
             )
     except (OSError, TimeoutError, json.JSONDecodeError) as error:
         raise RiftLiftError(
