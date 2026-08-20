@@ -24,7 +24,14 @@ from .auth_browser import default_browser, launch_browser_login, stop_browser
 from .config import Paths, debug_logging_enabled
 from .diagnostics import prepare_debug_logs
 from .meta_auth import MetaAuthSession, install_protocol_handler, record_callback
-from .util import RiftLiftError, download, run, sha256
+from .util import (
+    RiftLiftError,
+    atomic_write_bytes,
+    atomic_write_text,
+    download,
+    run,
+    sha256,
+)
 
 PROTON_VERSION = "GE-Proton11-3"
 PROTON_URL = f"https://github.com/GloriousEggroll/proton-ge-custom/releases/download/{PROTON_VERSION}/{PROTON_VERSION}.tar.gz"
@@ -206,9 +213,7 @@ def patch_meta_runtime(runtime: Path) -> None:
             raise RiftLiftError(
                 f"{name} compatibility patch produced an unexpected result"
             )
-        temporary = target.with_suffix(target.suffix + ".riftlift.tmp")
-        temporary.write_bytes(payload)
-        os.replace(temporary, target)
+        atomic_write_bytes(target, payload, mode=0o644)
 
     plugins = runtime / "server-plugins"
     # Keep quarantined DLLs outside server-plugins: Meta scans that tree
@@ -410,10 +415,8 @@ def patch_meta_client(client: Path) -> None:
                 f"pinned Meta client patch expected {expected} matching sites, found {count}"
             )
         payload = payload.replace(old, new)
-    temporary = archive.with_suffix(".asar.riftlift.tmp")
-    temporary.write_bytes(payload)
-    os.replace(temporary, archive)
-    marker.write_text("1\n")
+    atomic_write_bytes(archive, payload, mode=0o644)
+    atomic_write_text(marker, "1\n")
 
 
 def steam_root() -> Path:
@@ -536,14 +539,12 @@ def install_dxvk_compat(paths: Paths, proton: Path) -> Path:
                 raise RiftLiftError("RiftLift DXVK payload is incomplete")
             target = destination / installed_path
             target.parent.mkdir(parents=True, exist_ok=True)
-            temporary = target.with_suffix(target.suffix + ".riftlift.tmp")
-            shutil.copy2(source_file, temporary)
-            os.replace(temporary, target)
+            atomic_write_bytes(target, source_file.read_bytes(), mode=0o644)
             file_hashes[installed_path] = sha256(target)
 
         marker.parent.mkdir(parents=True, exist_ok=True)
-        temporary_marker = marker.with_suffix(".tmp")
-        temporary_marker.write_text(
+        atomic_write_text(
+            marker,
             json.dumps(
                 {
                     "version": DXVK_VERSION,
@@ -553,9 +554,8 @@ def install_dxvk_compat(paths: Paths, proton: Path) -> Path:
                 indent=2,
                 sort_keys=True,
             )
-            + "\n"
+            + "\n",
         )
-        os.replace(temporary_marker, marker)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     return destination
@@ -1094,7 +1094,8 @@ def _write_openvr_path_registry(paths: Paths, runtime: Path) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     config.mkdir(parents=True, exist_ok=True)
     logs.mkdir(parents=True, exist_ok=True)
-    target.write_text(
+    atomic_write_text(
+        target,
         json.dumps(
             {
                 "version": 1,
@@ -1104,7 +1105,7 @@ def _write_openvr_path_registry(paths: Paths, runtime: Path) -> Path:
             },
             indent=2,
         )
-        + "\n"
+        + "\n",
     )
     return target
 
@@ -1123,7 +1124,7 @@ def _private_openvr_path_registry(paths: Paths, source: Path) -> Path:
     if not isinstance(payload, dict):
         raise RiftLiftError(f"OpenVR path registry is invalid: {source}")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(payload, indent=2) + "\n")
+    atomic_write_text(target, json.dumps(payload, indent=2) + "\n")
     return target
 
 

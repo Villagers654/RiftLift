@@ -11,7 +11,7 @@ from typing import Any
 
 from .config import Game, Paths, games
 from .steam_vdf import VdfError, dumps, loads
-from .util import RiftLiftError
+from .util import RiftLiftError, atomic_write_bytes, atomic_write_text
 
 
 def steam_root() -> Path:
@@ -124,9 +124,7 @@ def _install_wayvr_metadata(game: Game, app_id: int) -> None:
     }
     target = cache / "app_details" / f"{app_id}.json"
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(details, ensure_ascii=False, indent=2) + "\n")
-    os.replace(temporary, target)
+    atomic_write_text(target, json.dumps(details, ensure_ascii=False, indent=2) + "\n")
 
 
 def _steam_running() -> bool:
@@ -268,9 +266,7 @@ def sync(
     if target.is_file():
         backup = target.with_name(f"shortcuts.vdf.riftlift-{int(time.time())}.bak")
         shutil.copy2(target, backup)
-    temporary = target.with_suffix(".vdf.tmp")
-    temporary.write_bytes(dumps(document))
-    os.replace(temporary, target)
+    atomic_write_bytes(target, dumps(document))
     return target
 
 

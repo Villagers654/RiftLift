@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from collections.abc import Iterable
 from pathlib import Path
@@ -13,6 +14,26 @@ from pathlib import Path
 
 class RiftLiftError(RuntimeError):
     """A concise, user-actionable RiftLift failure."""
+
+
+def atomic_write_bytes(target: Path, payload: bytes, mode: int = 0o600) -> None:
+    """Atomically replace *target* using a unique file in the same directory."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, name = tempfile.mkstemp(prefix=f".{target.name}-", dir=target.parent)
+    temporary = Path(name)
+    try:
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def atomic_write_text(target: Path, value: str, mode: int = 0o600) -> None:
+    atomic_write_bytes(target, value.encode("utf-8"), mode)
 
 
 def command(name: str) -> str:
@@ -52,7 +73,7 @@ def download(url: str, target: Path, expected_sha256: str = "") -> Path:
                 with urllib.request.urlopen(request, timeout=60) as response:
                     shutil.copyfileobj(response, stream)
                 break
-            except Exception as error:
+            except (OSError, urllib.error.URLError, TimeoutError) as error:
                 if attempt == 3:
                     temporary.unlink(missing_ok=True)
                     raise RiftLiftError(

@@ -2,9 +2,20 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
+
+from .util import atomic_write_text
+
+_GAME_SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+
+
+def _game_record(paths: Paths, slug: str) -> Path:
+    if _GAME_SLUG.fullmatch(slug) is None:
+        raise ValueError(f"invalid game slug: {slug!r}")
+    return paths.data / "games" / f"{slug}.json"
 
 
 def _xdg(name: str, fallback: Path) -> Path:
@@ -74,21 +85,21 @@ class Game:
 
     def save(self, paths: Paths) -> Path:
         paths.create()
-        target = paths.data / "games" / f"{self.slug}.json"
-        temporary = target.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(asdict(self), indent=2) + "\n")
-        temporary.replace(target)
+        target = _game_record(paths, self.slug)
+        atomic_write_text(target, json.dumps(asdict(self), indent=2) + "\n")
         return target
 
     @classmethod
     def load(cls, paths: Paths, slug: str) -> Game:
-        target = paths.data / "games" / f"{slug}.json"
+        target = _game_record(paths, slug)
         try:
-            value: dict[str, Any] = json.loads(target.read_text())
+            value: Any = json.loads(target.read_text())
         except FileNotFoundError as error:
             raise ValueError(
                 f"unknown game {slug!r}; add it to RiftLift first"
             ) from error
+        if not isinstance(value, dict):
+            raise ValueError(f"game record is not a JSON object: {target}")
         if "source" not in value:
             value["source"] = (
                 "steam"

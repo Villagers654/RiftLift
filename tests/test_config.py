@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from riftlift.config import (
     Game,
     Paths,
@@ -22,6 +24,25 @@ def test_game_roundtrip(tmp_path: Path) -> None:
     )
     game.save(paths)
     assert Game.load(paths, "example") == game
+
+
+def test_game_records_reject_unsafe_slugs_and_non_objects(tmp_path: Path) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    with pytest.raises(ValueError, match="invalid game slug"):
+        Game.load(paths, "../outside")
+
+    records = paths.data / "games"
+    records.mkdir(parents=True)
+    (records / "broken.json").write_text("[]")
+    with pytest.raises(ValueError, match="not a JSON object"):
+        Game.load(paths, "broken")
 
 
 def test_debug_logging_setting_is_private_and_persistent(tmp_path: Path) -> None:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import secrets
 import shutil
 from dataclasses import dataclass
@@ -14,7 +13,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from .config import Paths
-from .util import RiftLiftError, run
+from .util import RiftLiftError, atomic_write_text, run
 
 FRL_APP_ID = "512466987071624"
 OCULUS_APP_ID = "1582076955407037"
@@ -79,14 +78,7 @@ def record_callback(paths: Paths, callback_url: str) -> int:
         raise RiftLiftError("Meta login callback must use the oculus:// scheme")
     paths.create()
     target = _callback_file(paths)
-    temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(descriptor, "w") as output:
-            output.write(callback_url)
-        os.replace(temporary, target)
-    finally:
-        temporary.unlink(missing_ok=True)
+    atomic_write_text(target, callback_url)
     return 0
 
 
