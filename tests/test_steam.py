@@ -6,6 +6,7 @@ from riftlift.config import Game, Paths
 from riftlift.steam import (
     _existing_by_slug,
     _install_wayvr_metadata,
+    _same_user_process_running,
     _shortcut,
     _shortcut_games,
     ensure_steam_running,
@@ -76,6 +77,30 @@ def test_native_steam_games_do_not_create_duplicate_shortcuts(tmp_path: Path) ->
     steam.save(paths)
 
     assert _shortcut_games(paths) == [rift]
+
+
+def test_process_discovery_ignores_other_users(tmp_path: Path, monkeypatch) -> None:
+    mine = tmp_path / "100"
+    other = tmp_path / "200"
+    mine.mkdir()
+    other.mkdir()
+    (mine / "comm").write_text("not-steam\n")
+    (mine / "status").write_text("Uid:\t1000\t1000\t1000\t1000\n")
+    (other / "comm").write_text("steam\n")
+    (other / "status").write_text("Uid:\t2000\t2000\t2000\t2000\n")
+    monkeypatch.setattr("riftlift.steam.os.getuid", lambda: 1000)
+
+    assert not _same_user_process_running({"steam"}, tmp_path)
+
+
+def test_process_discovery_finds_current_user(tmp_path: Path, monkeypatch) -> None:
+    process = tmp_path / "100"
+    process.mkdir()
+    (process / "comm").write_text("steamwebhelper\n")
+    (process / "status").write_text("Uid:\t1000\t1000\t1000\t1000\n")
+    monkeypatch.setattr("riftlift.steam.os.getuid", lambda: 1000)
+
+    assert _same_user_process_running({"steam", "steamwebhelper"}, tmp_path)
 
 
 def test_steam_client_is_started_before_a_steamworks_game(monkeypatch) -> None:

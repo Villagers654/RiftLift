@@ -158,14 +158,28 @@ def _install_wayvr_metadata(game: Game, app_id: int) -> None:
     atomic_write_text(target, json.dumps(details, ensure_ascii=False, indent=2) + "\n")
 
 
-def _steam_running() -> bool:
-    for target in Path("/proc").glob("[0-9]*/comm"):
-        try:
-            if target.read_text().strip() in {"steam", "steamwebhelper"}:
-                return True
-        except OSError:
-            pass
+def _same_user_process(comm: Path, names: set[str]) -> bool:
+    try:
+        if comm.read_text().strip() not in names:
+            return False
+        status = comm.with_name("status").read_text()
+        uid_line = next(line for line in status.splitlines() if line.startswith("Uid:"))
+        return int(uid_line.split()[1]) == os.getuid()
+    except (OSError, StopIteration, ValueError):
+        return False
+
+
+def _same_user_process_running(
+    names: set[str], proc_root: Path = Path("/proc")
+) -> bool:
+    for comm in proc_root.glob("[0-9]*/comm"):
+        if _same_user_process(comm, names):
+            return True
     return False
+
+
+def _steam_running() -> bool:
+    return _same_user_process_running({"steam", "steamwebhelper"})
 
 
 def _steam_client_ready(root: Path | None = None) -> bool:
@@ -183,28 +197,13 @@ def _steam_client_ready(root: Path | None = None) -> bool:
             pid = int(candidate.read_text())
         except (OSError, ValueError):
             continue
-        try:
-            if (Path("/proc") / str(pid) / "comm").read_text().strip() == "steam":
-                return True
-        except OSError:
-            continue
+        if _same_user_process(Path("/proc") / str(pid) / "comm", {"steam"}):
+            return True
     # Steam can replace its main process while updating or recovering from a
     # crash before steam.pid catches up. A same-user main process is stronger
     # readiness evidence than starting a second client and perturbing a live
     # VR session; steamwebhelper alone is deliberately insufficient.
-    for comm in Path("/proc").glob("[0-9]*/comm"):
-        try:
-            if comm.read_text().strip() != "steam":
-                continue
-            status = comm.with_name("status").read_text()
-            uid_line = next(
-                line for line in status.splitlines() if line.startswith("Uid:")
-            )
-            if int(uid_line.split()[1]) == os.getuid():
-                return True
-        except (OSError, StopIteration, ValueError):
-            continue
-    return False
+    return _same_user_process_running({"steam"})
 
 
 def ensure_steam_running(timeout: float = 30.0) -> None:
