@@ -670,7 +670,7 @@ def test_active_runtime_does_not_guess_from_vendor_configuration(
         active_runtime_json()
 
 
-def test_setup_checks_openxr_before_installing_components(
+def test_setup_does_not_require_an_active_openxr_runtime(
     tmp_path: Path, monkeypatch
 ) -> None:
     paths = Paths(
@@ -684,19 +684,36 @@ def test_setup_checks_openxr_before_installing_components(
     actions: list[str] = []
     monkeypatch.setattr(
         "riftlift.runtime.active_runtime_json",
-        lambda: (_ for _ in ()).throw(RiftLiftError("no runtime")),
+        lambda: (_ for _ in ()).throw(AssertionError("runtime discovery during setup")),
     )
     monkeypatch.setattr(
-        "riftlift.runtime.install_proton", lambda _paths: actions.append("proton")
+        "riftlift.runtime.install_proton",
+        lambda _paths: actions.append("proton") or tmp_path / "proton",
+    )
+    monkeypatch.setattr(
+        "riftlift.runtime.install_meta_runtime",
+        lambda _paths: actions.append("meta"),
+    )
+    monkeypatch.setattr(
+        "riftlift.runtime.install_rift_runtime",
+        lambda _paths: actions.append("rift"),
+    )
+    monkeypatch.setattr(
+        "riftlift.runtime.install_openvr_runtime",
+        lambda _paths: actions.append("openvr"),
+    )
+    monkeypatch.setattr(
+        "riftlift.runtime.install_platform_compat",
+        lambda _paths: actions.append("platform"),
+    )
+    monkeypatch.setattr(
+        "riftlift.runtime.shutdown_compat_prefix",
+        lambda _paths, _proton: actions.append("shutdown"),
     )
 
-    try:
-        setup(paths)
-    except RiftLiftError as error:
-        assert str(error) == "no runtime"
-    else:
-        raise AssertionError("setup unexpectedly continued without OpenXR")
-    assert actions == []
+    setup(paths)
+
+    assert actions == ["proton", "meta", "rift", "openvr", "platform", "shutdown"]
 
 
 def test_launch_has_no_device_specific_wrapper(tmp_path: Path, monkeypatch) -> None:

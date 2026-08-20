@@ -1117,15 +1117,11 @@ def shutdown_compat_prefix(paths: Paths, proton_root: Path) -> None:
 
 
 def setup(paths: Paths) -> None:
-    openxr_runtime = active_runtime_json()
     paths.create()
     proton_root = install_proton(paths)
     install_meta_runtime(paths)
     install_rift_runtime(paths)
     install_openvr_runtime(paths)
-    steamvr = steamvr_runtime_for_openxr(openxr_runtime)
-    if steamvr is not None:
-        _write_openvr_path_registry(paths, steamvr)
     install_platform_compat(paths)
     shutdown_compat_prefix(paths, proton_root)
 
