@@ -49,7 +49,6 @@ from .launch import runtime_backend
 from .runtime import (
     DXVK_SHA256,
     DXVK_VERSION,
-    META_CLIENT_COMPAT_MARKER,
     META_PACKAGES,
     META_RUNTIME_SIGNED_FILES,
     META_SIGNING_ROOT_THUMBPRINT,
@@ -238,10 +237,6 @@ def _current_components(paths: Paths) -> dict[str, str]:
         meta_builds[f"meta_{package.name.replace('-', '_')}"] = (
             f"{META_VERSION} sha256:{sha256[:12]}" if sha256 else "missing/unknown"
         )
-    client_patch = support / "oculus-client" / META_CLIENT_COMPAT_MARKER
-    meta_builds["meta_client_patch"] = (
-        META_CLIENT_COMPAT_MARKER if client_patch.is_file() else "missing"
-    )
     bundled_xrizer = _installed_marker(paths.tools / "openvr-runtime")
     selected_openvr = bundled_xrizer
     openvr_transport = f"XRizer {bundled_xrizer} -> active OpenXR runtime"
@@ -282,7 +277,6 @@ def _expected_components() -> dict[str, str]:
             f"meta_{package.name.replace('-', '_')}": f"{META_VERSION} sha256:{package.sha256[:12]}"
             for package in META_PACKAGES
         },
-        "meta_client_patch": META_CLIENT_COMPAT_MARKER,
         "platform_bridge": f"compat-runtime:{RUNTIME_VERSION}",
     }
 
@@ -814,8 +808,7 @@ def _openvr_checks(paths: Paths) -> list[Check]:
 
 def _meta_checks(paths: Paths) -> list[Check]:
     support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
-    client = support / "oculus-client/Client.exe"
-    checks: list[Check] = [("Meta client", client.is_file(), _file_identity(client))]
+    checks: list[Check] = []
     runtime = support / "oculus-runtime"
     for name, expected in META_RUNTIME_SIGNED_FILES.items():
         target = runtime / name

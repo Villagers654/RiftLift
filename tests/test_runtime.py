@@ -225,10 +225,12 @@ def test_meta_runtime_disables_vendor_vr_service(tmp_path, monkeypatch):
     )
     support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
     support.mkdir(parents=True)
+    legacy_client = support / "oculus-client"
+    legacy_client.mkdir()
+    (legacy_client / "Client.exe").write_bytes(b"unused desktop client")
     captured: list[tuple[str, ...]] = []
 
     monkeypatch.setattr("riftlift.runtime.META_PACKAGES", ())
-    monkeypatch.setattr("riftlift.runtime.patch_meta_client", lambda _path: None)
     monkeypatch.setattr("riftlift.runtime.patch_meta_runtime", lambda _path: None)
     monkeypatch.setattr(
         "riftlift.runtime.proton",
@@ -236,6 +238,7 @@ def test_meta_runtime_disables_vendor_vr_service(tmp_path, monkeypatch):
     )
     install_meta_runtime(paths)
 
+    assert not legacy_client.exists()
     service = r"HKLM\System\CurrentControlSet\Services\OVRService"
     assert (
         "runinprefix",
@@ -284,7 +287,6 @@ def test_meta_runtime_repairs_a_corrupt_signed_loader(tmp_path, monkeypatch):
         {"LibOVRRT64_1.dll": hashlib.sha256(expected).hexdigest()},
     )
     monkeypatch.setattr("riftlift.runtime.download", lambda *_args: archive)
-    monkeypatch.setattr("riftlift.runtime.patch_meta_client", lambda _path: None)
     monkeypatch.setattr("riftlift.runtime.patch_meta_runtime", lambda _path: None)
     monkeypatch.setattr("riftlift.runtime._install_meta_signing_root", lambda *_: None)
     monkeypatch.setattr("riftlift.runtime.proton", lambda *_args, **_kwargs: None)

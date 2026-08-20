@@ -38,7 +38,6 @@ from .playtime import PlaytimeSession
 from .runtime import (
     DXVK_SHA256,
     DXVK_VERSION,
-    META_CLIENT_COMPAT_MARKER,
     META_PACKAGES,
     META_VERSION,
     OPENVR_RUNTIME_VERSION,
@@ -91,7 +90,6 @@ _EXPECTED_BUILD_COMPONENTS = {
         f"meta_{package.name.replace('-', '_')}": f"{META_VERSION} sha256:{package.sha256[:12]}"
         for package in META_PACKAGES
     },
-    "meta_client_patch": META_CLIENT_COMPAT_MARKER,
     "platform_bridge": f"compat-runtime:{RUNTIME_VERSION}",
 }
 
@@ -246,10 +244,6 @@ def _installed_meta_builds(paths: Paths) -> dict[str, str]:
         result[f"meta_{package.name.replace('-', '_')}"] = (
             f"{META_VERSION} sha256:{sha256[:12]}" if sha256 else "missing/unknown"
         )
-    patch = support / "oculus-client" / META_CLIENT_COMPAT_MARKER
-    result["meta_client_patch"] = (
-        META_CLIENT_COMPAT_MARKER if patch.is_file() else "missing"
-    )
     return result
 
 

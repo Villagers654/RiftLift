@@ -111,19 +111,12 @@ META_PACKAGES = (
         "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009",
     ),
     MetaPackage(
-        "oculus-client",
-        "3476193069202515",
-        "e87446a3c828912aea47db2bfc4113d3676f570731d5e854619859ab127f737e",
-    ),
-    MetaPackage(
         "oculus-platform-runtime",
         "28039291642329992",
         "69a6dedbf6f997459038e9b9e54d6562431c1a107bec17637d59626ab0d36892",
     ),
 )
 META_VERSION = "205.0"
-
-META_CLIENT_COMPAT_MARKER = ".riftlift-client-compat-v11"
 
 META_RUNTIME_SIGNED_FILES = {
     "LibOVRRT32_1.dll": "e6435a297861f781d952ba21fdf009bc7d36fdaad0f96e0d39d3b419e1783983",
@@ -319,103 +312,6 @@ def _install_meta_signing_root(paths: Paths, support: Path) -> None:
         "Blob",
     )
     marker.write_text(f"{META_SIGNING_ROOT_THUMBPRINT}\n")
-
-
-_META_CLIENT_REPLACEMENTS = (
-    (b'showBehavior:"whenSignaled"', b'showBehavior:"whenLoaded"  ', 2),
-    (
-        b'show:!1,title:"Meta Horizon Link Client"',
-        b'show:!0,title:"Meta Horizon Link Client"',
-        2,
-    ),
-    # OAF FastIPC never returns /auth/gettoken under Wine. Keep the token in
-    # RiftLift's isolated Electron profile, which persists with the prefix.
-    (
-        b'fetchAccessToken:async()=>(0,i.default)(r.default.GET_AUTH_TOKEN),invalidateAccessToken:async()=>{throw new Error("invalidateAccessToken not implemented")}',
-        b'fetchAccessToken:async()=>localStorage.getItem("riftlift-token")||"",invalidateAccessToken:async()=>0                                                      ',
-        3,
-    ),
-    # Proton has a valid built-in en-US locale, but OAF's language request
-    # hangs for a fresh prefix. Initialize FBT with Meta's own compiled-in
-    # locale before releasing readiness; this preserves every translation
-    # invariant without depending on the broken IPC response.
-    (
-        b't.initialize=async()=>{const e=await r.default.fetchLanguageTag(f);f(e,"never",!0),h.set()}',
-        b't.initialize=()=>{f(o.LANGUAGE_TAG,"never",!0),h.set()}                                    ',
-        2,
-    ),
-    # OAF consumes these token writes but its Wine FastIPC server does not
-    # acknowledge them. Do not deadlock the login state machine waiting for
-    # acknowledgements; the calls still run and the primary access token is
-    # also committed to the renderer's token store immediately afterward.
-    (
-        b"t.setAccessToken=async(e,t)=>{await(0,d.default)(c.default.SET_AUTH_TOKEN,{token:e}),r.default.set(e),t.initialize&&await(0,p.initialize)(!0)};",
-        b't.setAccessToken=async(e,t)=>{localStorage.setItem("riftlift-token",e),r.default.set(e),t.initialize&&await(0,p.initialize)(!0)};              ',
-        1,
-    ),
-    (
-        b"await(0,d.default)(c.default.SET_FRL_AUTH_TOKEN,{token:e})",
-        b"void (0,d.default)(c.default.SET_FRL_AUTH_TOKEN,{token:e})",
-        1,
-    ),
-    (
-        b"await(0,d.default)(c.default.SET_AUTH_META_TOKEN,{metatoken:e})",
-        b"void (0,d.default)(c.default.SET_AUTH_META_TOKEN,{metatoken:e})",
-        1,
-    ),
-    (
-        b"await(0,d.default)(c.default.SET_AUTH_TOKENTYPE,{tokentype:e})",
-        b"void (0,d.default)(c.default.SET_AUTH_TOKENTYPE,{tokentype:e})",
-        1,
-    ),
-    # Session initialization fans out across account state plus many
-    # Windows-only hardware/social helpers. Preserve every initializer and
-    # its failures, but prevent any missing OAF acknowledgement from
-    # holding the entire authenticated session indefinitely.
-    (
-        b'const _=async e=>{try{await e()}catch(e){throw(0,i.logUnexpectedError)("Skyline",e),e}};',
-        b"const _=e=>Promise.race([e(),new Promise(e=>setTimeout(e,5e3))]);                       ",
-        1,
-    ),
-    # Wine's optional native focus helper expects a Windows HWND string but
-    # receives Electron's integer pipe response. The callback URL has
-    # already been sent at this point; skip only the cosmetic focus call so
-    # the helper exits cleanly instead of reporting a false login failure.
-    (
-        b"A&&A.giveFocus(e.readUInt32LE(0))",
-        b"0&&A.giveFocus(e.readUInt32LE(0))",
-        1,
-    ),
-)
-
-
-def patch_meta_client(client: Path) -> None:
-    """Apply deterministic installer and Wine IPC compatibility fixes."""
-    resources = client / "resources"
-    casting_source = resources / "bin/Casting"
-    casting_target = resources / "app.asar.unpacked/bin/Casting"
-    if casting_source.is_dir() and not casting_target.exists():
-        casting_target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(casting_source, casting_target)
-
-    # Meta's Electron window starts hidden and waits for an OAF renderer signal.
-    # Under Wine that signal can arrive only after the visible sign-in flow, a
-    # deadlock. Change the already-supported policy to show on DOM-ready. Keep
-    # the ASAR byte length unchanged so its file offsets and integrity stay valid.
-    archive = resources / "app.asar"
-    marker = client / META_CLIENT_COMPAT_MARKER
-    if marker.is_file():
-        return
-    payload = archive.read_bytes()
-    for old, new, expected in _META_CLIENT_REPLACEMENTS:
-        count = payload.count(old)
-        if count != expected:
-            raise RiftLiftError(
-                f"pinned Meta client patch expected {expected} matching sites, found {count}"
-            )
-        payload = payload.replace(old, new)
-    atomic_write_bytes(archive, payload, mode=0o644)
-    atomic_write_text(marker, "1\n")
 
 
 def proton_dir() -> Path:
@@ -715,11 +611,7 @@ def _install_meta_packages(paths: Paths, support: Path) -> None:
                     current_package = current_package and _signed_meta_runtime_current(
                         destination
                     )
-                current_client_patch = (
-                    package.name != "oculus-client"
-                    or (destination / META_CLIENT_COMPAT_MARKER).is_file()
-                )
-                if current_package and current_client_patch:
+                if current_package:
                     continue
             except (OSError, json.JSONDecodeError):
                 pass
@@ -781,16 +673,6 @@ def _configure_meta_registry(paths: Paths, support: Path) -> None:
         _registry_add(paths, wow_config, name, "REG_SZ", value)
     _registry_add(paths, wow_config, "HomeDemoMode", "REG_DWORD", "0")
 
-    protocol = (
-        r'"C:\Program Files\Oculus\Support\oculus-client\Client.exe" -- --url "%1"'
-    )
-    _registry_add(
-        paths,
-        r"HKCU\Software\Classes\oculus\shell\open\command",
-        None,
-        "REG_SZ",
-        protocol,
-    )
     service = r"HKLM\System\CurrentControlSet\Services\OVRService"
     for name, kind, value in (
         ("DisplayName", "REG_SZ", "Oculus VR Runtime Service"),
@@ -812,8 +694,8 @@ def _configure_meta_registry(paths: Paths, support: Path) -> None:
 def install_meta_runtime(paths: Paths) -> Path:
     prefix = initialize_prefix(paths)
     support = prefix / "drive_c/Program Files/Oculus/Support"
+    shutil.rmtree(support / "oculus-client", ignore_errors=True)
     _install_meta_packages(paths, support)
-    patch_meta_client(support / "oculus-client")
     patch_meta_runtime(support / "oculus-runtime")
     _install_meta_signing_root(paths, support)
     _configure_meta_registry(paths, support)
