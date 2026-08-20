@@ -6,6 +6,7 @@ import json
 import re
 import textwrap
 import urllib.request
+import warnings
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
@@ -24,6 +25,9 @@ STEAM_API_URL = (
 STEAM_STORE_URL = "https://store.steampowered.com/app/{app_id}/"
 STEAM_CDN_URL = "https://cdn.cloudflare.steamstatic.com/steam/apps/{app_id}/{asset}"
 USER_AGENT = f"RiftLift/{__version__} (+https://github.com/Villagers654/RiftLift)"
+_MAX_METADATA_BYTES = 8 * 1024 * 1024
+_MAX_ARTWORK_BYTES = 32 * 1024 * 1024
+_ARTWORK_FORMATS = ("JPEG", "PNG", "WEBP")
 
 
 class _JsonLdParser(HTMLParser):
@@ -68,6 +72,31 @@ class CatalogMetadata:
     genres: list[str]
     image_url: str
     artwork_urls: dict[str, str] = field(default_factory=dict)
+
+
+def _response_bytes(response: Any, maximum: int, label: str) -> bytes:
+    content_length = response.headers.get("Content-Length")
+    try:
+        declared = int(content_length) if content_length is not None else None
+    except (TypeError, ValueError):
+        declared = None
+    if declared is not None and declared > maximum:
+        raise RiftLiftError(f"{label} exceeds the {maximum // (1024 * 1024)} MiB limit")
+    payload = response.read(maximum + 1)
+    if len(payload) > maximum:
+        raise RiftLiftError(f"{label} exceeds the {maximum // (1024 * 1024)} MiB limit")
+    return payload
+
+
+def _decode_image(payload: bytes) -> Image.Image:
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            image = Image.open(io.BytesIO(payload), formats=_ARTWORK_FORMATS)
+            image.load()
+    except (OSError, ValueError, Image.DecompressionBombWarning) as error:
+        raise RiftLiftError(f"catalog artwork could not be decoded: {error}") from error
+    return image
 
 
 def _name(value: object, entities: dict[str, dict[str, Any]]) -> str:
@@ -142,8 +171,11 @@ def fetch_catalog_metadata(app_id: str) -> CatalogMetadata:
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            payload = response.read().decode(
-                response.headers.get_content_charset() or "utf-8", errors="replace"
+            charset = response.headers.get_content_charset() or "utf-8"
+            payload = _response_bytes(
+                response, _MAX_METADATA_BYTES, "Meta catalog metadata"
+            ).decode(
+                charset, errors="replace"
             )
     except (OSError, TimeoutError) as error:
         raise RiftLiftError(f"could not read Meta catalog metadata: {error}") from error
@@ -200,7 +232,11 @@ def fetch_steam_catalog_metadata(app_id: str) -> CatalogMetadata:
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            payload = json.load(response)
+            payload = json.loads(
+                _response_bytes(
+                    response, _MAX_METADATA_BYTES, "Steam catalog metadata"
+                )
+            )
     except (OSError, TimeoutError, json.JSONDecodeError) as error:
         raise RiftLiftError(
             f"could not read Steam catalog metadata: {error}"
@@ -214,7 +250,7 @@ def _request_bytes(url: str) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            return response.read()
+            return _response_bytes(response, _MAX_ARTWORK_BYTES, "catalog artwork")
     except (OSError, TimeoutError) as error:
         raise RiftLiftError(f"could not download catalog artwork: {error}") from error
 
@@ -292,18 +328,12 @@ def generate_artwork(
 ) -> dict[str, str]:
     destination = paths.data / "artwork" / game.slug
     destination.mkdir(parents=True, exist_ok=True)
-    try:
-        source = Image.open(io.BytesIO(image_payload))
-        source.load()
-    except (OSError, ValueError) as error:
-        raise RiftLiftError(f"catalog artwork could not be decoded: {error}") from error
+    source = _decode_image(image_payload)
     sources: dict[str, Image.Image] = {}
     for kind, payload in (source_payloads or {}).items():
         try:
-            image = Image.open(io.BytesIO(payload))
-            image.load()
-            sources[kind] = image
-        except (OSError, ValueError):
+            sources[kind] = _decode_image(payload)
+        except RiftLiftError:
             continue
     portrait_source = sources.get("portrait")
     hero_source = sources.get("hero", source)

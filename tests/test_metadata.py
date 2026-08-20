@@ -1,16 +1,37 @@
 import io
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from riftlift import __version__
 from riftlift.config import Game, Paths
 from riftlift.metadata import (
     USER_AGENT,
+    _response_bytes,
     generate_artwork,
     parse_catalog_html,
     parse_steam_catalog,
 )
+from riftlift.util import RiftLiftError
+
+
+class Response(io.BytesIO):
+    def __init__(self, payload: bytes, content_length: str | None = None) -> None:
+        super().__init__(payload)
+        self.headers = {"Content-Length": content_length} if content_length else {}
+
+
+def test_catalog_response_rejects_declared_or_actual_oversize() -> None:
+    with pytest.raises(RiftLiftError, match="2 MiB limit"):
+        _response_bytes(Response(b"small", "3000000"), 2 * 1024 * 1024, "catalog")
+    with pytest.raises(RiftLiftError, match="2 MiB limit"):
+        _response_bytes(Response(b"x" * (2 * 1024 * 1024 + 1)), 2 * 1024 * 1024, "catalog")
+
+
+def test_catalog_response_accepts_payload_at_limit() -> None:
+    payload = b"x" * 1024
+    assert _response_bytes(Response(payload), len(payload), "catalog") == payload
 
 
 def test_user_agent_tracks_package_version() -> None:
