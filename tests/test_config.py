@@ -6,6 +6,7 @@ from riftlift.config import (
     Game,
     Paths,
     debug_logging_enabled,
+    games,
     set_debug_logging,
 )
 
@@ -58,6 +59,36 @@ def test_game_records_reject_unsafe_slugs_and_non_objects(tmp_path: Path) -> Non
     (records / "broken.json").write_text("[]")
     with pytest.raises(ValueError, match="not a JSON object"):
         Game.load(paths, "broken")
+
+
+def test_game_records_do_not_silently_escape_or_disappear(tmp_path: Path) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    records = paths.data / "games"
+    records.mkdir(parents=True)
+    (records / "broken.json").write_text(
+        """{
+          "slug": "broken",
+          "name": "Broken",
+          "app_id": "1",
+          "app_key": "broken",
+          "directory": "/games/broken",
+          "executable": "../outside.exe",
+          "arguments": []
+        }"""
+    )
+
+    with pytest.raises(ValueError, match="must stay inside"):
+        Game.load(paths, "broken")
+
+    with pytest.raises(ValueError, match="invalid game record"):
+        games(paths)
 
 
 def test_debug_logging_setting_is_private_and_persistent(tmp_path: Path) -> None:

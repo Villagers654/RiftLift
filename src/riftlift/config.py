@@ -90,6 +90,56 @@ class Game:
     steam_app_id: int = 0
     source: str = "meta"
 
+    def _validate_strings(self) -> None:
+        for field_name in (
+            "slug",
+            "name",
+            "app_id",
+            "app_key",
+            "directory",
+            "executable",
+            "version",
+            "store_url",
+            "description",
+            "developer",
+            "publisher",
+        ):
+            if not isinstance(getattr(self, field_name), str):
+                raise ValueError(f"game {field_name} must be a string")
+
+    def _validate_collections(self) -> None:
+        if not isinstance(self.arguments, list) or not all(
+            isinstance(value, str) for value in self.arguments
+        ):
+            raise ValueError("game arguments must be a list of strings")
+        if not isinstance(self.genres, list) or not all(
+            isinstance(value, str) for value in self.genres
+        ):
+            raise ValueError("game genres must be a list of strings")
+        if not isinstance(self.artwork, dict) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in self.artwork.items()
+        ):
+            raise ValueError("game artwork must map names to paths")
+
+    def __post_init__(self) -> None:
+        self._validate_strings()
+        if _GAME_SLUG.fullmatch(self.slug) is None:
+            raise ValueError(f"invalid game slug: {self.slug!r}")
+        directory = Path(self.directory)
+        executable = Path(self.executable)
+        if not directory.is_absolute():
+            raise ValueError("game directory must be an absolute path")
+        if executable.is_absolute() or ".." in executable.parts:
+            raise ValueError("game executable must stay inside its game directory")
+        if not self.executable or not executable.name:
+            raise ValueError("game executable cannot be empty")
+        self._validate_collections()
+        if self.source not in {"local", "meta", "steam"}:
+            raise ValueError(f"invalid game source: {self.source!r}")
+        if not isinstance(self.steam_app_id, int) or self.steam_app_id < 0:
+            raise ValueError("game Steam app ID must be a nonnegative integer")
+
     @property
     def game_dir(self) -> Path:
         return Path(self.directory)
@@ -113,6 +163,8 @@ class Game:
             raise ValueError(
                 f"unknown game {slug!r}; add it to RiftLift first"
             ) from error
+        except (OSError, json.JSONDecodeError, UnicodeError) as error:
+            raise ValueError(f"cannot read game record {target}: {error}") from error
         if not isinstance(value, dict):
             raise ValueError(f"game record is not a JSON object: {target}")
         if "source" not in value:
@@ -122,17 +174,17 @@ class Game:
                 else "meta"
             )
         allowed = {field.name for field in fields(cls)}
-        return cls(**{key: item for key, item in value.items() if key in allowed})
+        try:
+            return cls(**{key: item for key, item in value.items() if key in allowed})
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"invalid game record {target}: {error}") from error
 
 
 def games(paths: Paths) -> list[Game]:
-    result: list[Game] = []
-    for target in sorted((paths.data / "games").glob("*.json")):
-        try:
-            result.append(Game.load(paths, target.stem))
-        except (OSError, TypeError, ValueError, json.JSONDecodeError):
-            continue
-    return result
+    return [
+        Game.load(paths, target.stem)
+        for target in sorted((paths.data / "games").glob("*.json"))
+    ]
 
 
 def debug_logging_enabled(paths: Paths) -> bool:
