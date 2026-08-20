@@ -65,6 +65,9 @@ def test_protocol_handler_honors_xdg_data_home(tmp_path, monkeypatch) -> None:
     data_home = tmp_path / "share"
     monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
     monkeypatch.setattr("riftlift.meta_auth.shutil.which", lambda _name: None)
+    monkeypatch.setattr(
+        "riftlift.meta_auth.installed_command", lambda _name: tmp_path / "riftlift"
+    )
 
     desktop = install_protocol_handler()
 
