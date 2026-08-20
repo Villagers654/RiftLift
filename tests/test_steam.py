@@ -9,6 +9,7 @@ from riftlift.steam import (
     _shortcut,
     _shortcut_games,
     ensure_steam_running,
+    user_config,
 )
 from riftlift.util import RiftLiftError, installed_command
 
@@ -100,6 +101,30 @@ def test_missing_steam_launcher_has_actionable_error(monkeypatch) -> None:
 
     with pytest.raises(RiftLiftError, match="start Steam and retry"):
         ensure_steam_running()
+
+
+def test_user_config_uses_steams_latest_signed_in_account(tmp_path: Path) -> None:
+    older = tmp_path / "userdata/123/config"
+    current = tmp_path / "userdata/456/config"
+    older.mkdir(parents=True)
+    current.mkdir(parents=True)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/loginusers.vdf").write_text(
+        '"users" { '
+        '"76561197960265851" { "Timestamp" "20" } '
+        '"76561197960266184" { "Timestamp" "30" } '
+        '}'
+    )
+
+    assert user_config(tmp_path) == current
+
+
+def test_user_config_refuses_to_guess_between_accounts(tmp_path: Path) -> None:
+    (tmp_path / "userdata/123/config").mkdir(parents=True)
+    (tmp_path / "userdata/456/config").mkdir(parents=True)
+
+    with pytest.raises(RiftLiftError, match="multiple local profiles"):
+        user_config(tmp_path)
 
 
 def test_installed_command_honors_xdg_bin_home(tmp_path, monkeypatch) -> None:

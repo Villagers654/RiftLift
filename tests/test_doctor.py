@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -336,6 +337,24 @@ def test_recent_launches_do_not_keep_stale_failures_forever(tmp_path: Path) -> N
 
     assert len(records) == 5
     assert all(record.get("exit_code") == 0 for record in records)
+
+
+def test_launch_history_respects_its_byte_limit(tmp_path: Path, monkeypatch) -> None:
+    test_paths = paths(tmp_path)
+    sample = game(tmp_path)
+    monkeypatch.setattr("riftlift.diagnostics._MAX_HISTORY_BYTES", 2048)
+    for _index in range(30):
+        launch_started(
+            test_paths,
+            sample,
+            "openxr",
+            wrapper=False,
+            capabilities=["x" * 200],
+        )
+
+    target = test_paths.data / "diagnostics/launches.jsonl"
+    assert target.stat().st_size <= 2048
+    assert all(json.loads(line) for line in target.read_text().splitlines())
 
 
 def test_diagnostic_log_is_compacted_to_bounded_tail(tmp_path: Path) -> None:

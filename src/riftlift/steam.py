@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Game, Paths, games, xdg_cache_home
-from .steam_vdf import VdfError, dumps, loads
+from .steam_vdf import VdfError, dumps, loads, loads_text
 from .util import (
     RiftLiftError,
     atomic_write_bytes,
@@ -33,14 +33,40 @@ def steam_root() -> Path:
 
 def user_config(root: Path | None = None) -> Path:
     root = root or steam_root()
-    candidates = sorted(
-        (path for path in (root / "userdata").glob("[0-9]*/config") if path.is_dir()),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
+    candidates = {
+        path.parent.name: path
+        for path in (root / "userdata").glob("[0-9]*/config")
+        if path.is_dir() and path.parent.name.isdecimal()
+    }
     if not candidates:
         raise RiftLiftError("Steam has no local user profile; sign in once, then retry")
-    return candidates[0]
+    try:
+        users = loads_text((root / "config/loginusers.vdf").read_text()).get(
+            "users", {}
+        )
+    except (OSError, VdfError):
+        users = {}
+    if isinstance(users, dict):
+        signed_in: list[tuple[int, Path]] = []
+        for steam_id, details in users.items():
+            if not str(steam_id).isdecimal() or not isinstance(details, dict):
+                continue
+            account_id = str(int(steam_id) & 0xFFFFFFFF)
+            if account_id not in candidates:
+                continue
+            try:
+                timestamp = int(details.get("Timestamp", 0))
+            except (TypeError, ValueError):
+                timestamp = 0
+            signed_in.append((timestamp, candidates[account_id]))
+        if signed_in:
+            return max(signed_in, key=lambda item: item[0])[1]
+    if len(candidates) == 1:
+        return next(iter(candidates.values()))
+    raise RiftLiftError(
+        "Steam has multiple local profiles but no current signed-in user; "
+        "start Steam, select an account, and retry"
+    )
 
 
 def shortcut_app_id(executable: str, name: str) -> int:

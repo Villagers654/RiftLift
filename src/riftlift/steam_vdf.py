@@ -14,6 +14,81 @@ class VdfError(ValueError):
     pass
 
 
+def _quoted_text_token(value: str, offset: int) -> tuple[str, int]:
+    token = []
+    while offset < len(value) and value[offset] != '"':
+        if value[offset] == "\\" and offset + 1 < len(value):
+            offset += 1
+            escaped = value[offset]
+            if escaped not in {'"', "\\"}:
+                token.append("\\")
+        token.append(value[offset])
+        offset += 1
+    if offset >= len(value):
+        raise VdfError("unterminated VDF string")
+    return "".join(token), offset + 1
+
+
+def _text_tokens(value: str) -> list[str]:
+    tokens: list[str] = []
+    offset = 0
+    while offset < len(value):
+        character = value[offset]
+        if character.isspace():
+            offset += 1
+            continue
+        if value.startswith("//", offset):
+            newline = value.find("\n", offset + 2)
+            offset = len(value) if newline < 0 else newline + 1
+            continue
+        if character in "{}":
+            tokens.append(character)
+            offset += 1
+            continue
+        if character == '"':
+            token, offset = _quoted_text_token(value, offset + 1)
+            tokens.append(token)
+            continue
+        end = offset
+        while end < len(value) and not value[end].isspace() and value[end] not in "{}":
+            end += 1
+        tokens.append(value[offset:end])
+        offset = end
+    return tokens
+
+
+def _read_text_object(
+    tokens: list[str], index: int, nested: bool = False
+) -> tuple[dict[str, Any], int]:
+    result: dict[str, Any] = {}
+    while index < len(tokens):
+        key = tokens[index]
+        index += 1
+        if key == "}":
+            if not nested:
+                raise VdfError("unexpected closing brace")
+            return result, index
+        if key == "{":
+            raise VdfError("missing VDF object key")
+        if index >= len(tokens) or tokens[index] == "}":
+            raise VdfError(f"missing value for VDF key {key!r}")
+        if tokens[index] == "{":
+            item, index = _read_text_object(tokens, index + 1, True)
+        else:
+            item = tokens[index]
+            index += 1
+        result[key] = item
+    if nested:
+        raise VdfError("unterminated VDF object")
+    return result, index
+
+
+def loads_text(value: str) -> dict[str, Any]:
+    """Parse the KeyValues text format used by Steam configuration."""
+    result, _offset = _read_text_object(_text_tokens(value), 0)
+    return result
+
+
 def _cstring(data: bytes, offset: int) -> tuple[str, int]:
     end = data.find(b"\0", offset)
     if end < 0:

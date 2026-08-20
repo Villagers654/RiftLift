@@ -348,18 +348,23 @@ def trim_runtime_traces(paths: Paths) -> None:
 def _append(paths: Paths, record: dict[str, Any]) -> None:
     target = _history_path(paths)
     target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("a+", encoding="utf-8") as stream:
+    encoded = json.dumps(record, ensure_ascii=True, separators=(",", ":")).encode()
+    with target.open("a+b") as stream:
         fcntl.flock(stream, fcntl.LOCK_EX)
         stream.seek(0, os.SEEK_END)
-        if stream.tell() > _MAX_HISTORY_BYTES:
-            stream.seek(0)
-            lines = stream.readlines()[-400:]
+        available = max(0, _MAX_HISTORY_BYTES - len(encoded) - 1)
+        if stream.tell() > available:
+            stream.seek(-available, os.SEEK_END)
+            started_at = stream.tell()
+            retained = stream.read()
+            if started_at:
+                _partial, separator, retained = retained.partition(b"\n")
+                if not separator:
+                    retained = b""
             stream.seek(0)
             stream.truncate()
-            stream.writelines(lines)
-        stream.write(
-            json.dumps(record, ensure_ascii=True, separators=(",", ":")) + "\n"
-        )
+            stream.write(retained)
+        stream.write(encoded + b"\n")
         stream.flush()
         fcntl.flock(stream, fcntl.LOCK_UN)
 
