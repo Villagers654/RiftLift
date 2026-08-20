@@ -62,8 +62,7 @@ def envision_profile() -> EnvisionProfile | None:
     prefixes.extend((prefix_root / uuid, prefix_root / uuid.replace("-", "_")))
     prefix = next((item for item in prefixes if item.is_dir()), prefixes[0])
 
-    manifests = [prefix / "share/openxr/1/openxr_monado.json"]
-    manifest = next((item for item in manifests if item.is_file()), manifests[0])
+    manifest = prefix / "share/openxr/1/openxr_monado.json"
     raw_environment = selected.get("environment", {})
     environment = (
         {
@@ -149,24 +148,6 @@ def xr_build_components() -> dict[str, str]:
         library = Path(library_value).expanduser()
         if not library.is_absolute() and library.parent != Path("."):
             library = (runtime.parent / library).resolve()
-        profile = envision_profile()
-        if (
-            not library.is_absolute()
-            and library.parent == Path(".")
-            and profile is not None
-            and profile.manifest == runtime
-        ):
-            library = next(
-                (
-                    candidate
-                    for candidate in (
-                        profile.prefix / "lib" / library,
-                        profile.prefix / "lib64" / library,
-                    )
-                    if candidate.is_file()
-                ),
-                library,
-            )
         manifest_hash = hashlib.sha256(runtime.read_bytes()).hexdigest()[:12]
         library_identity = library.name
         if library.is_file():
