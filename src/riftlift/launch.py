@@ -49,7 +49,6 @@ from .runtime import (
     launch_environment,
     native_xr_bridge,
     select_openvr_runtime,
-    steamvr_runtime_for_openxr,
     xr_build_components,
 )
 from .steam import ensure_steam_running
@@ -354,7 +353,7 @@ def oculus_launch_arguments(game: Game, extra_arguments: list[str]) -> list[str]
     return arguments
 
 
-def _clear_stale_openvr_registry(paths: Paths, proton_root: Path) -> None:
+def _clear_proton_openvr_cache(paths: Paths, proton_root: Path) -> None:
     """Make Proton probe the OpenVR runtime selected for this launch.
 
     Proton caches its native OpenVR runtime and Vulkan-extension bridge in the
@@ -363,6 +362,17 @@ def _clear_stale_openvr_registry(paths: Paths, proton_root: Path) -> None:
     ``VR_OVERRIDE`` changes.  Removing only this generated cache makes the
     next Proton process rebuild it from the launch environment.
     """
+    generated_paths = (
+        paths.prefix
+        / "pfx/drive_c/users/steamuser/AppData/Local/openvr/openvrpaths.vrpath"
+    )
+    try:
+        generated_paths.unlink(missing_ok=True)
+    except OSError as error:
+        raise RiftLiftError(
+            f"could not remove Proton's generated OpenVR path registry: {error}"
+        ) from error
+
     wine = proton_root / "files/bin/wine"
     if not wine.is_file():
         return
@@ -394,20 +404,6 @@ def _clear_stale_openvr_registry(paths: Paths, proton_root: Path) -> None:
         raise RiftLiftError(
             f"could not refresh Proton's OpenVR runtime cache: {error}"
         ) from error
-
-
-def _configure_steamvr_openxr_fallback(
-    paths: Paths, backend: str, environment: dict[str, str]
-) -> None:
-    """Mirror SteamVR's private OpenVR registry for its OpenXR native client."""
-    if backend != "openxr" or not environment.get("XR_RUNTIME_JSON"):
-        return
-    manifest = Path(environment["XR_RUNTIME_JSON"])
-    if steamvr_runtime_for_openxr(manifest) is None:
-        return
-    _, registry, _ = select_openvr_runtime(paths, manifest)
-    environment["VR_PATHREG_OVERRIDE"] = str(registry)
-    environment["XDG_CONFIG_HOME"] = str(paths.config)
 
 
 def _disable_openxr_for_direct_openvr(
@@ -461,7 +457,6 @@ def _configure_openvr_environment(
     else:
         environment.pop("RIFTLIFT_XRIZER", None)
         environment.pop("XRIZER_LOG_DIR", None)
-    _clear_stale_openvr_registry(paths, proton_root)
 
 
 def _launch_wrapper() -> list[str]:
@@ -537,15 +532,18 @@ def _prepare_launch(
         game.platform_shim,
         game.platform_offline or game.source == "meta",
     )
-    _configure_steamvr_openxr_fallback(paths, backend, environment)
     if backend == "openvr":
         _disable_openxr_for_direct_openvr(environment, openvr_kind)
     if environment.get("PROTON_LOG") == "1":
         environment["RIFTLIFT_RUNTIME_TRACE"] = "1"
         clear_runtime_traces(paths)
     _configure_proton_identity(environment, game)
+    _clear_proton_openvr_cache(paths, proton_root)
     if backend == "openxr":
         environment["DXVK_NO_VR"] = "1"
+        # Proton consumes this override before the game starts.  An empty
+        # registry prevents it from also initializing an OpenVR client.
+        environment["VR_PATHREG_OVERRIDE"] = os.devnull
     elif openvr_registry is not None:
         _configure_openvr_environment(
             paths,

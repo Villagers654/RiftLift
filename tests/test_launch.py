@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,7 @@ from riftlift.diagnostics import (
     trim_runtime_traces,
 )
 from riftlift.launch import (
-    _clear_stale_openvr_registry,
+    _clear_proton_openvr_cache,
     _expected_launch_components,
     _installed_openvr_build,
     _run_game_process,
@@ -220,7 +221,7 @@ def test_meta_game_ignores_steam_shortcut_id_for_proton_identity(
     assert captured["env"]["UMU_USE_STEAM"] == "0"
 
 
-def test_openxr_launch_mirrors_steamvr_registry_for_native_client_fallback(
+def test_openxr_launch_does_not_configure_a_second_openvr_client(
     tmp_path: Path, monkeypatch
 ) -> None:
     paths = Paths(
@@ -236,17 +237,10 @@ def test_openxr_launch_mirrors_steamvr_registry_for_native_client_fallback(
     executable.write_bytes(b"MZ")
     proton = tmp_path / "proton"
     rift_runtime = tmp_path / "rift-runtime"
-    steamvr = tmp_path / "SteamVR"
-    manifest = steamvr / "steamxr_linux64.json"
-    registry = paths.config / "openvr/openvrpaths.vrpath"
+    manifest = tmp_path / "openxr-runtime.json"
     proton.mkdir()
     rift_runtime.mkdir()
-    (steamvr / "bin/linux64").mkdir(parents=True)
-    (steamvr / "bin/linux64/vrclient.so").write_bytes(b"ELF")
-    manifest.write_text(
-        '{"runtime":{"VALVE_runtime_is_steamvr":true,'
-        '"library_path":"bin/linux64/vrclient.so"}}'
-    )
+    manifest.write_text('{"runtime":{"library_path":"runtime.so"}}')
     monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
     monkeypatch.setattr(
         "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
@@ -255,10 +249,6 @@ def test_openxr_launch_mirrors_steamvr_registry_for_native_client_fallback(
     monkeypatch.setattr(
         "riftlift.launch.launch_environment",
         lambda *_args: {"XR_RUNTIME_JSON": str(manifest)},
-    )
-    monkeypatch.setattr(
-        "riftlift.launch.select_openvr_runtime",
-        lambda *_args: (steamvr, registry, "steamvr"),
     )
     captured: dict[str, object] = {}
     monkeypatch.setattr(
@@ -270,8 +260,9 @@ def test_openxr_launch_mirrors_steamvr_registry_for_native_client_fallback(
     )
 
     assert launch(paths, game, []) == 0
-    assert captured["env"]["VR_PATHREG_OVERRIDE"] == str(registry)
-    assert captured["env"]["XDG_CONFIG_HOME"] == str(paths.config)
+    assert captured["env"]["XR_RUNTIME_JSON"] == str(manifest)
+    assert captured["env"]["VR_PATHREG_OVERRIDE"] == os.devnull
+    assert "XDG_CONFIG_HOME" not in captured["env"]
 
 
 def test_cancelled_launch_records_named_error(tmp_path: Path, monkeypatch) -> None:
@@ -482,6 +473,12 @@ def test_openvr_launch_clears_only_protons_generated_runtime_cache(
     wine = proton / "files/bin/wine"
     wine.parent.mkdir(parents=True)
     wine.write_bytes(b"ELF")
+    generated = (
+        paths.prefix
+        / "pfx/drive_c/users/steamuser/AppData/Local/openvr/openvrpaths.vrpath"
+    )
+    generated.parent.mkdir(parents=True)
+    generated.write_text("generated")
     captured = {}
 
     def fake_run(command, **kwargs):
@@ -490,7 +487,7 @@ def test_openvr_launch_clears_only_protons_generated_runtime_cache(
     monkeypatch.setattr("riftlift.launch.subprocess.run", fake_run)
     monkeypatch.setenv("LD_PRELOAD", "/tmp/desktop-injector.so")
 
-    _clear_stale_openvr_registry(paths, proton)
+    _clear_proton_openvr_cache(paths, proton)
 
     assert captured["command"] == [
         str(wine),
@@ -502,6 +499,7 @@ def test_openvr_launch_clears_only_protons_generated_runtime_cache(
     assert captured["env"]["WINEPREFIX"] == str(paths.prefix / "pfx")
     assert "LD_PRELOAD" not in captured["env"]
     assert captured["check"] is False
+    assert not generated.exists()
 
 
 def test_platform_shim_does_not_redirect_oculus_vr_runtime(
