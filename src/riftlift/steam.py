@@ -206,6 +206,15 @@ def _steam_client_ready(root: Path | None = None) -> bool:
     return _same_user_process_running({"steam"})
 
 
+def _start_steam(executable: str) -> None:
+    subprocess.Popen(
+        (executable, "-silent"),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
 def ensure_steam_running(timeout: float = 30.0) -> None:
     """Start Steam before a Steamworks title can escape RiftLift's launch.
 
@@ -222,12 +231,7 @@ def ensure_steam_running(timeout: float = 30.0) -> None:
             "Steam is not running and its launcher is not on PATH; start Steam and retry"
         )
     print("Starting Steam before the Steamworks game...")
-    subprocess.Popen(
-        (steam, "-silent"),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    _start_steam(steam)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if _steam_client_ready():
@@ -302,39 +306,35 @@ def sync(
 
 def sync_with_restart(paths: Paths, launcher: Path | None = None) -> Path:
     was_running = _steam_running()
+    if not was_running:
+        return sync(paths, launcher)
+
     steam = shutil.which("steam")
-    if was_running:
-        if not steam:
-            raise RiftLiftError(
-                "Steam is running but its launcher is not on PATH; exit it and retry"
-            )
-        print("Restarting Steam once so it can safely import the RiftLift shortcut...")
-        try:
-            subprocess.run(
-                (steam, "-shutdown"),
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=20,
-            )
-        except subprocess.TimeoutExpired as error:
-            raise RiftLiftError(
-                "Steam did not respond to its shutdown command"
-            ) from error
-        for _ in range(100):
-            if not _steam_running():
-                break
-            time.sleep(0.2)
-        else:
-            raise RiftLiftError(
-                "Steam did not exit in time; exit it manually and run 'riftlift steam-sync'"
-            )
-    target = sync(paths, launcher)
-    if was_running and steam:
-        subprocess.Popen(
-            (steam, "-silent"),
+    if not steam:
+        raise RiftLiftError(
+            "Steam is running but its launcher is not on PATH; exit it and retry"
+        )
+    print("Restarting Steam once so it can safely import the RiftLift shortcut...")
+    try:
+        subprocess.run(
+            (steam, "-shutdown"),
+            check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            timeout=20,
         )
-    return target
+    except subprocess.TimeoutExpired as error:
+        raise RiftLiftError("Steam did not respond to its shutdown command") from error
+    for _ in range(100):
+        if not _steam_running():
+            break
+        time.sleep(0.2)
+    else:
+        raise RiftLiftError(
+            "Steam did not exit in time; exit it manually and run 'riftlift steam-sync'"
+        )
+    try:
+        return sync(paths, launcher)
+    finally:
+        if not _steam_running():
+            _start_steam(steam)

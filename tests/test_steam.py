@@ -10,6 +10,7 @@ from riftlift.steam import (
     _shortcut,
     _shortcut_games,
     ensure_steam_running,
+    sync_with_restart,
     user_config,
 )
 from riftlift.util import RiftLiftError, installed_command
@@ -126,6 +127,36 @@ def test_missing_steam_launcher_has_actionable_error(monkeypatch) -> None:
 
     with pytest.raises(RiftLiftError, match="start Steam and retry"):
         ensure_steam_running()
+
+
+def test_sync_failure_restarts_the_previously_running_client(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    running = iter((True, False, False))
+    starts = []
+    monkeypatch.setattr("riftlift.steam._steam_running", lambda: next(running))
+    monkeypatch.setattr("riftlift.steam.shutil.which", lambda _name: "/usr/bin/steam")
+    monkeypatch.setattr("riftlift.steam.subprocess.run", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "riftlift.steam.sync",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RiftLiftError("bad VDF")),
+    )
+    monkeypatch.setattr(
+        "riftlift.steam._start_steam", lambda executable: starts.append(executable)
+    )
+
+    with pytest.raises(RiftLiftError, match="bad VDF"):
+        sync_with_restart(paths)
+
+    assert starts == ["/usr/bin/steam"]
 
 
 def test_user_config_uses_steams_latest_signed_in_account(tmp_path: Path) -> None:
