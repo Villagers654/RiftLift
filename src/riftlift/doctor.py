@@ -63,6 +63,7 @@ from .runtime import (
     steamvr_runtime_for_openxr,
 )
 from .steam import steam_root
+from .util import RiftLiftError
 from .xr_runtime import active_runtime_json, envision_profile, xr_build_components
 
 PASTE_URL = "https://paste.rs/"
@@ -218,11 +219,14 @@ def _current_components(paths: Paths) -> dict[str, str]:
         proton_build = (
             _proton_version(proton) if (proton / "proton").is_file() else "missing"
         )
-    except Exception:
+    except RiftLiftError:
+        proton = None
         proton_build = "missing"
-        proton = Path("/nonexistent")
-    dxvk_ok, dxvk_detail = _installed_dxvk(proton)
-    dxvk_build = dxvk_detail if dxvk_ok else f"invalid ({dxvk_detail})"
+    if proton is None:
+        dxvk_build = "missing"
+    else:
+        dxvk_ok, dxvk_detail = _installed_dxvk(proton)
+        dxvk_build = dxvk_detail if dxvk_ok else f"invalid ({dxvk_detail})"
     runtime_build = _installed_marker(paths.tools / "rift-runtime")
     support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
     meta_builds: dict[str, str] = {}
@@ -240,7 +244,7 @@ def _current_components(paths: Paths) -> dict[str, str]:
     openvr_transport = f"XRizer {bundled_xrizer} -> active OpenXR runtime"
     try:
         steamvr = steamvr_runtime_for_openxr(active_runtime_json())
-    except Exception:
+    except RiftLiftError:
         steamvr = None
     if steamvr is not None:
         try:
@@ -688,7 +692,7 @@ def _runtime_checks(paths: Paths, installed: list[Game]) -> list[Check]:
 
     try:
         proton = proton_dir()
-    except Exception as error:
+    except RiftLiftError as error:
         proton = None
         checks.append(("GE-Proton", False, redact(str(error))))
         dxvk_ok, dxvk_detail = False, str(error)
@@ -698,10 +702,7 @@ def _runtime_checks(paths: Paths, installed: list[Game]) -> list[Check]:
             "GE-Proton",
             lambda: _proton_description(proton),
         )
-        try:
-            dxvk_ok, dxvk_detail = _installed_dxvk(proton)
-        except Exception as error:
-            dxvk_ok, dxvk_detail = False, str(error)
+        dxvk_ok, dxvk_detail = _installed_dxvk(proton)
     checks.append(("RiftLift DXVK compatibility", dxvk_ok, dxvk_detail))
 
     rift_runtime = paths.tools / "rift-runtime"
@@ -739,7 +740,7 @@ def _native_bridge_checks(proton: Path | None, backends: list[str]) -> list[Chec
         try:
             bridge = native_xr_bridge(proton, backend)
             detail = f"{_file_identity(bridge.pe)} + {_file_identity(bridge.unix)}"
-        except Exception as error:
+        except RiftLiftError as error:
             checks.append((f"Native {backend.upper()} unixlib", False, str(error)))
         else:
             checks.append((f"Native {backend.upper()} unixlib", True, detail))
@@ -753,7 +754,7 @@ def _proton_description(proton: Path) -> str:
 
 
 def _safe_runtime_backend(game: Game) -> str | None:
-    with contextlib.suppress(Exception):
+    with contextlib.suppress(RiftLiftError):
         return runtime_backend(game)
     return None
 
@@ -761,7 +762,7 @@ def _safe_runtime_backend(game: Game) -> str | None:
 def _openvr_checks(paths: Paths) -> list[Check]:
     try:
         steamvr_runtime = steamvr_runtime_for_openxr(active_runtime_json())
-    except Exception:
+    except RiftLiftError:
         steamvr_runtime = None
     if steamvr_runtime is None:
         runtime = paths.tools / "openvr-runtime/libxrizer.so"
@@ -858,7 +859,7 @@ def _game_checks(installed: list[Game]) -> tuple[list[Check], list[str]]:
         ]
         try:
             backend = runtime_backend(game)
-        except Exception as error:
+        except RiftLiftError as error:
             backend = f"error: {error}"
         state = "OK" if present else "MISSING"
         markers = ", ".join(capabilities) or "no engine markers"

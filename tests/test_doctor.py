@@ -30,6 +30,7 @@ from riftlift.doctor_evidence import (
     _recent_envision_log_errors,
     _recent_game_log_errors,
 )
+from riftlift.util import RiftLiftError
 
 
 @pytest.fixture(autouse=True)
@@ -717,7 +718,7 @@ def test_build_report_does_not_attribute_unrelated_journal_errors_without_launch
     monkeypatch.setattr("riftlift.doctor.steam_root", lambda: tmp_path / "steam")
     monkeypatch.setattr(
         "riftlift.doctor.proton_dir",
-        lambda: (_ for _ in ()).throw(RuntimeError("Steam is unavailable")),
+        lambda: (_ for _ in ()).throw(RiftLiftError("Steam is unavailable")),
     )
     monkeypatch.setattr("riftlift.doctor._gpu_summary", lambda: "Test GPU")
     monkeypatch.setattr("riftlift.doctor._connected_inputs", lambda: "none")
