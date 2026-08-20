@@ -4,7 +4,6 @@ import contextlib
 import hashlib
 import json
 import os
-import platform
 import secrets
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -90,12 +89,7 @@ def envision_profile() -> EnvisionProfile | None:
 
 
 def active_runtime_json() -> Path:
-    """Return the manifest selected by the standard Linux OpenXR loader.
-
-    Runtime managers own selection. RiftLift follows the loader's documented
-    override and XDG active-runtime paths instead of guessing from processes,
-    installed applications, or third-party configuration files.
-    """
+    """Return the runtime override or the user's active OpenXR manifest."""
     explicit = os.environ.get("XR_RUNTIME_JSON", "").strip()
     if explicit:
         target = Path(explicit).expanduser()
@@ -106,23 +100,12 @@ def active_runtime_json() -> Path:
         return target.resolve()
 
     config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    config_dirs = [config_home]
-    config_dirs.extend(
-        Path(item)
-        for item in os.environ.get("XDG_CONFIG_DIRS", "/etc/xdg").split(":")
-        if item
-    )
-    config_dirs.append(Path("/etc"))
-    architecture = platform.machine()
-    names = (f"active_runtime.{architecture}.json", "active_runtime.json")
-    for directory in dict.fromkeys(config_dirs):
-        for name in names:
-            candidate = directory.expanduser() / "openxr/1" / name
-            if candidate.is_file():
-                return candidate.resolve()
+    candidate = config_home.expanduser() / "openxr/1/active_runtime.json"
+    if candidate.is_file():
+        return candidate.resolve()
     raise RiftLiftError(
-        "no active OpenXR runtime is configured; select one with your runtime "
-        "manager or set XR_RUNTIME_JSON to its absolute manifest path"
+        f"no active OpenXR runtime is configured at {candidate}; select one with "
+        "your runtime manager or set XR_RUNTIME_JSON to its absolute manifest path"
     )
 
 

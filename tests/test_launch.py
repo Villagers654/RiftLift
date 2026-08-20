@@ -1,5 +1,4 @@
 import json
-import platform
 from pathlib import Path
 
 import pytest
@@ -568,37 +567,21 @@ def test_active_runtime_uses_xdg_active_manifest(tmp_path: Path, monkeypatch) ->
     assert active_runtime_json() == manifest.resolve()
 
 
-def test_active_runtime_prefers_arch_specific_manifest(
+def test_active_runtime_does_not_override_runtime_manager_selection(
     tmp_path: Path, monkeypatch
 ) -> None:
     config_home = tmp_path / "config"
-    generic = config_home / "openxr/1/active_runtime.json"
-    architecture = config_home / f"openxr/1/active_runtime.{platform.machine()}.json"
-    generic.parent.mkdir(parents=True)
-    generic.write_text("{}")
-    architecture.write_text("{}")
+    active = config_home / "openxr/1/active_runtime.json"
+    stale_architecture_override = config_home / "openxr/1/active_runtime.x86_64.json"
+    active.parent.mkdir(parents=True)
+    active.write_text("{}")
+    stale_architecture_override.write_text("{}")
     monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
-    monkeypatch.setenv("XDG_CONFIG_DIRS", str(tmp_path / "system-config"))
 
     from riftlift.runtime import active_runtime_json
 
-    assert active_runtime_json() == architecture.resolve()
-
-
-def test_active_runtime_uses_xdg_config_dirs(tmp_path: Path, monkeypatch) -> None:
-    config_home = tmp_path / "user-config"
-    system_config = tmp_path / "system-config"
-    manifest = system_config / "openxr/1/active_runtime.json"
-    manifest.parent.mkdir(parents=True)
-    manifest.write_text("{}")
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
-    monkeypatch.setenv("XDG_CONFIG_DIRS", str(system_config))
-    monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
-
-    from riftlift.runtime import active_runtime_json
-
-    assert active_runtime_json() == manifest.resolve()
+    assert active_runtime_json() == active.resolve()
 
 
 def test_launch_environment_uses_selected_manifest_without_vendor_config(
