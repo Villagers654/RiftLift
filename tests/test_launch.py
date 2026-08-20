@@ -253,7 +253,9 @@ def test_openxr_launch_does_not_configure_a_second_openvr_client(
     monkeypatch.setattr(
         "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
     )
-    monkeypatch.setattr("riftlift.launch.runtime_backend", lambda _game: "openxr")
+    monkeypatch.setattr(
+        "riftlift.launch._select_runtime_backend", lambda _game, _capabilities: "openxr"
+    )
     monkeypatch.setattr(
         "riftlift.launch._clear_proton_openvr_cache",
         lambda *_args: pytest.fail("OpenXR launch performed OpenVR cache maintenance"),
@@ -392,7 +394,9 @@ def test_direct_openvr_bridge_uses_windows_action_manifest(
     monkeypatch.setattr(
         "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
     )
-    monkeypatch.setattr("riftlift.launch.runtime_backend", lambda _game: "openvr")
+    monkeypatch.setattr(
+        "riftlift.launch._select_runtime_backend", lambda _game, _capabilities: "openvr"
+    )
     monkeypatch.setattr(
         "riftlift.launch.launch_environment",
         lambda *_args: {"XRIZER_LOG_DIR": "/tmp/xrizer"},
@@ -447,7 +451,9 @@ def test_xrizer_bridge_uses_host_action_manifest(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(
         "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
     )
-    monkeypatch.setattr("riftlift.launch.runtime_backend", lambda _game: "openvr")
+    monkeypatch.setattr(
+        "riftlift.launch._select_runtime_backend", lambda _game, _capabilities: "openvr"
+    )
     monkeypatch.setattr(
         "riftlift.launch.select_openvr_runtime",
         lambda *_args: (openvr, registry, "xrizer"),

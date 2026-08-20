@@ -299,8 +299,7 @@ def _expected_launch_components(
     return expected
 
 
-def runtime_backend(game: Game) -> str:
-    """Select a translation path from install capabilities, never a title list."""
+def _select_runtime_backend(game: Game, capabilities: list[str]) -> str:
     override = os.environ.get("RIFTLIFT_RUNTIME_BACKEND", "").strip().lower()
     if override:
         if override not in {"openxr", "openvr"}:
@@ -313,12 +312,15 @@ def runtime_backend(game: Game) -> str:
         for argument in game.arguments
     )
     needs_openvr = (
-        uses_openvr_runtime(game.game_dir)
-        or uses_oculus_xr_plugin(game.game_dir)
-        or uses_d3d12_runtime(game.executable_path)
+        bool({"openvr", "oculus-xr-plugin", "d3d12"}.intersection(capabilities))
         or legacy_ovr_presentation
     )
     return "openvr" if needs_openvr else "openxr"
+
+
+def runtime_backend(game: Game) -> str:
+    """Select a translation path from install capabilities, never a title list."""
+    return _select_runtime_backend(game, _game_capabilities(game))
 
 
 def oculus_launch_arguments(game: Game, extra_arguments: list[str]) -> list[str]:
@@ -491,6 +493,7 @@ class _LaunchPlan:
     proton_root: Path
     rift_runtime: Path
     native_bridge: NativeXrBridge
+    capabilities: list[str]
 
 
 def _prepare_launch(
@@ -502,7 +505,8 @@ def _prepare_launch(
         ensure_steam_running()
     rift_runtime = install_rift_runtime(paths)
     proton_root = install_proton(paths)
-    backend = runtime_backend(game)
+    capabilities = _game_capabilities(game)
+    backend = _select_runtime_backend(game, capabilities)
     native_bridge = native_xr_bridge(proton_root, backend)
     arguments = [
         str(proton_root / "proton"),
@@ -562,6 +566,7 @@ def _prepare_launch(
         proton_root=proton_root,
         rift_runtime=rift_runtime,
         native_bridge=native_bridge,
+        capabilities=capabilities,
     )
 
 
@@ -579,7 +584,7 @@ def _start_launch_record(
         game,
         plan.backend,
         wrapper=bool(plan.wrapper),
-        capabilities=_game_capabilities(game),
+        capabilities=plan.capabilities,
         debug_logging=debug_logging,
         debug_settings={
             key: plan.environment[key]
