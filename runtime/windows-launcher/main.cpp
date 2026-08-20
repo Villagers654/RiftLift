@@ -2,6 +2,7 @@
 #include <vector>
 
 #include <Windows.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <Shlobj.h>
@@ -9,12 +10,19 @@
 #include <detours/detours.h>
 #include <openvr.h>
 
-extern FILE* g_LogFile;
-#define LOG(x, ...) if (g_LogFile) fprintf(g_LogFile, x, __VA_ARGS__); \
-					printf(x, __VA_ARGS__); \
-					fflush(g_LogFile);
-
 FILE* g_LogFile = NULL;
+
+void Log(const char* format, ...)
+{
+	if (!g_LogFile)
+		return;
+
+	va_list arguments;
+	va_start(arguments, format);
+	vfprintf(g_LogFile, format, arguments);
+	va_end(arguments);
+	fflush(g_LogFile);
+}
 
 bool WideToUtf8(const wchar_t* value, std::string& result)
 {
@@ -30,193 +38,107 @@ bool WideToUtf8(const wchar_t* value, std::string& result)
 	return true;
 }
 
-bool GetOculusBasePath(PWCHAR path, DWORD length)
+bool GetModuleDirectory(std::string& result)
 {
-	LONG error = ERROR_SUCCESS;
-
-	HKEY oculusKey;
-	error = RegOpenKeyEx(HKEY_LOCAL_MACHINE, L"Software\\Oculus VR, LLC\\Oculus", 0, KEY_READ | KEY_WOW64_32KEY, &oculusKey);
-	if (error != ERROR_SUCCESS)
+	std::vector<char> path(MAX_PATH);
+	for (;;)
 	{
-		LOG("Unable to open Oculus key.");
-		return false;
+		DWORD length = GetModuleFileNameA(NULL, path.data(),
+			static_cast<DWORD>(path.size()));
+		if (length == 0)
+			return false;
+		if (length < path.size() - 1)
+			break;
+		path.resize(path.size() * 2);
 	}
-	error = RegQueryValueEx(oculusKey, L"Base", NULL, NULL, (PBYTE)path, &length);
-	if (error != ERROR_SUCCESS)
-	{
-		LOG("Unable to read Base path.");
+	if (!PathRemoveFileSpecA(path.data()))
 		return false;
-	}
-	RegCloseKey(oculusKey);
-
+	result = path.data();
 	return true;
 }
 
-bool GetLibraryPath(PWCHAR path, DWORD length, PWCHAR guid)
+std::wstring QuoteArgument(const wchar_t* argument)
 {
-	LONG error = ERROR_SUCCESS;
-
-	// Open the libraries key
-	WCHAR keyPath[MAX_PATH] = { L"Software\\Oculus VR, LLC\\Oculus\\Libraries\\" };
-	HKEY oculusKey;
-
-	// Open the library key
-	wcsncat(keyPath, guid, MAX_PATH);
-	error = RegOpenKeyExW(HKEY_CURRENT_USER, keyPath, 0, KEY_READ, &oculusKey);
-	if (error != ERROR_SUCCESS)
+	std::wstring result = L"\"";
+	size_t backslashes = 0;
+	for (const wchar_t* current = argument; *current; ++current)
 	{
-		LOG("Unable to open Library path key.");
-		return false;
+		if (*current == L'\\')
+		{
+			++backslashes;
+			continue;
+		}
+		if (*current == L'\"')
+		{
+			result.append(backslashes * 2 + 1, L'\\');
+			result.push_back(L'\"');
+			backslashes = 0;
+			continue;
+		}
+		result.append(backslashes, L'\\');
+		backslashes = 0;
+		result.push_back(*current);
 	}
-
-	// Get the volume path to this library
-	DWORD pathSize;
-	error = RegQueryValueExW(oculusKey, L"Path", NULL, NULL, NULL, &pathSize);
-	PWCHAR volumePath = (PWCHAR)malloc(pathSize);
-	error = RegQueryValueExW(oculusKey, L"Path", NULL, NULL, (PBYTE)volumePath, &pathSize);
-	RegCloseKey(oculusKey);
-	if (error != ERROR_SUCCESS)
-	{
-		free(volumePath);
-		LOG("Unable to read Library path.");
-		return false;
-	}
-
-	// Resolve the volume path to a mount point
-	DWORD total;
-	WCHAR volume[50] = { L'\0' };
-	wcsncpy(volume, volumePath, 49);
-	GetVolumePathNamesForVolumeNameW(volume, path, length, &total);
-	wcsncat(path, volumePath + 49, MAX_PATH);
-	free(volumePath);
-
-	return true;
+	result.append(backslashes * 2, L'\\');
+	result.push_back(L'\"');
+	return result;
 }
 
-bool GetDefaultLibraryPath(PWCHAR path, DWORD length)
+std::wstring BuildCommandLine(int argc, wchar_t* argv[], int firstArgument)
 {
-	LONG error = ERROR_SUCCESS;
-
-	// Open the libraries key
-	WCHAR keyPath[MAX_PATH] = { L"Software\\Oculus VR, LLC\\Oculus\\Libraries\\" };
-	HKEY oculusKey;
-	error = RegOpenKeyExW(HKEY_CURRENT_USER, keyPath, 0, KEY_READ, &oculusKey);
-	if (error != ERROR_SUCCESS)
+	std::wstring result;
+	for (int index = firstArgument; index < argc; ++index)
 	{
-		LOG("Unable to open Libraries key.");
-		return false;
+		if (!result.empty())
+			result.push_back(L' ');
+		result += QuoteArgument(argv[index]);
 	}
-
-	// Get the default library
-	WCHAR guid[40] = { L'\0' };
-	DWORD guidSize = sizeof(guid);
-	error = RegQueryValueExW(oculusKey, L"DefaultLibrary", NULL, NULL, (PBYTE)guid, &guidSize);
-	RegCloseKey(oculusKey);
-	if (error != ERROR_SUCCESS)
-	{
-		LOG("Unable to read DefaultLibrary guid.");
-		return false;
-	}
-
-	// Open the default library key
-	wcsncat(keyPath, guid, MAX_PATH);
-	error = RegOpenKeyExW(HKEY_CURRENT_USER, keyPath, 0, KEY_READ, &oculusKey);
-	if (error != ERROR_SUCCESS)
-	{
-		LOG("Unable to open Library path key.");
-		return false;
-	}
-
-	// Get the volume path to this library
-	DWORD pathSize;
-	error = RegQueryValueExW(oculusKey, L"Path", NULL, NULL, NULL, &pathSize);
-	PWCHAR volumePath = (PWCHAR)malloc(pathSize);
-	error = RegQueryValueExW(oculusKey, L"Path", NULL, NULL, (PBYTE)volumePath, &pathSize);
-	RegCloseKey(oculusKey);
-	if (error != ERROR_SUCCESS)
-	{
-		free(volumePath);
-		LOG("Unable to read Library path.");
-		return false;
-	}
-
-	// Resolve the volume path to a mount point
-	DWORD total;
-	WCHAR volume[50] = { L'\0' };
-	wcsncpy(volume, volumePath, 49);
-	GetVolumePathNamesForVolumeNameW(volume, path, length, &total);
-	wcsncat(path, volumePath + 49, MAX_PATH);
-	free(volumePath);
-
-	return true;
+	return result;
 }
 
-class StringArray
+bool OpenLog()
 {
-public:
-	void add(const std::string& str)
-	{
-		strings.push_back(str);
-	}
-
-	std::vector<const char*> pointers() const
-	{
-		std::vector<const char*> result;
-		result.reserve(strings.size());
-		for (const auto& value : strings)
-			result.push_back(value.c_str());
-		return result;
-	}
-
-	bool empty()
-	{
-		return strings.empty();
-	}
-
-private:
-	std::vector<std::string> strings;
-};
+	wchar_t localAppData[MAX_PATH];
+	if (FAILED(SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, localAppData)))
+		return false;
+	std::wstring directory = std::wstring(localAppData) + L"\\RiftLift";
+	if (!CreateDirectoryW(directory.c_str(), NULL) &&
+		GetLastError() != ERROR_ALREADY_EXISTS)
+		return false;
+	std::wstring path = directory + L"\\RiftLiftLauncher.txt";
+	g_LogFile = _wfopen(path.c_str(), L"w");
+	return g_LogFile != NULL;
+}
 
 int wmain(int argc, wchar_t *argv[]) {
 	if (argc < 2) {
-		printf("usage: RiftLiftLauncher.exe <executable path>\n");
 		return -1;
 	}
 
-	WCHAR LogPath[MAX_PATH];
-	if (SUCCEEDED(SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, LogPath)))
+	OpenLog();
+	Log("Launched injector with: %ls\n", GetCommandLine());
+
+	std::string moduleDir;
+	if (!GetModuleDirectory(moduleDir))
 	{
-		wcsncat(LogPath, L"\\RiftLift", MAX_PATH);
-		
-		BOOL exists = PathFileExists(LogPath);
-		if (!exists)
-			exists = CreateDirectory(LogPath, NULL);
-
-		wcsncat(LogPath, L"\\RiftLiftLauncher.txt", MAX_PATH);
-		if (exists)
-			g_LogFile = _wfopen(LogPath, L"w");
+		Log("Unable to locate launcher module (%lu)\n", GetLastError());
+		return -1;
 	}
-
-	LOG("Launched injector with: %ls\n", GetCommandLine());
-
-	char moduleDir[MAX_PATH];
-	GetModuleFileNameA(NULL, moduleDir, MAX_PATH);
-	PathRemoveFileSpecA(moduleDir);
-	LOG("Launcher module directory: %s\n", moduleDir);
+	Log("Launcher module directory: %s\n", moduleDir.c_str());
 
 	bool debug = false;
 	bool waitForExit = false;
 	bool identifyOpenVRApplication = false;
-	StringArray dlls;
+	std::vector<std::string> dlls;
 	std::string appKey;
 	std::wstring workingDirOverride;
-	wchar_t path[MAX_PATH] = { 0 };
+	int targetIndex = -1;
 	for (int i = 1; i < argc; i++)
 	{
-		LOG("Parsing argument %d\n", i);
+		Log("Parsing argument %d\n", i);
 		if (wcscmp(argv[i], L"/openxr") == 0)
 		{
-			dlls.add(moduleDir + std::string("\\RiftLiftOpenXR64.dll"));
+			dlls.push_back(moduleDir + "\\RiftLiftOpenXR64.dll");
 		}
 		else if (wcscmp(argv[i], L"/openvr") == 0)
 		{
@@ -224,45 +146,29 @@ int wmain(int argc, wchar_t *argv[]) {
 			// OpenVR bridge is configured after the injector starts. Let launchers
 			// select the classic backend explicitly instead of silently falling
 			// back to the OpenXR bridge when a native OpenVR runtime is available.
-			dlls.add(moduleDir + std::string("\\openvr_api64.dll"));
-			dlls.add(moduleDir + std::string("\\RiftLiftOpenVR64.dll"));
+			dlls.push_back(moduleDir + "\\openvr_api64.dll");
+			dlls.push_back(moduleDir + "\\RiftLiftOpenVR64.dll");
 			identifyOpenVRApplication = true;
 		}
 		else if (wcscmp(argv[i], L"/proxy") == 0)
 		{
-			dlls.add(moduleDir + std::string("\\LibOVRProxy64.dll"));
+			dlls.push_back(moduleDir + "\\LibOVRProxy64.dll");
 		}
 		else if (wcscmp(argv[i], L"/app") == 0)
 		{
 			if (++i >= argc)
 			{
-				LOG("Missing value for /app (%lu)\n", ERROR_INVALID_PARAMETER);
+				Log("Missing value for /app (%lu)\n", ERROR_INVALID_PARAMETER);
 				return -1;
 			}
 			std::string key;
 			if (!WideToUtf8(argv[i], key))
 			{
-				LOG("Invalid UTF-16 value for /app (%lu)\n", GetLastError());
+				Log("Invalid UTF-16 value for /app (%lu)\n", GetLastError());
 				return -1;
 			}
 			appKey = "riftlift.app." + key;
-			LOG("Parsed OpenVR application key\n");
-		}
-		else if (wcscmp(argv[i], L"/base") == 0)
-		{
-			if (!GetOculusBasePath(path, MAX_PATH))
-				return -1;
-		}
-		else if (wcscmp(argv[i], L"/library") == 0)
-		{
-			if (!GetLibraryPath(path, MAX_PATH, argv[++i]))
-			{
-				if (!GetDefaultLibraryPath(path, MAX_PATH))
-				{
-					return -1;
-				}
-			}
-			wcsncat(path, L"\\", MAX_PATH);
+			Log("Parsed OpenVR application key\n");
 		}
 		else if (wcscmp(argv[i], L"/debug") == 0)
 		{
@@ -276,35 +182,39 @@ int wmain(int argc, wchar_t *argv[]) {
 		{
 			if (++i >= argc)
 			{
-				LOG("Missing value for /cwd\n");
+				Log("Missing value for /cwd\n");
 				return -1;
 			}
 			workingDirOverride = argv[i];
-			LOG("Parsed working directory\n");
+			Log("Parsed working directory\n");
 		}
 		else
 		{
-			// Concatenate all other arguments
-			wcsncat(path, argv[i], MAX_PATH);
-			wcsncat(path, L" ", MAX_PATH);
-			LOG("Appended target argument\n");
+			targetIndex = i;
+			break;
 		}
+	}
+	if (targetIndex < 0)
+	{
+		Log("Missing target executable (%lu)\n", ERROR_INVALID_PARAMETER);
+		return -1;
 	}
 
 	if (dlls.empty())
 	{
 		if (vr::VR_IsRuntimeInstalled())
 		{
-			dlls.add(moduleDir + std::string("\\openvr_api64.dll"));
-			dlls.add(moduleDir + std::string("\\RiftLiftOpenVR64.dll"));
+			dlls.push_back(moduleDir + "\\openvr_api64.dll");
+			dlls.push_back(moduleDir + "\\RiftLiftOpenVR64.dll");
 		}
 		else
 		{
-			dlls.add(moduleDir + std::string("\\RiftLiftOpenXR64.dll"));
+			dlls.push_back(moduleDir + "\\RiftLiftOpenXR64.dll");
 		}
 	}
 	
-	LOG("Command for injector is: %ls\n", path);
+	std::wstring commandLine = BuildCommandLine(argc, argv, targetIndex);
+	Log("Command for injector is: %ls\n", commandLine.c_str());
 
 	STARTUPINFO si;
 	PROCESS_INFORMATION pi;
@@ -312,42 +222,33 @@ int wmain(int argc, wchar_t *argv[]) {
 	si.cb = sizeof(si);
 	ZeroMemory(&pi, sizeof(pi));
 
-	wchar_t workingDir[MAX_PATH] = { 0 };
-	if (!workingDirOverride.empty())
-		wcsncpy(workingDir, workingDirOverride.c_str(), MAX_PATH - 1);
-	else
-		wcsncpy(workingDir, path, MAX_PATH - 1);
-
-	wchar_t* file = NULL;
-	wchar_t* ext = NULL;
+	std::wstring workingDir = workingDirOverride;
 	if (workingDirOverride.empty())
 	{
-		// Remove extension
-		ext = wcsstr(workingDir, L".exe");
-		if (ext)
-			*ext = L'\0';
-
-		// Remove filename
-		file = wcsrchr(workingDir, L'\\');
-		if (file)
-			*file = L'\0';
+		workingDir = argv[targetIndex];
+		size_t separator = workingDir.find_last_of(L"\\/");
+		if (separator == std::wstring::npos)
+			workingDir.clear();
+		else
+			workingDir.resize(separator);
 	}
 
 	HANDLE connectedEvent = CreateEventW(NULL, TRUE, TRUE, L"OculusHMDConnected");
 	if (!connectedEvent)
 	{
-		LOG("Failed to create Oculus compatibility event (%lu)\n", GetLastError());
+		Log("Failed to create Oculus compatibility event (%lu)\n", GetLastError());
 		return -1;
 	}
-	SetEvent(connectedEvent);
-
-	auto dllPaths = dlls.pointers();
-	if (!DetourCreateProcessWithDllsW(NULL, path, NULL, NULL, FALSE,
+	std::vector<const char*> dllPaths;
+	dllPaths.reserve(dlls.size());
+	for (const auto& dll : dlls)
+		dllPaths.push_back(dll.c_str());
+	if (!DetourCreateProcessWithDllsW(argv[targetIndex], &commandLine[0], NULL, NULL, FALSE,
 		debug ? CREATE_SUSPENDED | DEBUG_ONLY_THIS_PROCESS : 0,
-		NULL, (!workingDirOverride.empty() || (file && ext)) ? workingDir : NULL, &si, &pi,
+		NULL, workingDir.empty() ? NULL : workingDir.c_str(), &si, &pi,
 		static_cast<DWORD>(dllPaths.size()), dllPaths.data(), NULL))
 	{
-		LOG("Failed to create and inject process (%lu)\n", GetLastError());
+		Log("Failed to create and inject process (%lu)\n", GetLastError());
 		CloseHandle(connectedEvent);
 		return -1;
 	}
@@ -356,7 +257,7 @@ int wmain(int argc, wchar_t *argv[]) {
 	{
 		if (!DebugActiveProcessStop(pi.dwProcessId))
 		{
-			LOG("Failed to stop debugging (%lu)\n", GetLastError());
+			Log("Failed to stop debugging (%lu)\n", GetLastError());
 			TerminateProcess(pi.hProcess, static_cast<UINT>(-1));
 			CloseHandle(pi.hThread);
 			CloseHandle(pi.hProcess);
@@ -366,7 +267,7 @@ int wmain(int argc, wchar_t *argv[]) {
 
 		if (ResumeThread(pi.hThread) == static_cast<DWORD>(-1))
 		{
-			LOG("Failed to resume process (%lu)\n", GetLastError());
+			Log("Failed to resume process (%lu)\n", GetLastError());
 			TerminateProcess(pi.hProcess, static_cast<UINT>(-1));
 			CloseHandle(pi.hThread);
 			CloseHandle(pi.hProcess);
@@ -375,7 +276,7 @@ int wmain(int argc, wchar_t *argv[]) {
 		}
 	}
 
-	LOG("Succesfully injected!\n");
+	Log("Successfully injected!\n");
 
 	if (!appKey.empty() && identifyOpenVRApplication)
 	{
@@ -384,7 +285,7 @@ int wmain(int argc, wchar_t *argv[]) {
 		if (err == vr::VRInitError_None)
 		{
 			if (vr::VRApplications()->IdentifyApplication(pi.dwProcessId, appKey.c_str()) == vr::VRApplicationError_None)
-				LOG("Identified application as: %s\n", appKey.c_str());
+				Log("Identified application as: %s\n", appKey.c_str());
 			vr::VR_Shutdown();
 		}
 	}
