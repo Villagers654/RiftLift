@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 from . import __version__
 from .config import Game, Paths
-from .util import RiftLiftError
+from .util import RiftLiftError, read_limited
 
 STORE_URL = "https://www.meta.com/experiences/pcvr/{app_id}/"
 STEAM_API_URL = (
@@ -72,20 +72,6 @@ class CatalogMetadata:
     genres: list[str]
     image_url: str
     artwork_urls: dict[str, str] = field(default_factory=dict)
-
-
-def _response_bytes(response: Any, maximum: int, label: str) -> bytes:
-    content_length = response.headers.get("Content-Length")
-    try:
-        declared = int(content_length) if content_length is not None else None
-    except (TypeError, ValueError):
-        declared = None
-    if declared is not None and declared > maximum:
-        raise RiftLiftError(f"{label} exceeds the {maximum // (1024 * 1024)} MiB limit")
-    payload = response.read(maximum + 1)
-    if len(payload) > maximum:
-        raise RiftLiftError(f"{label} exceeds the {maximum // (1024 * 1024)} MiB limit")
-    return payload
 
 
 def _decode_image(payload: bytes) -> Image.Image:
@@ -172,7 +158,7 @@ def fetch_catalog_metadata(app_id: str) -> CatalogMetadata:
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             charset = response.headers.get_content_charset() or "utf-8"
-            payload = _response_bytes(
+            payload = read_limited(
                 response, _MAX_METADATA_BYTES, "Meta catalog metadata"
             ).decode(
                 charset, errors="replace"
@@ -233,7 +219,7 @@ def fetch_steam_catalog_metadata(app_id: str) -> CatalogMetadata:
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             payload = json.loads(
-                _response_bytes(
+                read_limited(
                     response, _MAX_METADATA_BYTES, "Steam catalog metadata"
                 )
             )
@@ -250,7 +236,7 @@ def _request_bytes(url: str) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            return _response_bytes(response, _MAX_ARTWORK_BYTES, "catalog artwork")
+            return read_limited(response, _MAX_ARTWORK_BYTES, "catalog artwork")
     except (OSError, TimeoutError) as error:
         raise RiftLiftError(f"could not download catalog artwork: {error}") from error
 

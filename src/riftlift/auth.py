@@ -21,7 +21,7 @@ _TOKEN_PATTERN = re.compile(rb"[A-Za-z0-9_.|-]{32,4096}")
 def complete_browser_login(paths: Paths, session: MetaAuthSession) -> str:
     """Finish Meta native SSO and persist the resulting Oculus profile token."""
     token = session.complete()
-    _save(paths, token)
+    save_access_token(paths, token)
     return token
 
 
@@ -37,15 +37,17 @@ def login(paths: Paths) -> int:
     session = MetaAuthSession.begin(paths)
     process = launch_browser_login(paths, browser, session.login_url)
     print(f"Finish signing in to Meta in {browser.name}.")
-    while process.poll() is None:
-        if not session.callback_ready():
+    try:
+        while True:
+            if session.callback_ready():
+                complete_browser_login(paths, session)
+                print("RiftLift is signed in to Meta.")
+                return 0
+            if process.poll() is not None:
+                raise RiftLiftError("the browser closed before Meta sign-in finished")
             time.sleep(1)
-            continue
-        complete_browser_login(paths, session)
+    finally:
         stop_browser(paths, browser, process)
-        print("RiftLift is signed in to Meta.")
-        return 0
-    raise RiftLiftError("the browser closed before Meta sign-in finished")
 
 
 def sign_out(paths: Paths) -> None:
@@ -64,7 +66,8 @@ def is_signed_in(paths: Paths) -> bool:
     return _TOKEN_PATTERN.fullmatch(value) is not None
 
 
-def _save(paths: Paths, token: str) -> None:
+def save_access_token(paths: Paths, token: str) -> None:
+    """Persist a token only after the active login owner accepts it."""
     paths.create()
     atomic_write_text(paths.config / "meta-access-token", token + "\n")
 

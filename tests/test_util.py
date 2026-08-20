@@ -2,15 +2,35 @@ from io import BytesIO
 
 import pytest
 
-from riftlift.util import RiftLiftError, download
+from riftlift.util import RiftLiftError, download, read_limited
 
 
 class Response(BytesIO):
+    def __init__(self, payload: bytes, content_length: str | None = None):
+        super().__init__(payload)
+        self.headers = {"Content-Length": content_length} if content_length else {}
+
     def __enter__(self):
         return self
 
     def __exit__(self, *_args):
         self.close()
+
+
+def test_limited_read_rejects_declared_or_actual_oversize():
+    with pytest.raises(RiftLiftError, match="2 MiB limit"):
+        read_limited(Response(b"small", "3000000"), 2 * 1024 * 1024, "catalog")
+    with pytest.raises(RiftLiftError, match="2 MiB limit"):
+        read_limited(
+            Response(b"x" * (2 * 1024 * 1024 + 1)),
+            2 * 1024 * 1024,
+            "catalog",
+        )
+
+
+def test_limited_read_accepts_payload_at_limit():
+    payload = b"x" * 1024
+    assert read_limited(Response(payload), len(payload), "catalog") == payload
 
 
 def test_download_retries_without_retaining_partial_bytes(tmp_path, monkeypatch):

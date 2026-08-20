@@ -115,3 +115,10 @@ def test_callback_must_match_the_active_challenge(tmp_path) -> None:
 def test_callback_rejects_untrusted_schemes(tmp_path) -> None:
     with pytest.raises(RiftLiftError, match="oculus"):
         record_callback(paths_in(tmp_path), "https://example.com/callback")
+
+
+def test_callback_has_a_bounded_size(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("riftlift.meta_auth._MAX_CALLBACK_BYTES", 32)
+
+    with pytest.raises(RiftLiftError, match="2 MiB limit"):
+        record_callback(paths_in(tmp_path), "oculus://login?blob=" + "x" * 32)

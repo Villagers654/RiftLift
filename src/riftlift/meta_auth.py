@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from .config import Paths, xdg_data_home
-from .util import RiftLiftError, atomic_write_text, installed_command, run
+from .util import RiftLiftError, atomic_write_text, installed_command, read_limited, run
 
 FRL_APP_ID = "512466987071624"
 OCULUS_APP_ID = "1582076955407037"
@@ -21,6 +21,8 @@ FRL_CLIENT_TOKEN = f"FRL|{FRL_APP_ID}|01d4a1f7fd0682aea7ee8ae987704d63"
 META_GRAPH = "https://meta.graph.meta.com"
 META_AUTH_URL = "https://auth.meta.com/native_sso/confirm"
 PROFILE_TOKEN_DOCUMENT = "24112177345042346"
+_MAX_AUTH_RESPONSE_BYTES = 2 * 1024 * 1024
+_MAX_CALLBACK_BYTES = 2 * 1024 * 1024
 
 
 def _desktop_exec_argument(value: str) -> str:
@@ -55,12 +57,16 @@ def _post(path: str, fields: dict[str, str]) -> dict:
     )
     try:
         with urlopen(request, timeout=20) as response:
-            result = json.load(response)
+            result = json.loads(
+                read_limited(response, _MAX_AUTH_RESPONSE_BYTES, "Meta response")
+            )
     except HTTPError as error:
         try:
-            payload = json.load(error)
+            payload = json.loads(
+                read_limited(error, _MAX_AUTH_RESPONSE_BYTES, "Meta error response")
+            )
             message = payload.get("error", {}).get("message")
-        except (AttributeError, json.JSONDecodeError, UnicodeError):
+        except (AttributeError, json.JSONDecodeError, RiftLiftError, UnicodeError):
             message = None
         raise RiftLiftError(
             message or "Meta rejected the authentication request"
@@ -81,6 +87,8 @@ def _callback_file(paths: Paths) -> Path:
 
 def record_callback(paths: Paths, callback_url: str) -> int:
     """Safely hand a browser's custom-scheme callback to the active GUI/CLI."""
+    if len(callback_url.encode()) > _MAX_CALLBACK_BYTES:
+        raise RiftLiftError("Meta login callback exceeds the 2 MiB limit")
     parsed = urlsplit(callback_url)
     if parsed.scheme not in {"oculus", "oculus-client"}:
         raise RiftLiftError("Meta login callback must use the oculus:// scheme")

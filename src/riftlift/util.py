@@ -18,6 +18,23 @@ class RiftLiftError(RuntimeError):
     """A concise, user-actionable RiftLift failure."""
 
 
+def read_limited(stream: object, maximum: int, label: str) -> bytes:
+    """Read a response-like stream without trusting its declared length."""
+    headers = getattr(stream, "headers", {})
+    content_length = headers.get("Content-Length")
+    try:
+        declared = int(content_length) if content_length is not None else None
+    except (TypeError, ValueError):
+        declared = None
+    limit_mib = maximum // (1024 * 1024)
+    if declared is not None and declared > maximum:
+        raise RiftLiftError(f"{label} exceeds the {limit_mib} MiB limit")
+    payload = stream.read(maximum + 1)  # type: ignore[attr-defined]
+    if len(payload) > maximum:
+        raise RiftLiftError(f"{label} exceeds the {limit_mib} MiB limit")
+    return payload
+
+
 def atomic_write_bytes(target: Path, payload: bytes, mode: int = 0o600) -> None:
     """Atomically replace *target* using a unique file in the same directory."""
     target.parent.mkdir(parents=True, exist_ok=True)

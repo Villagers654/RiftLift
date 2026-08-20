@@ -2,7 +2,9 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from riftlift.auth import complete_browser_login, sign_out
+import pytest
+
+from riftlift.auth import complete_browser_login, login, sign_out
 from riftlift.auth_browser import (
     META_LOGIN_URL,
     Browser,
@@ -14,6 +16,7 @@ from riftlift.auth_browser import (
     stop_browser,
 )
 from riftlift.config import Paths
+from riftlift.util import RiftLiftError
 
 
 def paths_in(tmp_path: Path) -> Paths:
@@ -246,6 +249,30 @@ def test_browser_login_imports_and_protects_the_token(
     target = paths.config / "meta-access-token"
     assert target.read_text().strip() == token
     assert target.stat().st_mode & 0o777 == 0o600
+
+
+def test_cli_login_always_stops_its_browser(tmp_path: Path, monkeypatch) -> None:
+    paths = paths_in(tmp_path)
+    browser = Browser("edge", "Microsoft Edge", "chromium", ("edge",))
+    process = SimpleNamespace(poll=lambda: None)
+    session = SimpleNamespace(
+        login_url="https://auth.meta.com/",
+        callback_ready=lambda: True,
+        complete=lambda: (_ for _ in ()).throw(RiftLiftError("rejected")),
+    )
+    stopped = []
+    monkeypatch.setattr("riftlift.auth.default_browser", lambda: browser)
+    monkeypatch.setattr("riftlift.auth.MetaAuthSession.begin", lambda _paths: session)
+    monkeypatch.setattr("riftlift.auth.launch_browser_login", lambda *_args: process)
+    monkeypatch.setattr(
+        "riftlift.auth.stop_browser",
+        lambda *_args: stopped.append(True),
+    )
+
+    with pytest.raises(RiftLiftError, match="rejected"):
+        login(paths)
+
+    assert stopped == [True]
 
 
 def test_sign_out_removes_only_riftlift_auth_state(tmp_path: Path) -> None:

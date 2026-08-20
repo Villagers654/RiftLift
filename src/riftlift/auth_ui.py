@@ -6,7 +6,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 
 from PySide6 import QtCore, QtWidgets
 
-from .auth import complete_browser_login, is_signed_in, sign_out
+from .auth import is_signed_in, save_access_token, sign_out
 from .auth_browser import default_browser, launch_browser_login, stop_browser
 from .config import Paths
 from .meta_auth import MetaAuthSession
@@ -122,9 +122,7 @@ class AuthDialog(QtWidgets.QDialog):
     def _check_callback(self):
         if self.session is not None and self.session.callback_ready():
             self.operation = "complete"
-            self.pending = self.executor.submit(
-                complete_browser_login, self.paths, self.session
-            )
+            self.pending = self.executor.submit(self.session.complete)
             self.status.setText("Finishing sign-in securely…")
         elif self.process is not None and self.process.poll() is not None:
             self.show_error(
@@ -135,10 +133,11 @@ class AuthDialog(QtWidgets.QDialog):
         if self.pending is None or not self.pending.done():
             return
         try:
-            self.pending.result()
+            token = self.pending.result()
         except Exception as error:
             self.show_error(error)
         else:
+            save_access_token(self.paths, token)
             self.timer.stop()
             self.operation = "idle"
             self.pending = None
@@ -169,6 +168,8 @@ class AuthDialog(QtWidgets.QDialog):
         sign_out(self.paths)
         self.browser = None
         self.session = None
+        if self.pending is not None:
+            self.pending.cancel()
         self.pending = None
         self.operation = "idle"
         self.reset.setText("Sign out and reset")

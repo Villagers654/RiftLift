@@ -398,19 +398,16 @@ def test_auth_dialog_detects_browser_completion_and_returns(
     monkeypatch.setattr(
         "riftlift.auth_ui.launch_browser_login", lambda *_args: Process()
     )
+    token = "FRL" + "a" * 176
     session = SimpleNamespace(
         login_url="https://auth.meta.com/native_sso/confirm",
         callback_ready=lambda: True,
+        complete=lambda: token,
     )
     monkeypatch.setattr(
         "riftlift.auth_ui.MetaAuthSession.begin", lambda _paths: session
     )
 
-    def complete(login_paths, _session):
-        target = login_paths.config / "meta-access-token"
-        target.write_text("FRL" + "a" * 176)
-
-    monkeypatch.setattr("riftlift.auth_ui.complete_browser_login", complete)
     dialog = AuthDialog(paths)
 
     dialog.start()
@@ -421,6 +418,7 @@ def test_auth_dialog_detects_browser_completion_and_returns(
     dialog.check_login()
 
     assert dialog.completed
+    assert (paths.config / "meta-access-token").read_text().strip() == token
     assert stopped
     assert dialog.status.text() == "Signed in. Returning to RiftLift…"
     dialog.close()
