@@ -67,11 +67,9 @@ def installed_command(name: str) -> Path:
     if value := shutil.which(name):
         return Path(value)
     configured_bin_home = os.environ.get("XDG_BIN_HOME")
-    bin_home = (
-        Path(configured_bin_home).expanduser()
-        if configured_bin_home
-        else Path.home() / ".local/bin"
-    )
+    bin_home = Path(configured_bin_home).expanduser() if configured_bin_home else None
+    if bin_home is None or not bin_home.is_absolute():
+        bin_home = Path.home() / ".local/bin"
     target = bin_home / name
     if target.is_file():
         return target

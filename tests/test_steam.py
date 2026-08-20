@@ -231,3 +231,16 @@ def test_installed_command_treats_empty_bin_home_as_unset(
     monkeypatch.setattr("riftlift.util.shutil.which", lambda _name: None)
 
     assert installed_command("riftlift") == executable
+
+
+def test_installed_command_treats_relative_bin_home_as_unset(
+    tmp_path, monkeypatch
+) -> None:
+    executable = tmp_path / ".local/bin/riftlift"
+    executable.parent.mkdir(parents=True)
+    executable.touch()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("XDG_BIN_HOME", "relative-bin")
+    monkeypatch.setattr("riftlift.util.shutil.which", lambda _name: None)
+
+    assert installed_command("riftlift") == executable
