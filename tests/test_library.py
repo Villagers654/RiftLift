@@ -1,6 +1,8 @@
 import struct
 from pathlib import Path
 
+import pytest
+
 from riftlift.config import Paths
 from riftlift.library import (
     _best_executable,
@@ -62,6 +64,15 @@ def test_explicit_overrides_remain_available(tmp_path: Path) -> None:
         "--custom",
         "value",
     ]
+
+
+def test_downloaded_game_executable_cannot_escape_its_folder(tmp_path: Path) -> None:
+    game = tmp_path / "game"
+    game.mkdir()
+    _pe64(tmp_path / "outside.exe")
+
+    with pytest.raises(ValueError, match="inside the game folder"):
+        _best_executable(game, {"launchFile": "../outside.exe"}, None)
 
 
 def test_launch_arguments_remove_grouping_quotes_and_keep_windows_paths(

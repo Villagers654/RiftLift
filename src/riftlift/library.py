@@ -48,8 +48,16 @@ def _best_executable(directory: Path, manifest: dict, override: str | None) -> s
         raise ValueError("--executable cannot be empty")
     if not preferred.name and override is None:
         raise ValueError("Meta manifest has no launch executable; pass --executable")
+    directory = directory.resolve()
+    try:
+        (directory / preferred).resolve().relative_to(directory)
+    except ValueError as error:
+        source = "--executable" if override is not None else "Meta manifest"
+        raise ValueError(
+            f"{source} launch path must stay inside the game folder"
+        ) from error
     candidate = best_windows_executable(directory, preferred)
-    return candidate.relative_to(directory.resolve()).as_posix()
+    return candidate.relative_to(directory).as_posix()
 
 
 def _launch_arguments(
