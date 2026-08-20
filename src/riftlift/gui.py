@@ -1,15 +1,17 @@
-"""Stable entry point for RiftLift's cross-platform desktop application."""
+"""Stable entry point for RiftLift's desktop application."""
 
 from __future__ import annotations
 
 
 def main() -> int:
     try:
-        from .gui_qt import main as qt_main
-    except ImportError as error:
+        from .main_window import main as window_main
+    except ModuleNotFoundError as error:
+        if not error.name or not error.name.startswith("PySide6"):
+            raise
         print(f"RiftLift's GUI needs Qt 6: {error}")
         return 1
-    return qt_main()
+    return window_main()
 
 
 if __name__ == "__main__":

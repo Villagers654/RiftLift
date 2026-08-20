@@ -1,4 +1,4 @@
-"""Portable Qt 6 UI used by :mod:`riftlift.gui`."""
+"""RiftLift's primary desktop window."""
 
 from __future__ import annotations
 

@@ -12,7 +12,7 @@ from riftlift.auth_ui import AuthDialog
 from riftlift.cli import parser
 from riftlift.config import Game, Paths
 from riftlift.game_ui import is_valid_rift_store_url
-from riftlift.gui_qt import Window
+from riftlift.main_window import Window
 from riftlift.metadata import CatalogMetadata
 from riftlift.playtime import add_playtime, mark_launch
 from riftlift.util import RiftLiftError
@@ -146,7 +146,7 @@ def test_steam_store_fallback_never_opens_meta(tmp_path: Path, monkeypatch) -> N
     game.save(paths)
     opened = []
     monkeypatch.setattr(
-        "riftlift.gui_qt.QtGui.QDesktopServices.openUrl",
+        "riftlift.main_window.QtGui.QDesktopServices.openUrl",
         lambda url: opened.append(url.toString()),
     )
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
@@ -181,7 +181,7 @@ def test_library_refresh_continues_after_one_catalog_failure(
         if game.slug == "first":
             raise RiftLiftError("catalog unavailable")
 
-    monkeypatch.setattr("riftlift.gui_qt.populate_game_metadata", populate)
+    monkeypatch.setattr("riftlift.main_window.populate_game_metadata", populate)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
 
