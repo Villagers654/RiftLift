@@ -327,6 +327,23 @@ def _safe_tar(archive: Path, destination: Path) -> None:
         source.extractall(destination, filter="data")
 
 
+def _replace_directory(source: Path, destination: Path) -> None:
+    """Atomically replace a payload directory while preserving rollback."""
+    backup = destination.with_name(f".{destination.name}.riftlift-previous")
+    if backup.exists():
+        shutil.rmtree(backup)
+    if destination.exists():
+        destination.replace(backup)
+    try:
+        source.replace(destination)
+    except BaseException:
+        if backup.exists():
+            backup.replace(destination)
+        raise
+    if backup.exists():
+        shutil.rmtree(backup, ignore_errors=True)
+
+
 def install_proton(paths: Paths) -> Path:
     target = proton_dir()
     if (target / "proton").is_file():
@@ -718,17 +735,23 @@ def install_rift_runtime(paths: Paths) -> Path:
             RUNTIME_SHA256,
         )
     )
-    if destination.exists():
-        shutil.rmtree(destination)
-    _safe_zip(archive, destination)
-    nested = destination / "riftlift-runtime"
-    if nested.is_dir() and not (destination / "RiftLiftLauncher.exe").exists():
-        for item in nested.iterdir():
-            shutil.move(str(item), destination / item.name)
-        nested.rmdir()
-    if not all((destination / name).is_file() for name in required):
-        raise RiftLiftError("RiftLift runtime payload is incomplete")
-    version_marker.write_text(f"{RUNTIME_VERSION}\n")
+    paths.tools.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".rift-runtime-unpack-", dir=paths.tools))
+    try:
+        _safe_zip(archive, staging)
+        nested = staging / "riftlift-runtime"
+        source = (
+            nested
+            if nested.is_dir() and not (staging / "RiftLiftLauncher.exe").is_file()
+            else staging
+        )
+        if not all((source / name).is_file() for name in required):
+            raise RiftLiftError("RiftLift runtime payload is incomplete")
+        (source / ".riftlift-version").write_text(f"{RUNTIME_VERSION}\n")
+        _replace_directory(source, destination)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
     return destination
 
 
@@ -759,33 +782,27 @@ def install_openvr_runtime(paths: Paths) -> Path:
             paths.cache / f"openvr-runtime-{OPENVR_RUNTIME_VERSION}.tar.gz",
             OPENVR_RUNTIME_SHA256,
         )
-    if destination.exists():
-        shutil.rmtree(destination)
-    staging = paths.tools / ".openvr-runtime-unpack"
-    if staging.exists():
-        shutil.rmtree(staging)
+    paths.tools.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".openvr-runtime-unpack-", dir=paths.tools))
     try:
         _safe_tar(archive, staging)
         nested = staging / "xrizer"
         source = nested if nested.is_dir() else staging
-        if not (source / "libxrizer.so").is_file():
+        staged_library = source / "libxrizer.so"
+        if not staged_library.is_file():
             raise RiftLiftError("RiftLift OpenVR runtime payload is incomplete")
-        source.replace(destination)
-        if staging.exists():
-            shutil.rmtree(staging)
+        staged_proton_library = source / "bin/linux64/vrclient.so"
+        staged_proton_library.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.link(staged_library, staged_proton_library)
+        except OSError:
+            shutil.copy2(staged_library, staged_proton_library)
+        (source / "bin/version.txt").write_text(f"{OPENVR_RUNTIME_VERSION}\n")
+        (source / ".riftlift-version").write_text(f"{OPENVR_RUNTIME_VERSION}\n")
+        _replace_directory(source, destination)
     finally:
         if staging.exists():
-            shutil.rmtree(staging)
-    proton_library.parent.mkdir(parents=True, exist_ok=True)
-    # Proton's VR_OVERRIDE contract is a SteamVR-shaped runtime directory,
-    # not a direct shared-library path. Keep one real payload and expose it at
-    # the standard vrclient location without relying on archive symlinks.
-    try:
-        os.link(library, proton_library)
-    except OSError:
-        shutil.copy2(library, proton_library)
-    (destination / "bin/version.txt").write_text(f"{OPENVR_RUNTIME_VERSION}\n")
-    version_marker.write_text(f"{OPENVR_RUNTIME_VERSION}\n")
+            shutil.rmtree(staging, ignore_errors=True)
     _write_openvr_path_registry(paths, destination)
     return destination
 

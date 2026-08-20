@@ -5,6 +5,7 @@ import tarfile
 import zipfile
 from pathlib import Path
 
+import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 
@@ -31,6 +32,7 @@ from riftlift.runtime import (
     shutdown_compat_prefix,
     steamvr_runtime_for_openxr,
 )
+from riftlift.util import RiftLiftError
 
 REQUIRED_RUNTIME_FILES = (
     "RiftLiftLauncher.exe",
@@ -133,6 +135,31 @@ def test_runtime_payload_is_reused_only_for_current_version(tmp_path, monkeypatc
 
     archive.unlink()
     assert install_rift_runtime(paths) == destination
+
+
+def test_incomplete_runtime_archive_preserves_installed_payload(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    destination = paths.tools / "rift-runtime"
+    destination.mkdir(parents=True)
+    (destination / "working.txt").write_text("keep")
+    archive = tmp_path / "incomplete.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("unrelated.txt", "bad")
+    monkeypatch.setenv("RIFTLIFT_RUNTIME_ARCHIVE", str(archive))
+
+    with pytest.raises(RiftLiftError, match="payload is incomplete"):
+        install_rift_runtime(paths)
+
+    assert (destination / "working.txt").read_text() == "keep"
 
 
 def test_clean_prefix_initialization_bypasses_game_launcher(tmp_path, monkeypatch):
@@ -414,6 +441,34 @@ def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):
     assert registry["log"] == [str(paths.data / "diagnostics/openvr")]
     archive.unlink()
     assert install_openvr_runtime(paths) == destination
+
+
+def test_incomplete_openvr_archive_preserves_installed_payload(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    destination = paths.tools / "openvr-runtime"
+    destination.mkdir(parents=True)
+    (destination / "working.txt").write_text("keep")
+    archive = tmp_path / "incomplete.tar.gz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        payload = b"bad"
+        info = tarfile.TarInfo("xrizer/unrelated.txt")
+        info.size = len(payload)
+        bundle.addfile(info, io.BytesIO(payload))
+    monkeypatch.setenv("RIFTLIFT_OPENVR_RUNTIME_ARCHIVE", str(archive))
+
+    with pytest.raises(RiftLiftError, match="payload is incomplete"):
+        install_openvr_runtime(paths)
+
+    assert (destination / "working.txt").read_text() == "keep"
 
 
 def test_steamvr_openxr_manifest_selects_valve_openvr_directly(tmp_path, monkeypatch):
