@@ -20,12 +20,14 @@ from riftlift.diagnostics import (
 )
 from riftlift.doctor import (
     _likely_cause,
+    build_report,
+    upload_report,
+)
+from riftlift.doctor_evidence import (
     _prioritized_proton_lines,
     _recent_debug_file_errors,
     _recent_envision_log_errors,
     _recent_game_log_errors,
-    build_report,
-    upload_report,
 )
 
 
@@ -206,8 +208,10 @@ def test_successful_launcher_tail_is_not_reported_as_error_evidence(
     )
     log.parent.mkdir(parents=True)
     log.write_text("Successfully injected!\n")
-    monkeypatch.setattr("riftlift.doctor._launch_epoch", lambda _launches: 0)
-    monkeypatch.setattr("riftlift.doctor._launch_end_epoch", lambda _launches: 10**12)
+    monkeypatch.setattr("riftlift.doctor_evidence._launch_epoch", lambda _launches: 0)
+    monkeypatch.setattr(
+        "riftlift.doctor_evidence._launch_end_epoch", lambda _launches: 10**12
+    )
 
     successful = [{"event": "finished", "exit_code": 0}]
     failed = [{"event": "finished", "exit_code": 1}]
@@ -229,8 +233,10 @@ def test_openvr_debug_tail_can_report_tracking_progress(
         "INFO xrizer initialized\n"
         "DEBUG xrizer_tracking: tracking snapshot advanced to compositor frame 300\n"
     )
-    monkeypatch.setattr("riftlift.doctor._launch_epoch", lambda _launches: 0)
-    monkeypatch.setattr("riftlift.doctor._launch_end_epoch", lambda _launches: 10**12)
+    monkeypatch.setattr("riftlift.doctor_evidence._launch_epoch", lambda _launches: 0)
+    monkeypatch.setattr(
+        "riftlift.doctor_evidence._launch_end_epoch", lambda _launches: 10**12
+    )
 
     evidence = _recent_debug_file_errors(
         test_paths, [{"event": "finished"}], "openvr", include_tail=True

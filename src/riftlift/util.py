@@ -11,6 +11,8 @@ import urllib.request
 from collections.abc import Iterable
 from pathlib import Path
 
+from . import __version__
+
 
 class RiftLiftError(RuntimeError):
     """A concise, user-actionable RiftLift failure."""
@@ -65,7 +67,9 @@ def download(url: str, target: Path, expected_sha256: str = "") -> Path:
         return target
     with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as stream:
         temporary = Path(stream.name)
-        request = urllib.request.Request(url, headers={"User-Agent": "RiftLift/0.1"})
+        request = urllib.request.Request(
+            url, headers={"User-Agent": f"RiftLift/{__version__}"}
+        )
         for attempt in range(4):
             stream.seek(0)
             stream.truncate()

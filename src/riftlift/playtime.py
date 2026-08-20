@@ -3,7 +3,6 @@ from __future__ import annotations
 import fcntl
 import json
 import os
-import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -13,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Paths
+from .util import atomic_write_text
 
 _VERSION = 1
 _CHECKPOINT_SECONDS = 30.0
@@ -58,22 +58,8 @@ def _read(paths: Paths) -> dict[str, Any]:
 
 
 def _write(paths: Paths, value: dict[str, Any]) -> None:
-    paths.data.mkdir(parents=True, exist_ok=True)
-    target = _target(paths)
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=".playtime-", suffix=".tmp", dir=paths.data
-    )
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump(value, stream, ensure_ascii=True, indent=2)
-            stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        temporary.chmod(0o600)
-        temporary.replace(target)
-    finally:
-        temporary.unlink(missing_ok=True)
+    payload = json.dumps(value, ensure_ascii=True, indent=2) + "\n"
+    atomic_write_text(_target(paths), payload)
 
 
 def _update(
