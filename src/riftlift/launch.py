@@ -255,14 +255,12 @@ def _installed_meta_builds(paths: Paths) -> dict[str, str]:
 
 def _launch_build_components(
     paths: Paths,
-    proton_root: Path,
-    rift_runtime: Path,
-    openvr_runtime: str,
-    backend: str,
-    openvr_kind: str,
+    plan: _LaunchPlan,
 ) -> dict[str, str]:
-    if backend == "openvr":
-        openvr_build = _installed_openvr_build(Path(openvr_runtime), openvr_kind)
+    if plan.backend == "openvr":
+        openvr_build = _installed_openvr_build(
+            Path(plan.openvr_runtime), plan.openvr_kind
+        )
     else:
         openvr_build = "not-used(openxr)"
     openvr_transport = {
@@ -270,15 +268,15 @@ def _launch_build_components(
         "xrizer": "bundled XRizer -> active OpenXR runtime",
         "external": "explicit external OpenVR runtime",
         "not-used": "not-used(openxr)",
-    }.get(openvr_kind, openvr_kind)
-    runtime_build = _installed_build(rift_runtime)
+    }.get(plan.openvr_kind, plan.openvr_kind)
+    runtime_build = _installed_build(plan.rift_runtime)
     return {
         "riftlift": __version__,
         "compat_runtime": runtime_build,
         "openvr_runtime": openvr_build,
         "openvr_transport": openvr_transport,
-        "proton": _installed_proton_build(proton_root),
-        "dxvk": _installed_dxvk_build(proton_root),
+        "proton": _installed_proton_build(plan.proton_root),
+        "dxvk": _installed_dxvk_build(plan.proton_root),
         **_installed_meta_builds(paths),
         "platform_bridge": f"compat-runtime:{runtime_build}",
         **system_build_components(),
@@ -437,7 +435,6 @@ def _configure_openvr_environment(
     paths: Paths,
     environment: dict[str, str],
     rift_runtime: Path,
-    proton_root: Path,
     openvr_runtime: str,
     openvr_registry: Path,
     openvr_kind: str,
@@ -538,18 +535,17 @@ def _prepare_launch(
         environment["RIFTLIFT_RUNTIME_TRACE"] = "1"
         clear_runtime_traces(paths)
     _configure_proton_identity(environment, game)
-    _clear_proton_openvr_cache(paths, proton_root)
     if backend == "openxr":
         environment["DXVK_NO_VR"] = "1"
         # Proton consumes this override before the game starts.  An empty
         # registry prevents it from also initializing an OpenVR client.
         environment["VR_PATHREG_OVERRIDE"] = os.devnull
     elif openvr_registry is not None:
+        _clear_proton_openvr_cache(paths, proton_root)
         _configure_openvr_environment(
             paths,
             environment,
             rift_runtime,
-            proton_root,
             openvr_runtime,
             openvr_registry,
             openvr_kind,
@@ -557,15 +553,15 @@ def _prepare_launch(
     else:
         raise RiftLiftError("OpenVR launch has no selected path registry")
     return _LaunchPlan(
-        arguments,
-        environment,
-        _launch_wrapper(),
-        backend,
-        openvr_runtime,
-        openvr_kind,
-        proton_root,
-        rift_runtime,
-        native_bridge,
+        arguments=arguments,
+        environment=environment,
+        wrapper=_launch_wrapper(),
+        backend=backend,
+        openvr_runtime=openvr_runtime,
+        openvr_kind=openvr_kind,
+        proton_root=proton_root,
+        rift_runtime=rift_runtime,
+        native_bridge=native_bridge,
     )
 
 
@@ -576,14 +572,7 @@ def _start_launch_record(
         f"Launching {game.name} through "
         f"RiftLift native {plan.backend.upper()} runtime -> headset..."
     )
-    components = _launch_build_components(
-        paths,
-        plan.proton_root,
-        plan.rift_runtime,
-        plan.openvr_runtime,
-        plan.backend,
-        plan.openvr_kind,
-    )
+    components = _launch_build_components(paths, plan)
     debug_logging = plan.environment.get("PROTON_LOG", "0") != "0"
     launch_id, started = launch_started(
         paths,

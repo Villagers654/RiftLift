@@ -255,6 +255,10 @@ def test_openxr_launch_does_not_configure_a_second_openvr_client(
     )
     monkeypatch.setattr("riftlift.launch.runtime_backend", lambda _game: "openxr")
     monkeypatch.setattr(
+        "riftlift.launch._clear_proton_openvr_cache",
+        lambda *_args: pytest.fail("OpenXR launch performed OpenVR cache maintenance"),
+    )
+    monkeypatch.setattr(
         "riftlift.launch.launch_environment",
         lambda *_args: {"XR_RUNTIME_JSON": str(manifest)},
     )
