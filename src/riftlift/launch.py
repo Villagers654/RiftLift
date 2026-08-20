@@ -109,6 +109,20 @@ def _marked_launch_processes(launch_id: str) -> list[int]:
     return result
 
 
+def _terminate_marked_launch_processes(launch_id: str) -> None:
+    remaining = _marked_launch_processes(launch_id)
+    for pid in remaining:
+        with suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + 5
+    while remaining and time.monotonic() < deadline:
+        time.sleep(0.05)
+        remaining = _marked_launch_processes(launch_id)
+    for pid in remaining:
+        with suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
+
+
 def _run_game_process(
     arguments: list[str], *, launch_id: str, **options: object
 ) -> int:
@@ -126,19 +140,12 @@ def _run_game_process(
                 with suppress(ProcessLookupError):
                     os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
-        # Detached Wine children retain the launch marker after leaving Proton's group.
-        remaining = _marked_launch_processes(launch_id)
-        for pid in remaining:
-            with suppress(ProcessLookupError):
-                os.kill(pid, signal.SIGTERM)
-        deadline = time.monotonic() + 5
-        while remaining and time.monotonic() < deadline:
-            time.sleep(0.05)
-            remaining = _marked_launch_processes(launch_id)
-        for pid in remaining:
-            with suppress(ProcessLookupError):
-                os.kill(pid, signal.SIGKILL)
         raise
+    finally:
+        # Wine services can detach from Proton's process group. The launch marker
+        # makes their ownership explicit, so no game-specific process names or
+        # shared-prefix shutdown are needed.
+        _terminate_marked_launch_processes(launch_id)
 
 
 @contextmanager

@@ -14,6 +14,7 @@ from riftlift.launch import (
     _expected_launch_components,
     _installed_openvr_build,
     _run_game_process,
+    _terminate_marked_launch_processes,
     launch,
     oculus_launch_arguments,
     runtime_backend,
@@ -346,6 +347,22 @@ def test_cancelled_process_terminates_the_game_process_group(monkeypatch) -> Non
 
     assert options["start_new_session"] is True
     assert signals == [(4321, 15)]
+
+
+def test_detached_launch_processes_are_stopped_by_their_marker(monkeypatch) -> None:
+    remaining = iter(([123, 456], []))
+    monkeypatch.setattr(
+        "riftlift.launch._marked_launch_processes", lambda _id: next(remaining)
+    )
+    signals = []
+    monkeypatch.setattr(
+        "riftlift.launch.os.kill", lambda pid, value: signals.append((pid, value))
+    )
+    monkeypatch.setattr("riftlift.launch.time.sleep", lambda _seconds: None)
+
+    _terminate_marked_launch_processes("owned-launch")
+
+    assert signals == [(123, 15), (456, 15)]
 
 
 def test_direct_openvr_bridge_uses_windows_action_manifest(
