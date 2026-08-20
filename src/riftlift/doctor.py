@@ -11,12 +11,13 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import __version__
 from .auth import is_signed_in
-from .config import Paths, games
+from .config import Game, Paths, games
 from .detection import (
     is_unity_player,
     is_unreal_shipping,
@@ -254,9 +255,6 @@ def _current_components(paths: Paths) -> dict[str, str]:
             _proton_version(proton) if (proton / "proton").is_file() else "missing"
         )
     except Exception:
-        # Build identity is diagnostic metadata, not a prerequisite for the
-        # report. A clean host must say Proton is missing instead of aborting
-        # before the guarded core checks can explain that Steam is absent.
         proton_build = "missing"
         proton = Path("/nonexistent")
     dxvk_ok, dxvk_detail = _installed_dxvk(proton)
@@ -301,9 +299,6 @@ def _current_components(paths: Paths) -> dict[str, str]:
         "dxvk": dxvk_build,
         **meta_builds,
         "platform_bridge": f"compat-runtime:{runtime_build}",
-        # Doctor must remain passive while an XR compositor is live. Starting a
-        # second Vulkan client (vulkaninfo) or Envision process just to obtain a
-        # version can disturb runtimes and single-instance GUI builds.
         **system_build_components(probe_vulkan=False),
         **xr_build_components(),
     }
@@ -404,10 +399,6 @@ def _process_names(processes: list[str]) -> set[str]:
 
 
 def _recent_journal_errors(since: str | None = None) -> list[str]:
-    # Steam probes OpenXR on its own and emits the same loader messages as a
-    # game.  Without a recorded RiftLift launch there is no sound way to
-    # attribute those messages to us, so do not include a global 24-hour
-    # scrape in the launch evidence section.
     if since is None:
         return []
     output = _command(
@@ -534,13 +525,9 @@ def _tail_lines(path: Path) -> list[str]:
 
 
 def _proton_line_priority(line: str) -> int:
-    """Rank useful Proton evidence without relying on title-specific errors."""
     folded = line.casefold()
     if _noisy_evidence(line):
         return 0
-    # These are loader/debug-print implementation details, not the exception or
-    # message that prompted them. Keeping them tends to hide the application
-    # error during Wine's very noisy process teardown.
     if (
         "trace:seh:dispatch_exception code=40010006" in folded
         or 'warn:seh:dispatch_exception "' in folded
@@ -567,31 +554,23 @@ def _proton_line_priority(line: str) -> int:
         )
     ) or bool(re.search(r"\b(?:_?w?assert|assertion)\b", folded))
     failure = bool(_ERROR_LINE.search(line))
-
-    if application_output and vr_related and failure:
-        return 120
-    if application_output and crash:
-        return 115
-    if crash:
-        return 110
-    if "riftlift:" in folded and failure:
-        return 105
-    if vr_related and failure:
-        return 100
-    if "riftlift: patched" in folded:
-        return 90
-    if application_output and failure:
-        # Bare "[ERROR]" fragments are less useful than the adjacent message.
-        return 55 if re.search(r'outputdebugstring[aw]? "\[error\]\s*"', folded) else 85
-    if ":err:" in folded and failure:
-        return 75
-    if failure and ":fixme:" not in folded:
-        return 45
-    return 0
+    bare_error = bool(re.search(r'outputdebugstring[aw]? "\[error\]\s*"', folded))
+    priorities = (
+        (application_output and vr_related and failure, 120),
+        (application_output and crash, 115),
+        (crash, 110),
+        ("riftlift:" in folded and failure, 105),
+        (vr_related and failure, 100),
+        ("riftlift: patched" in folded, 90),
+        (application_output and failure and not bare_error, 85),
+        (":err:" in folded and failure, 75),
+        (application_output and failure and bare_error, 55),
+        (failure and ":fixme:" not in folded, 45),
+    )
+    return max((priority for matches, priority in priorities if matches), default=0)
 
 
 def _prioritized_proton_lines(path: Path) -> list[str]:
-    """Scan a retained log completely while keeping memory and output bounded."""
     candidates: list[tuple[int, int, str]] = []
     try:
         with path.open(errors="replace") as stream:
@@ -611,14 +590,10 @@ def _prioritized_proton_lines(path: Path) -> list[str]:
     selected: list[tuple[int, int, str]] = []
     seen: set[str] = set()
     ranked = sorted(candidates, key=lambda value: (-value[0], value[1]))
-    # Once the log contains high-value application/XR evidence, do not pad the
-    # report with much weaker generic errors merely to reach the line limit.
     minimum_priority = max(45, ranked[0][0] - 30) if ranked else 0
     for item in ranked:
         if item[0] < minimum_priority:
             continue
-        # Wine can emit the same application message twice through neighboring
-        # debug channels. Prefer distinct evidence over repeated boilerplate.
         normalized = re.sub(r"^\d+\.\d+:[0-9a-f]+:[0-9a-f]+:", "", item[2])
         if normalized in seen:
             continue
@@ -766,9 +741,6 @@ def _recent_proton_log_errors(
     latest = _launch_end_epoch(launches)
     if earliest is None or latest is None:
         return []
-    # Proton logs are shared across launches and survive restarts. Only surface
-    # files touched during the launch window shown by this report, with a small
-    # tolerance for coarse filesystem timestamps.
     directory = prepare_proton_logs(paths)
     try:
         candidates = sorted(
@@ -920,7 +892,6 @@ def _recent_steam_log_errors(
 
 
 def _envision_log_directories() -> list[Path]:
-    """Return known Envision log locations without invoking Envision."""
     cache_home = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
     candidates = [cache_home / "envision/logs"]
     with contextlib.suppress(OSError):
@@ -931,7 +902,6 @@ def _envision_log_directories() -> list[Path]:
 def _recent_envision_log_errors(
     launches: list[dict[str, object]], doctor_started: float
 ) -> list[str]:
-    """Surface Envision evidence from the launch and current doctor windows."""
     earliest = _launch_epoch(launches)
     latest = _launch_end_epoch(launches)
     candidates: list[tuple[float, Path, bool]] = []
@@ -1279,56 +1249,68 @@ def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> lis
     return ["No correlated failure signature was found in the retained sources."]
 
 
-def build_report(paths: Paths) -> tuple[str, bool]:
-    # Take this before any component or system inspection. If a live runtime
-    # disappears while doctor runs, the report must retain proof that it was
-    # present when the user pressed System.
-    doctor_started = time.time()
-    processes_at_start = _relevant_processes()
-    checks: list[tuple[str, bool, str]] = []
-    installed = games(paths)
-    launches = recent_launches(paths)
-    current_components = _current_components(paths)
-    expected_components = _expected_components()
-    captured_components = launches[0].get("components") if launches else None
+Check = tuple[str, bool, str]
+
+
+def _record_check(
+    checks: list[Check], label: str, action: Callable[[], object]
+) -> None:
+    try:
+        value = action()
+    except Exception as error:
+        checks.append((label, False, redact(str(error))))
+    else:
+        checks.append((label, True, redact(str(value))))
+
+
+def _component_state(
+    paths: Paths,
+    launches: list[dict[str, object]],
+) -> tuple[dict[str, str], dict[str, str], str | None]:
+    current = _current_components(paths)
+    expected = _expected_components()
     cached_vulkan = None
-    if isinstance(captured_components, dict):
-        value = captured_components.get("system_vulkan")
-        if isinstance(value, str) and value not in {"", "unavailable"}:
-            cached_vulkan = value
-            current_components["system_vulkan"] = value
-        value = captured_components.get("envision")
-        if (
-            current_components.get("envision") == "not installed/unknown"
-            and isinstance(value, str)
-            and value
-        ):
-            current_components["envision"] = value
+    captured = launches[0].get("components") if launches else None
+    if not isinstance(captured, dict):
+        return current, expected, cached_vulkan
+    vulkan = captured.get("system_vulkan")
+    if isinstance(vulkan, str) and vulkan not in {"", "unavailable"}:
+        cached_vulkan = vulkan
+        current["system_vulkan"] = vulkan
+    envision = captured.get("envision")
+    if (
+        current.get("envision") == "not installed/unknown"
+        and isinstance(envision, str)
+        and envision
+    ):
+        current["envision"] = envision
+    return current, expected, cached_vulkan
 
-    def check(label: str, action: object) -> None:
-        try:
-            value = action() if callable(action) else action
-            checks.append((label, True, redact(str(value))))
-        except Exception as error:
-            checks.append((label, False, redact(str(error))))
 
-    debug_logging = debug_logging_active(paths)
+def _runtime_checks(paths: Paths, installed: list[Game]) -> list[Check]:
+    checks: list[Check] = []
     runtime_ok, runtime_detail = _runtime_description()
     checks.append(("Active OpenXR runtime", runtime_ok, runtime_detail))
-    check("Steam", steam_root)
-    check(
-        "GE-Proton",
-        lambda: (
-            f"{redact(str(proton_dir()))} ({_proton_version(proton_dir())})"
-            if (proton_dir() / "proton").is_file()
-            else (_ for _ in ()).throw(FileNotFoundError("not installed"))
-        ),
-    )
+    _record_check(checks, "Steam", steam_root)
+
     try:
-        dxvk_ok, dxvk_detail = _installed_dxvk(proton_dir())
+        proton = proton_dir()
     except Exception as error:
+        proton = None
+        checks.append(("GE-Proton", False, redact(str(error))))
         dxvk_ok, dxvk_detail = False, str(error)
+    else:
+        _record_check(
+            checks,
+            "GE-Proton",
+            lambda: _proton_description(proton),
+        )
+        try:
+            dxvk_ok, dxvk_detail = _installed_dxvk(proton)
+        except Exception as error:
+            dxvk_ok, dxvk_detail = False, str(error)
     checks.append(("RiftLift DXVK compatibility", dxvk_ok, dxvk_detail))
+
     rift_runtime = paths.tools / "rift-runtime"
     for label, relative in (
         ("Windows ABI launcher", "RiftLiftLauncher.exe"),
@@ -1337,66 +1319,84 @@ def build_report(paths: Paths) -> tuple[str, bool]:
     ):
         identity = _file_identity(rift_runtime / relative)
         checks.append((label, not identity.startswith("missing"), identity))
-    required_backends: set[str] = set()
-    for game in installed:
-        with contextlib.suppress(Exception):
-            required_backends.add(runtime_backend(game))
+
+    required_backends = {
+        backend
+        for game in installed
+        for backend in [_safe_runtime_backend(game)]
+        if backend is not None
+    }
     for backend in ("openxr", "openvr"):
         if backend == "openvr" and backend not in required_backends:
             continue
-        try:
-            bridge = native_xr_bridge(proton_dir(), backend)
+        if proton is None:
             checks.append(
-                (
-                    f"Native {backend.upper()} unixlib",
-                    True,
-                    f"{_file_identity(bridge.pe)} + {_file_identity(bridge.unix)}",
-                )
+                (f"Native {backend.upper()} unixlib", False, "GE-Proton unavailable")
             )
+            continue
+        try:
+            bridge = native_xr_bridge(proton, backend)
+            detail = f"{_file_identity(bridge.pe)} + {_file_identity(bridge.unix)}"
         except Exception as error:
             checks.append((f"Native {backend.upper()} unixlib", False, str(error)))
-    if "openvr" in required_backends:
-        try:
-            steamvr_runtime = steamvr_runtime_for_openxr(active_runtime_json())
-        except Exception:
-            steamvr_runtime = None
-        if steamvr_runtime is not None:
-            openvr_runtime = steamvr_runtime / "bin/linux64/vrclient.so"
-            runtime_label = "SteamVR OpenVR client (direct; no XRizer)"
-            expected_runtime_path = steamvr_runtime
         else:
-            openvr_runtime = paths.tools / "openvr-runtime/libxrizer.so"
-            runtime_label = "RiftLift OpenVR translator (XRizer)"
-            expected_runtime_path = openvr_runtime.parent
-        checks.append(
-            (runtime_label, openvr_runtime.is_file(), _file_identity(openvr_runtime))
+            checks.append((f"Native {backend.upper()} unixlib", True, detail))
+    if "openvr" in required_backends:
+        checks.extend(_openvr_checks(paths))
+    return checks
+
+
+def _proton_description(proton: Path) -> str:
+    if not (proton / "proton").is_file():
+        raise FileNotFoundError("not installed")
+    return f"{redact(str(proton))} ({_proton_version(proton)})"
+
+
+def _safe_runtime_backend(game: Game) -> str | None:
+    with contextlib.suppress(Exception):
+        return runtime_backend(game)
+    return None
+
+
+def _openvr_checks(paths: Paths) -> list[Check]:
+    try:
+        steamvr_runtime = steamvr_runtime_for_openxr(active_runtime_json())
+    except Exception:
+        steamvr_runtime = None
+    if steamvr_runtime is None:
+        runtime = paths.tools / "openvr-runtime/libxrizer.so"
+        label = "RiftLift OpenVR translator (XRizer)"
+        expected_path = runtime.parent
+    else:
+        runtime = steamvr_runtime / "bin/linux64/vrclient.so"
+        label = "SteamVR OpenVR client (direct; no XRizer)"
+        expected_path = steamvr_runtime
+
+    checks: list[Check] = [(label, runtime.is_file(), _file_identity(runtime))]
+    registry_path = paths.config / "openvr/openvrpaths.vrpath"
+    try:
+        registry = json.loads(registry_path.read_text())
+        runtime_paths = registry.get("runtime", [])
+        valid = (
+            registry.get("version") == 1
+            and isinstance(runtime_paths, list)
+            and str(expected_path) in runtime_paths
         )
-        path_registry = paths.config / "openvr/openvrpaths.vrpath"
-        try:
-            registry = json.loads(path_registry.read_text())
-            runtime_paths = registry.get("runtime", [])
-            registry_ok = (
-                registry.get("version") == 1
-                and isinstance(runtime_paths, list)
-                and str(expected_runtime_path) in runtime_paths
-            )
-            registry_detail = (
-                f"{redact(str(path_registry))}; runtime={redact(str(runtime_paths))}"
-            )
-        except (OSError, json.JSONDecodeError, AttributeError) as error:
-            registry_ok = False
-            registry_detail = f"{redact(str(path_registry))}: {error}"
-        checks.append(("Selected OpenVR path registry", registry_ok, registry_detail))
-    meta_client = (
-        paths.prefix
-        / "pfx/drive_c/Program Files/Oculus/Support/oculus-client/Client.exe"
-    )
-    checks.append(("Meta client", meta_client.is_file(), _file_identity(meta_client)))
-    meta_support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
-    meta_runtime = meta_support / "oculus-runtime"
+        detail = f"{redact(str(registry_path))}; runtime={redact(str(runtime_paths))}"
+    except (OSError, json.JSONDecodeError, AttributeError) as error:
+        valid = False
+        detail = f"{redact(str(registry_path))}: {error}"
+    checks.append(("Selected OpenVR path registry", valid, detail))
+    return checks
+
+
+def _meta_checks(paths: Paths) -> list[Check]:
+    support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
+    client = support / "oculus-client/Client.exe"
+    checks: list[Check] = [("Meta client", client.is_file(), _file_identity(client))]
+    runtime = support / "oculus-runtime"
     for name, expected in META_RUNTIME_SIGNED_FILES.items():
-        target = meta_runtime / name
-        identity = _file_identity(target)
+        target = runtime / name
         current = ""
         if target.is_file():
             with contextlib.suppress(OSError):
@@ -1405,9 +1405,10 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             (
                 f"Meta signed loader: {name}",
                 current == expected,
-                f"{identity}; expected sha256 {expected[:12]}",
+                f"{_file_identity(target)}; expected sha256 {expected[:12]}",
             )
         )
+
     trust_present = meta_signing_root_installed(paths)
     checks.append(
         (
@@ -1437,8 +1438,12 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             "signed in (credential cached)" if signed_in else "signed out",
         )
     )
+    return checks
 
-    game_lines = []
+
+def _game_checks(installed: list[Game]) -> tuple[list[Check], list[str]]:
+    checks: list[Check] = []
+    lines: list[str] = []
     for game in installed:
         present = game.executable_path.is_file()
         capabilities = [
@@ -1457,17 +1462,48 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         except Exception as error:
             backend = f"error: {error}"
         state = "OK" if present else "MISSING"
-        game_lines.append(
-            f"{state:7} {game.name} [{game.source}; {backend}; {', '.join(capabilities) or 'no engine markers'}]"
-        )
+        markers = ", ".join(capabilities) or "no engine markers"
+        lines.append(f"{state:7} {game.name} [{game.source}; {backend}; {markers}]")
         checks.append(
             (f"Game: {game.name}", present, redact(str(game.executable_path)))
         )
+    return checks, lines
 
-    width = max(len(label) for label, _, _ in checks)
-    passed = sum(ok for _, ok, _ in checks)
-    failed = len(checks) - passed
-    lines = [
+
+def _system_report_lines(
+    paths: Paths,
+    current_components: dict[str, str],
+    expected_components: dict[str, str],
+    cached_vulkan: str | None,
+    debug_logging: bool,
+    processes: list[str],
+) -> list[str]:
+    environment_names = (
+        "MANGOHUD",
+        "DISABLE_MANGOHUD",
+        "ENABLE_VKBASALT",
+        "OBS_VKCAPTURE",
+        "LD_PRELOAD",
+        "DRI_PRIME",
+        "AMD_VULKAN_ICD",
+        "GAMESCOPE_WSI",
+        "VK_INSTANCE_LAYERS",
+        "VK_DRIVER_FILES",
+        "VK_ICD_FILENAMES",
+        "DXVK_FILTER_DEVICE_NAME",
+        "VKD3D_FILTER_DEVICE_NAME",
+    )
+    component_lines = [
+        f"{'OK' if _component_matches(name, current_components[name], expected) else 'MISMATCH':8} "
+        f"{name}: installed={current_components[name]}; expected={expected}"
+        for name, expected in expected_components.items()
+    ]
+    vulkan = (
+        f"{cached_vulkan} (latest launch snapshot; active probe skipped)"
+        if cached_vulkan
+        else "active probe skipped; no launch snapshot available"
+    )
+    return [
         f"RiftLift doctor {__version__}",
         f"Generated: {utc_now()}",
         "Public report: credentials, email addresses, and home paths are redacted.",
@@ -1475,11 +1511,7 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         "[Build identity at doctor run]",
         f"Doctor build: RiftLift {__version__}",
         f"Doctor module: {redact(str(Path(__file__).resolve()))}",
-        *[
-            f"{'OK' if _component_matches(name, current_components[name], expected) else 'MISMATCH':8} "
-            f"{name}: installed={current_components[name]}; expected={expected}"
-            for name, expected in expected_components.items()
-        ],
+        *component_lines,
         "",
         "[System]",
         f"OS: {_os_name()}",
@@ -1488,12 +1520,7 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         f"CPU: {_cpu_name()}",
         f"Memory: {_memory()}",
         f"GPU: {_gpu_summary()}",
-        "Vulkan: "
-        + (
-            f"{cached_vulkan} (latest launch snapshot; active probe skipped)"
-            if cached_vulkan
-            else "active probe skipped; no launch snapshot available"
-        ),
+        f"Vulkan: {vulkan}",
         f"Input devices: {_connected_inputs()}",
         "",
         "[XR services]",
@@ -1510,30 +1537,133 @@ def build_report(paths: Paths) -> tuple[str, bool]:
         *_debug_capture_summary(paths, debug_logging),
         "",
         "[Relevant processes at doctor start]",
-        *(processes_at_start or ["none detected"]),
+        *(processes or ["none detected"]),
         "",
         "[Graphics/XR environment]",
         *[
             f"{name}={redact(os.environ.get(name, '<unset>'))}"
-            for name in (
-                "MANGOHUD",
-                "DISABLE_MANGOHUD",
-                "ENABLE_VKBASALT",
-                "OBS_VKCAPTURE",
-                "LD_PRELOAD",
-                "DRI_PRIME",
-                "AMD_VULKAN_ICD",
-                "GAMESCOPE_WSI",
-                "VK_INSTANCE_LAYERS",
-                "VK_DRIVER_FILES",
-                "VK_ICD_FILENAMES",
-                "DXVK_FILTER_DEVICE_NAME",
-                "VKD3D_FILTER_DEVICE_NAME",
-            )
+            for name in environment_names
         ],
-        "",
-        "[Core checks]",
     ]
+
+
+def _launch_report_lines(launches: list[dict[str, object]]) -> list[str]:
+    if not launches:
+        return ["No structured launch history yet (new launches will appear here)."]
+    lines: list[str] = []
+    for item in launches:
+        if item.get("event") != "finished":
+            outcome = "INCOMPLETE (still running or no completion recorded)"
+        elif _cancelled_launch(item):
+            outcome = "CANCELLED by user"
+        elif item.get("error"):
+            outcome = f"ERROR: {item['error']}"
+        elif item.get("exit_code") is None:
+            outcome = "INTERRUPTED (outcome not recorded)"
+        else:
+            outcome = (
+                f"exit {item.get('exit_code', '?')} after "
+                f"{item.get('duration_seconds', '?')}s"
+            )
+        capabilities = ",".join(item.get("capabilities", [])) or "none"
+        lines.append(
+            f"{item.get('started_at', item.get('at', '?'))}  "
+            f"{item.get('game', item.get('slug', '?'))}  "
+            f"{item.get('backend', '?')}  {outcome}  caps={capabilities}  "
+            f"debug={'on' if item.get('debug_logging') else 'off'}  "
+            f"build={item.get('riftlift_version', 'unknown')}"
+        )
+        components = item.get("components")
+        if isinstance(components, dict):
+            lines.append(
+                "  captured components: "
+                + "; ".join(f"{key}={value}" for key, value in components.items())
+            )
+        expected = item.get("expected_components")
+        if isinstance(expected, dict) and expected:
+            lines.append(
+                "  expected by launch build: "
+                + "; ".join(f"{key}={value}" for key, value in expected.items())
+            )
+    return lines
+
+
+def _debug_settings_lines(launches: list[dict[str, object]]) -> list[str]:
+    launch = next(
+        (
+            item
+            for item in launches
+            if item.get("debug_logging") and item.get("debug_settings")
+        ),
+        None,
+    )
+    if launch is None or not isinstance(launch.get("debug_settings"), dict):
+        return []
+    settings = launch["debug_settings"]
+    return [
+        "",
+        "[Most recent debug launch settings]",
+        *[
+            f"{key}={value}"
+            for key, value in settings.items()
+            if isinstance(key, str) and isinstance(value, str)
+        ],
+    ]
+
+
+def _collect_evidence(
+    paths: Paths,
+    launches: list[dict[str, object]],
+    doctor_started: float,
+) -> tuple[list[str], str | None]:
+    launch_times = [
+        item.get("started_at", item.get("at"))
+        for item in launches
+        if isinstance(item.get("started_at", item.get("at")), str)
+        and item.get("started_at", item.get("at"))
+    ]
+    journal_since = max(launch_times) if launch_times else None
+    latest = launches[:1]
+    evidence = [
+        *_recent_launch_log_errors(paths, latest),
+        *_recent_proton_log_errors(paths, latest),
+        *_recent_debug_file_errors(paths, latest, "graphics"),
+        *_recent_debug_file_errors(paths, latest, "openvr", include_tail=True),
+        *_recent_debug_file_errors(paths, latest, "game"),
+        *_recent_debug_file_errors(paths, latest, "crashes", include_tail=True),
+        *_recent_journal_errors(journal_since),
+        *_recent_kernel_errors(journal_since),
+        *_recent_coredumps(journal_since),
+        *_recent_steam_log_errors(paths, latest),
+        *_recent_game_log_errors(paths, latest),
+        *_recent_envision_log_errors(latest, doctor_started),
+    ]
+    return evidence, journal_since
+
+
+def build_report(paths: Paths) -> tuple[str, bool]:
+    doctor_started = time.time()
+    processes_at_start = _relevant_processes()
+    installed = games(paths)
+    launches = recent_launches(paths)
+    current_components, expected_components, cached_vulkan = _component_state(
+        paths, launches
+    )
+    debug_logging = debug_logging_active(paths)
+    game_checks, game_lines = _game_checks(installed)
+    checks = [*_runtime_checks(paths, installed), *_meta_checks(paths), *game_checks]
+    width = max(len(label) for label, _, _ in checks)
+    passed = sum(ok for _, ok, _ in checks)
+    failed = len(checks) - passed
+    lines = _system_report_lines(
+        paths,
+        current_components,
+        expected_components,
+        cached_vulkan,
+        debug_logging,
+        processes_at_start,
+    )
+    lines.extend(["", "[Core checks]"])
     lines.extend(
         f"{'OK' if ok else 'FAIL':4}  {label:<{width}}  {detail}"
         for label, ok, detail in checks
@@ -1549,43 +1679,7 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             "[Recent launches]",
         ]
     )
-    if not launches:
-        lines.append(
-            "No structured launch history yet (new launches will appear here)."
-        )
-    for item in launches:
-        if item.get("event") != "finished":
-            outcome = "INCOMPLETE (still running or no completion recorded)"
-        elif _cancelled_launch(item):
-            outcome = "CANCELLED by user"
-        elif item.get("error"):
-            outcome = f"ERROR: {item['error']}"
-        elif item.get("exit_code") is None:
-            outcome = "INTERRUPTED (outcome not recorded)"
-        else:
-            outcome = f"exit {item.get('exit_code', '?')} after {item.get('duration_seconds', '?')}s"
-        capabilities = ",".join(item.get("capabilities", [])) or "none"
-        lines.append(
-            f"{item.get('started_at', item.get('at', '?'))}  "
-            f"{item.get('game', item.get('slug', '?'))}  "
-            f"{item.get('backend', '?')}  {outcome}  caps={capabilities}  "
-            f"debug={'on' if item.get('debug_logging') else 'off'}  "
-            f"build={item.get('riftlift_version', 'unknown')}"
-        )
-        components = item.get("components")
-        expected_at_launch = item.get("expected_components")
-        if isinstance(components, dict):
-            lines.append(
-                "  captured components: "
-                + "; ".join(f"{key}={value}" for key, value in components.items())
-            )
-        if isinstance(expected_at_launch, dict) and expected_at_launch:
-            lines.append(
-                "  expected by launch build: "
-                + "; ".join(
-                    f"{key}={value}" for key, value in expected_at_launch.items()
-                )
-            )
+    lines.extend(_launch_report_lines(launches))
     lines.extend(
         [
             "",
@@ -1593,32 +1687,8 @@ def build_report(paths: Paths) -> tuple[str, bool]:
             *_component_comparison(launches, current_components),
         ]
     )
-    debug_launch = next(
-        (
-            item
-            for item in launches
-            if item.get("debug_logging") and item.get("debug_settings")
-        ),
-        None,
-    )
-    if debug_launch:
-        lines.extend(["", "[Most recent debug launch settings]"])
-        settings = debug_launch.get("debug_settings", {})
-        if isinstance(settings, dict):
-            lines.extend(
-                f"{key}={value}"
-                for key, value in settings.items()
-                if isinstance(key, str) and isinstance(value, str)
-            )
-
-    launch_times = [
-        item.get("started_at", item.get("at"))
-        for item in launches
-        if isinstance(item.get("started_at", item.get("at")), str)
-        and item.get("started_at", item.get("at"))
-    ]
-    journal_since = max(launch_times) if launch_times else None
-    evidence_launches = launches[:1]
+    lines.extend(_debug_settings_lines(launches))
+    evidence, journal_since = _collect_evidence(paths, launches, doctor_started)
     if journal_since:
         lines.extend(
             [
@@ -1631,24 +1701,6 @@ def build_report(paths: Paths) -> tuple[str, bool]:
                 f"Doctor RiftLift build: {__version__}",
             ]
         )
-    evidence = [
-        *_recent_launch_log_errors(paths, evidence_launches),
-        *_recent_proton_log_errors(paths, evidence_launches),
-        *_recent_debug_file_errors(paths, evidence_launches, "graphics"),
-        *_recent_debug_file_errors(
-            paths, evidence_launches, "openvr", include_tail=True
-        ),
-        *_recent_debug_file_errors(paths, evidence_launches, "game"),
-        *_recent_debug_file_errors(
-            paths, evidence_launches, "crashes", include_tail=True
-        ),
-        *_recent_journal_errors(journal_since),
-        *_recent_kernel_errors(journal_since),
-        *_recent_coredumps(journal_since),
-        *_recent_steam_log_errors(paths, evidence_launches),
-        *_recent_game_log_errors(paths, evidence_launches),
-        *_recent_envision_log_errors(evidence_launches, doctor_started),
-    ]
     processes_at_end = _relevant_processes()
     disappeared = _process_names(processes_at_start) - _process_names(processes_at_end)
     if disappeared:
