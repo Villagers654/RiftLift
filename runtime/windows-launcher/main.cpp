@@ -202,6 +202,7 @@ int wmain(int argc, wchar_t *argv[]) {
 	char moduleDir[MAX_PATH];
 	GetModuleFileNameA(NULL, moduleDir, MAX_PATH);
 	PathRemoveFileSpecA(moduleDir);
+	LOG("Launcher module directory: %s\n", moduleDir);
 
 	bool debug = false;
 	bool waitForExit = false;
@@ -212,6 +213,7 @@ int wmain(int argc, wchar_t *argv[]) {
 	wchar_t path[MAX_PATH] = { 0 };
 	for (int i = 1; i < argc; i++)
 	{
+		LOG("Parsing argument %d\n", i);
 		if (wcscmp(argv[i], L"/openxr") == 0)
 		{
 			dlls.add(moduleDir + std::string("\\RiftLiftOpenXR64.dll"));
@@ -244,6 +246,7 @@ int wmain(int argc, wchar_t *argv[]) {
 				return -1;
 			}
 			appKey = "riftlift.app." + key;
+			LOG("Parsed OpenVR application key\n");
 		}
 		else if (wcscmp(argv[i], L"/base") == 0)
 		{
@@ -277,12 +280,14 @@ int wmain(int argc, wchar_t *argv[]) {
 				return -1;
 			}
 			workingDirOverride = argv[i];
+			LOG("Parsed working directory\n");
 		}
 		else
 		{
 			// Concatenate all other arguments
 			wcsncat(path, argv[i], MAX_PATH);
 			wcsncat(path, L" ", MAX_PATH);
+			LOG("Appended target argument\n");
 		}
 	}
 
