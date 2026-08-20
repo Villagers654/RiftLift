@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import contextlib
 import io
-import re
 import threading
 from collections.abc import Callable
-from urllib.parse import urlparse
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -21,9 +19,10 @@ from .config import (
     set_debug_logging,
 )
 from .doctor import doctor
+from .game_ui import LocalGameDialog, StoreGameDialog
 from .launch import launch
 from .library import add, add_local
-from .metadata import fetch_catalog_metadata, populate_game_metadata
+from .metadata import populate_game_metadata
 from .playtime import playtime, playtime_label
 from .steam import sync_with_restart
 from .steam_oculus import add_steam_game
@@ -31,46 +30,10 @@ from .steam_ui import SteamGamesDialog
 from .theme import STYLE
 from .util import RiftLiftError
 
-LINK_VALIDATION_DELAY_MS = 350
-
-
-def rift_store_app_id(value: str) -> str | None:
-    """Return the app ID from an exact Meta Rift/PCVR product URL."""
-    try:
-        parsed = urlparse(value.strip())
-        host = (parsed.hostname or "").lower().rstrip(".")
-        port = parsed.port
-    except ValueError:
-        return None
-    match = re.fullmatch(
-        r"/(?:[a-z]{2}-[a-z]{2}/)?experiences/pcvr/[^/]+/(?P<app_id>\d{8,})/?",
-        parsed.path,
-        re.IGNORECASE,
-    )
-    if not (
-        parsed.scheme.lower() == "https"
-        and host in {"meta.com", "www.meta.com"}
-        and port in {None, 443}
-        and parsed.username is None
-        and parsed.password is None
-        and match
-    ):
-        return None
-    return match.group("app_id")
-
-
-def is_valid_rift_store_url(value: str) -> bool:
-    """Return whether *value* has the exact shape of a Rift product URL."""
-    return rift_store_app_id(value) is not None
-
 
 class Events(QtCore.QObject):
     output = QtCore.Signal(str)
     complete = QtCore.Signal(str, object, object, object)
-
-
-class LinkValidationEvents(QtCore.QObject):
-    complete = QtCore.Signal(int, str, object, object)
 
 
 class Output(io.TextIOBase):
@@ -168,16 +131,11 @@ class Window(QtWidgets.QMainWindow):
         widget.clicked.connect(callback)
         return widget
 
-    def _build(self):
-        root = QtWidgets.QWidget()
-        self.setCentralWidget(root)
-        outer = QtWidgets.QVBoxLayout(root)
-        outer.setContentsMargins(20, 17, 20, 15)
-        outer.setSpacing(0)
-        head = QtWidgets.QHBoxLayout()
-        head.setSpacing(10)
-        head.addWidget(self.label("RiftLift", "title"))
-        head.addStretch()
+    def _build_header(self, outer: QtWidgets.QVBoxLayout) -> None:
+        header = QtWidgets.QHBoxLayout()
+        header.setSpacing(10)
+        header.addWidget(self.label("RiftLift", "title"))
+        header.addStretch()
         self.debug_logging = QtWidgets.QCheckBox("Debug logging")
         self.debug_logging.setChecked(debug_logging_enabled(self.paths))
         self.debug_logging.setToolTip(
@@ -185,75 +143,73 @@ class Window(QtWidgets.QMainWindow):
             "crash diagnostics for future System reports. Storage is limited."
         )
         self.debug_logging.toggled.connect(self.set_debug_logging)
-        head.addWidget(self.debug_logging)
+        header.addWidget(self.debug_logging)
         self.check = self.button(
             "System",
             lambda: self.run_task("Checking your system", lambda: doctor(self.paths)),
         )
         self.check.setObjectName("nav")
         self.signin = self.button(
-            "Account" if is_signed_in(self.paths) else "Sign In",
-            self.show_auth,
+            "Account" if is_signed_in(self.paths) else "Sign In", self.show_auth
         )
         self.signin.setObjectName("nav")
         self.steam_games = self.button("Steam Games", self.steam_dialog)
         self.steam_games.setObjectName("nav")
         self.addbtn = self.button("Add Game", self.add_dialog, True)
-        for b in (self.check, self.signin, self.steam_games, self.addbtn):
-            head.addWidget(b)
-        outer.addLayout(head)
+        for button in (self.check, self.signin, self.steam_games, self.addbtn):
+            header.addWidget(button)
+        outer.addLayout(header)
         outer.addSpacing(20)
-        content = QtWidgets.QHBoxLayout()
-        content.setSpacing(20)
-        outer.addLayout(content, 1)
-        left = QtWidgets.QWidget()
-        left.setFixedWidth(280)
-        ll = QtWidgets.QVBoxLayout(left)
-        ll.setContentsMargins(0, 19, 0, 0)
-        ll.setSpacing(12)
-        lh = QtWidgets.QHBoxLayout()
-        lh.addWidget(self.label("Library", "section"))
+
+    def _build_library(self) -> QtWidgets.QWidget:
+        panel = QtWidgets.QWidget()
+        panel.setFixedWidth(280)
+        layout = QtWidgets.QVBoxLayout(panel)
+        layout.setContentsMargins(0, 19, 0, 0)
+        layout.setSpacing(12)
+        heading = QtWidgets.QHBoxLayout()
+        heading.addWidget(self.label("Library", "section"))
         self.count = self.label("", "muted")
-        lh.addWidget(self.count)
-        lh.addStretch()
+        heading.addWidget(self.count)
+        heading.addStretch()
         self.refresh_button = self.button("⟳", self.refresh_library)
         self.refresh_button.setObjectName("refresh")
         self.refresh_button.setToolTip("Refresh library and game info")
         self.refresh_button.setFixedSize(34, 34)
-        lh.addWidget(self.refresh_button)
-        ll.addLayout(lh)
+        heading.addWidget(self.refresh_button)
+        layout.addLayout(heading)
         self.library = QtWidgets.QListWidget()
         self.library.setIconSize(QtCore.QSize(40, 40))
         self.library.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.library.currentItemChanged.connect(self.selected)
-        ll.addWidget(self.library, 1)
-        content.addWidget(left)
-        right = QtWidgets.QWidget()
-        rl = QtWidgets.QVBoxLayout(right)
-        rl.setContentsMargins(0, 0, 0, 0)
-        self.stack = QtWidgets.QStackedWidget()
-        rl.addWidget(self.stack)
-        content.addWidget(right, 1)
-        empty = QtWidgets.QWidget()
-        el = QtWidgets.QVBoxLayout(empty)
-        el.addStretch()
+        layout.addWidget(self.library, 1)
+        return panel
+
+    def _build_empty_state(self) -> QtWidgets.QWidget:
+        panel = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(panel)
+        layout.addStretch()
         title = self.label("No Rift games yet", "game")
         title.setAlignment(QtCore.Qt.AlignCenter)
-        el.addWidget(title)
+        layout.addWidget(title)
         hint = self.label(
             "Add an owned Meta Rift title to download it and make it ready for OpenXR.",
             "muted",
         )
         hint.setAlignment(QtCore.Qt.AlignCenter)
-        el.addWidget(hint)
-        first = self.button("Add Game", self.add_dialog, True)
-        el.addWidget(first, alignment=QtCore.Qt.AlignCenter)
-        el.addStretch()
-        self.stack.addWidget(empty)
+        layout.addWidget(hint)
+        layout.addWidget(
+            self.button("Add Game", self.add_dialog, True),
+            alignment=QtCore.Qt.AlignCenter,
+        )
+        layout.addStretch()
+        return panel
+
+    def _build_game_detail(self) -> HeroPanel:
         detail = HeroPanel()
         detail.setObjectName("detail")
-        dl = QtWidgets.QVBoxLayout(detail)
-        dl.setContentsMargins(24, 24, 24, 24)
+        layout = QtWidgets.QVBoxLayout(detail)
+        layout.setContentsMargins(24, 24, 24, 24)
         info = QtWidgets.QVBoxLayout()
         info.setSpacing(0)
         info.addSpacing(128)
@@ -278,23 +234,46 @@ class Window(QtWidgets.QMainWindow):
         actions.addStretch()
         info.addLayout(actions)
         info.addStretch()
-        dl.addLayout(info)
-        self.detail = detail
-        self.stack.addWidget(detail)
+        layout.addLayout(info)
+        return detail
+
+    def _build_status_bar(self, outer: QtWidgets.QVBoxLayout) -> None:
         line = QtWidgets.QFrame()
         line.setFrameShape(QtWidgets.QFrame.HLine)
         line.setStyleSheet("color:#263552")
         outer.addWidget(line)
         outer.addSpacing(20)
         bar = QtWidgets.QWidget()
-        bl = QtWidgets.QHBoxLayout(bar)
-        bl.setContentsMargins(0, 0, 0, 0)
+        layout = QtWidgets.QHBoxLayout(bar)
+        layout.setContentsMargins(0, 0, 0, 0)
         self.status = self.label("Ready", "muted")
-        bl.addWidget(self.status, 1)
+        layout.addWidget(self.status, 1)
         activity = self.button("View Activity", self.show_activity)
         activity.setObjectName("nav")
-        bl.addWidget(activity)
+        layout.addWidget(activity)
         outer.addWidget(bar)
+
+    def _build(self):
+        root = QtWidgets.QWidget()
+        self.setCentralWidget(root)
+        outer = QtWidgets.QVBoxLayout(root)
+        outer.setContentsMargins(20, 17, 20, 15)
+        outer.setSpacing(0)
+        self._build_header(outer)
+        content = QtWidgets.QHBoxLayout()
+        content.setSpacing(20)
+        outer.addLayout(content, 1)
+        content.addWidget(self._build_library())
+        right = QtWidgets.QWidget()
+        rl = QtWidgets.QVBoxLayout(right)
+        rl.setContentsMargins(0, 0, 0, 0)
+        self.stack = QtWidgets.QStackedWidget()
+        rl.addWidget(self.stack)
+        content.addWidget(right, 1)
+        self.stack.addWidget(self._build_empty_state())
+        self.detail = self._build_game_detail()
+        self.stack.addWidget(self.detail)
+        self._build_status_bar(outer)
 
     def set_debug_logging(self, enabled):
         set_debug_logging(self.paths, enabled)
@@ -433,218 +412,36 @@ class Window(QtWidgets.QMainWindow):
             )
 
     def add_dialog(self):
-        d = QtWidgets.QDialog(self)
-        d.setWindowTitle("Add a Rift game")
-        d.setMinimumWidth(560)
-        d.setStyleSheet(STYLE)
-        layout = QtWidgets.QVBoxLayout(d)
-        layout.setContentsMargins(26, 24, 26, 24)
-        layout.setSpacing(12)
-        layout.addWidget(self.label("Add to your library", "game"))
-        local = self.button(
-            "Add a local game…", lambda: (d.reject(), self.local_dialog())
-        )
-        local.setObjectName("link")
-        layout.addWidget(local, alignment=QtCore.Qt.AlignLeft)
-        layout.addWidget(self.label("Meta Rift store URL", "section"))
-        entry = QtWidgets.QLineEdit()
-        entry.setPlaceholderText("https://www.meta.com/experiences/pcvr/…")
-        layout.addWidget(entry)
-        validation = self.label(
-            "Paste a valid Meta Rift store link to continue.", "muted"
-        )
-        layout.addWidget(validation)
-        steam = QtWidgets.QCheckBox("Add to Steam when finished")
-        steam.setChecked(True)
-        layout.addWidget(steam)
-        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
-        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setIcon(QtGui.QIcon())
-        submit = buttons.addButton("Install", QtWidgets.QDialogButtonBox.AcceptRole)
-        submit.setObjectName("primary")
-        submit.setEnabled(False)
-        buttons.rejected.connect(d.reject)
-        layout.addWidget(buttons)
+        dialog = StoreGameDialog(self.local_dialog, self)
+        if dialog.exec() != QtWidgets.QDialog.Accepted:
+            return
 
-        validation_timer = QtCore.QTimer(d)
-        validation_timer.setSingleShot(True)
-        validation_events = LinkValidationEvents(d)
-        generation = 0
-        verified_value = ""
+        def operation():
+            game = add(self.paths, dialog.url)
+            if dialog.sync_steam:
+                sync_with_restart(self.paths)
+            return game.slug
 
-        def finish_validation(token: int, value: str, metadata, error):
-            nonlocal verified_value
-            if token != generation or value != entry.text().strip():
-                return
-            if error is not None:
-                message = str(error)
-                validation.setText(
-                    "This Rift store game could not be found."
-                    if "has no catalog metadata" in message
-                    else "Could not verify this link. Check your connection."
-                )
-                return
-            if not metadata or not metadata.name.strip():
-                validation.setText("This Rift store game could not be found.")
-                return
-            verified_value = value
-            submit.setEnabled(True)
-            validation.setText(f"Ready to install {metadata.name}.")
-
-        validation_events.complete.connect(finish_validation)
-
-        def check_catalog():
-            token = generation
-            value = entry.text().strip()
-            app_id = rift_store_app_id(value)
-            if app_id is None:
-                return
-
-            def worker():
-                try:
-                    metadata = fetch_catalog_metadata(app_id)
-                    validation_events.complete.emit(token, value, metadata, None)
-                except Exception as error:
-                    validation_events.complete.emit(token, value, None, error)
-
-            threading.Thread(
-                target=worker, daemon=True, name="riftlift-link-validation"
-            ).start()
-
-        validation_timer.timeout.connect(check_catalog)
-
-        def validate(value: str):
-            nonlocal generation, verified_value
-            generation += 1
-            verified_value = ""
-            validation_timer.stop()
-            submit.setEnabled(False)
-            if not is_valid_rift_store_url(value):
-                validation.setText("Paste a valid Meta Rift store link to continue.")
-                return
-            validation.setText("Checking Rift store link…")
-            validation_timer.start(LINK_VALIDATION_DELAY_MS)
-
-        entry.textChanged.connect(validate)
-
-        def accept():
-            value = entry.text().strip()
-            if value != verified_value:
-                entry.setFocus()
-                return
-            sync = steam.isChecked()
-            d.accept()
-
-            def operation():
-                game = add(self.paths, value)
-                if sync:
-                    sync_with_restart(self.paths)
-                return game.slug
-
-            self.run_task("Downloading and installing game", operation, refresh=True)
-
-        submit.clicked.connect(accept)
-        entry.returnPressed.connect(accept)
-        d.exec()
+        self.run_task("Downloading and installing game", operation, refresh=True)
 
     def local_dialog(self):
-        d = QtWidgets.QDialog(self)
-        d.setWindowTitle("Add a local VR game")
-        d.setMinimumWidth(600)
-        d.setStyleSheet(STYLE)
-        layout = QtWidgets.QVBoxLayout(d)
-        layout.setContentsMargins(26, 24, 26, 24)
-        layout.setSpacing(12)
-        layout.addWidget(self.label("Add a local VR game", "game"))
-        layout.addWidget(
-            self.label(
-                "Choose an installed Windows VR game. RiftLift leaves its files in place.",
-                "muted",
+        dialog = LocalGameDialog(self)
+        if dialog.exec() != QtWidgets.QDialog.Accepted:
+            return
+
+        def operation():
+            game = add_local(
+                self.paths,
+                dialog.executable,
+                name=dialog.game_name,
+                arguments=dialog.arguments,
+                artwork=dialog.artwork,
             )
-        )
+            if dialog.sync_steam:
+                sync_with_restart(self.paths)
+            return game.slug
 
-        layout.addWidget(self.label("Game executable", "section"))
-        executable_row = QtWidgets.QHBoxLayout()
-        executable = QtWidgets.QLineEdit()
-        executable.setPlaceholderText("/path/to/game.exe")
-        browse = self.button(
-            "Browse…", lambda: choose_file(executable, "Windows games (*.exe)")
-        )
-        executable_row.addWidget(executable, 1)
-        executable_row.addWidget(browse)
-        layout.addLayout(executable_row)
-
-        layout.addWidget(self.label("Name", "section"))
-        name = QtWidgets.QLineEdit()
-        name.setPlaceholderText("Filled from the executable")
-        layout.addWidget(name)
-        layout.addWidget(self.label("Launch arguments (optional)", "section"))
-        arguments = QtWidgets.QLineEdit()
-        layout.addWidget(arguments)
-        layout.addWidget(self.label("Cover image (optional)", "section"))
-        artwork_row = QtWidgets.QHBoxLayout()
-        artwork = QtWidgets.QLineEdit()
-        artwork.setPlaceholderText("PNG, JPEG, or WebP")
-        artwork_browse = self.button(
-            "Browse…",
-            lambda: choose_file(artwork, "Images (*.png *.jpg *.jpeg *.webp)"),
-        )
-        artwork_row.addWidget(artwork, 1)
-        artwork_row.addWidget(artwork_browse)
-        layout.addLayout(artwork_row)
-
-        steam = QtWidgets.QCheckBox("Add to Steam when finished")
-        steam.setChecked(True)
-        layout.addWidget(steam)
-        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
-        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setIcon(QtGui.QIcon())
-        submit = buttons.addButton("Add", QtWidgets.QDialogButtonBox.AcceptRole)
-        submit.setObjectName("primary")
-        submit.setEnabled(False)
-        buttons.rejected.connect(d.reject)
-        layout.addWidget(buttons)
-
-        def choose_file(target: QtWidgets.QLineEdit, file_filter: str):
-            selected, _ = QtWidgets.QFileDialog.getOpenFileName(
-                d, "Choose a file", target.text(), file_filter
-            )
-            if selected:
-                target.setText(selected)
-
-        def executable_changed(value: str):
-            path = QtCore.QFileInfo(value.strip())
-            submit.setEnabled(path.isFile() and path.suffix().casefold() == "exe")
-            if path.isFile() and not name.text().strip():
-                name.setText(path.completeBaseName())
-
-        executable.textChanged.connect(executable_changed)
-
-        def accept():
-            path = executable.text().strip()
-            if not submit.isEnabled():
-                executable.setFocus()
-                return
-            sync = steam.isChecked()
-            game_name = name.text().strip() or None
-            game_arguments = arguments.text().strip() or None
-            game_artwork = artwork.text().strip() or None
-            d.accept()
-
-            def operation():
-                game = add_local(
-                    self.paths,
-                    path,
-                    name=game_name,
-                    arguments=game_arguments,
-                    artwork=game_artwork,
-                )
-                if sync:
-                    sync_with_restart(self.paths)
-                return game.slug
-
-            self.run_task("Adding local game", operation, refresh=True)
-
-        submit.clicked.connect(accept)
-        d.exec()
+        self.run_task("Adding local game", operation, refresh=True)
 
     def run_task(self, label, operation, success="Done", refresh=False):
         if self.busy:

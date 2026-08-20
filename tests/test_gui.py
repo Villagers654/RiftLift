@@ -11,7 +11,8 @@ from riftlift.auth_browser import Browser
 from riftlift.auth_ui import AuthDialog
 from riftlift.cli import parser
 from riftlift.config import Game, Paths
-from riftlift.gui_qt import Window, is_valid_rift_store_url
+from riftlift.game_ui import is_valid_rift_store_url
+from riftlift.gui_qt import Window
 from riftlift.metadata import CatalogMetadata
 from riftlift.playtime import add_playtime, mark_launch
 from riftlift.util import RiftLiftError
@@ -390,9 +391,9 @@ def test_install_stays_disabled_until_rift_link_is_valid(
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
     dialogs = []
-    monkeypatch.setattr("riftlift.gui_qt.LINK_VALIDATION_DELAY_MS", 0)
+    monkeypatch.setattr("riftlift.game_ui.LINK_VALIDATION_DELAY_MS", 0)
     monkeypatch.setattr(
-        "riftlift.gui_qt.fetch_catalog_metadata", lambda _app_id: catalog_game()
+        "riftlift.game_ui.fetch_catalog_metadata", lambda _app_id: catalog_game()
     )
     monkeypatch.setattr(
         QtWidgets.QDialog, "exec", lambda dialog: dialogs.append(dialog)
@@ -443,12 +444,12 @@ def test_install_stays_disabled_when_rift_game_does_not_exist(
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
     dialogs = []
-    monkeypatch.setattr("riftlift.gui_qt.LINK_VALIDATION_DELAY_MS", 0)
+    monkeypatch.setattr("riftlift.game_ui.LINK_VALIDATION_DELAY_MS", 0)
 
     def missing(_app_id: str):
         raise RiftLiftError("Meta's store page has no catalog metadata for app 123")
 
-    monkeypatch.setattr("riftlift.gui_qt.fetch_catalog_metadata", missing)
+    monkeypatch.setattr("riftlift.game_ui.fetch_catalog_metadata", missing)
     monkeypatch.setattr(
         QtWidgets.QDialog, "exec", lambda dialog: dialogs.append(dialog)
     )
