@@ -363,9 +363,7 @@ def populate_game_metadata(paths: Paths, game: Game, *, refresh: bool = False) -
     complete = all((game.description, game.developer, game.store_url, game.artwork))
     if complete and not refresh:
         return game
-    is_steam = game.source == "steam" or bool(
-        game.steam_app_id or game.app_key.startswith("steam.app.")
-    )
+    is_steam = game.source == "steam"
     app_id = str(game.steam_app_id or game.app_id)
     metadata = (
         fetch_steam_catalog_metadata(app_id)

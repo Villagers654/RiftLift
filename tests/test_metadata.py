@@ -7,9 +7,11 @@ from riftlift import __version__
 from riftlift.config import Game, Paths
 from riftlift.metadata import (
     USER_AGENT,
+    CatalogMetadata,
     generate_artwork,
     parse_catalog_html,
     parse_steam_catalog,
+    populate_game_metadata,
 )
 
 
@@ -98,3 +100,42 @@ def test_generate_all_steam_artwork_sizes(tmp_path: Path) -> None:
     for kind, size in expected.items():
         with Image.open(artwork[kind]) as image:
             assert image.size == size
+
+
+def test_metadata_catalog_uses_validated_game_source(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    game = Game(
+        "example",
+        "Example",
+        "123",
+        "steam.app.custom",
+        str(tmp_path),
+        "game.exe",
+        [],
+        source="meta",
+    )
+    metadata = CatalogMetadata(
+        "Example", "meta", "description", "developer", "", [], ""
+    )
+    calls = []
+    monkeypatch.setattr(
+        "riftlift.metadata.fetch_catalog_metadata",
+        lambda app_id: calls.append(("meta", app_id)) or metadata,
+    )
+    monkeypatch.setattr(
+        "riftlift.metadata.fetch_steam_catalog_metadata",
+        lambda app_id: calls.append(("steam", app_id)) or metadata,
+    )
+
+    populate_game_metadata(paths, game)
+
+    assert calls == [("meta", "123")]
