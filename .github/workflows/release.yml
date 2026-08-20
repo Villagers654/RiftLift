@@ -102,6 +102,8 @@ jobs:
 
   xrizer:
     runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: "0"
     defaults:
       run:
         working-directory: components/xrizer
@@ -116,8 +118,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            components/xrizer/target
-          key: xrizer-release-v1-${{ runner.os }}-${{ hashFiles('components/xrizer/Cargo.lock') }}
+          key: xrizer-release-v2-${{ runner.os }}-${{ hashFiles('components/xrizer/Cargo.lock') }}
       - run: cargo build --release
       - name: Collect xrizer payload
         run: |
