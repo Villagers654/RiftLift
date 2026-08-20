@@ -45,6 +45,21 @@ def command(name: str) -> str:
     return value
 
 
+def installed_command(name: str) -> Path:
+    """Find a RiftLift entry point installed on PATH or in the XDG bin directory."""
+    if value := shutil.which(name):
+        return Path(value)
+    bin_home = Path(
+        os.environ.get("XDG_BIN_HOME", Path.home() / ".local/bin")
+    ).expanduser()
+    target = bin_home / name
+    if target.is_file():
+        return target
+    raise RiftLiftError(
+        f"RiftLift's {name!r} command was not found on PATH or in {bin_home}"
+    )
+
+
 def run(
     arguments: Iterable[str | os.PathLike[str]], **kwargs: object
 ) -> subprocess.CompletedProcess[str]:

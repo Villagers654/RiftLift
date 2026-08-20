@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from .config import Paths
-from .util import RiftLiftError, atomic_write_text, run
+from .util import RiftLiftError, atomic_write_text, installed_command, run
 
 FRL_APP_ID = "512466987071624"
 OCULUS_APP_ID = "1582076955407037"
@@ -87,7 +87,7 @@ def install_protocol_handler() -> Path:
     applications = Path.home() / ".local/share/applications"
     applications.mkdir(parents=True, exist_ok=True)
     desktop = applications / "riftlift-meta-login.desktop"
-    executable = Path.home() / ".local/bin/riftlift"
+    executable = installed_command("riftlift")
     atomic_write_text(
         desktop,
         "[Desktop Entry]\n"

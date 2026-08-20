@@ -10,7 +10,7 @@ from riftlift.steam import (
     _shortcut_games,
     ensure_steam_running,
 )
-from riftlift.util import RiftLiftError
+from riftlift.util import RiftLiftError, installed_command
 
 
 def game() -> Game:
@@ -100,3 +100,13 @@ def test_missing_steam_launcher_has_actionable_error(monkeypatch) -> None:
 
     with pytest.raises(RiftLiftError, match="start Steam and retry"):
         ensure_steam_running()
+
+
+def test_installed_command_honors_xdg_bin_home(tmp_path, monkeypatch) -> None:
+    executable = tmp_path / "custom-bin/riftlift"
+    executable.parent.mkdir()
+    executable.touch()
+    monkeypatch.setenv("XDG_BIN_HOME", str(executable.parent))
+    monkeypatch.setattr("riftlift.util.shutil.which", lambda _name: None)
+
+    assert installed_command("riftlift") == executable

@@ -11,7 +11,12 @@ from typing import Any
 
 from .config import Game, Paths, games
 from .steam_vdf import VdfError, dumps, loads
-from .util import RiftLiftError, atomic_write_bytes, atomic_write_text
+from .util import (
+    RiftLiftError,
+    atomic_write_bytes,
+    atomic_write_text,
+    installed_command,
+)
 
 
 def steam_root() -> Path:
@@ -213,7 +218,7 @@ def sync(
         raise RiftLiftError(
             "Steam is running. Exit Steam completely, run 'riftlift steam-sync', then reopen it."
         )
-    launcher = (launcher or Path.home() / ".local/bin/riftlift").expanduser()
+    launcher = (launcher or installed_command("riftlift")).expanduser()
     if not launcher.is_absolute():
         launcher = launcher.absolute()
     target = user_config() / "shortcuts.vdf"

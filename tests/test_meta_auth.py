@@ -9,6 +9,7 @@ from riftlift.meta_auth import (
     FRL_APP_ID,
     META_AUTH_URL,
     MetaAuthSession,
+    install_protocol_handler,
     record_callback,
 )
 from riftlift.util import RiftLiftError
@@ -44,6 +45,20 @@ def test_session_creates_a_native_sso_challenge(tmp_path, monkeypatch) -> None:
     assert session.login_url.startswith(META_AUTH_URL)
     assert query["native_app_id"] == [FRL_APP_ID]
     assert query["native_sso_etoken"] == ["encrypted-token"]
+
+
+def test_protocol_handler_uses_the_installed_command(tmp_path, monkeypatch) -> None:
+    executable = tmp_path / "bin/riftlift"
+    executable.parent.mkdir()
+    executable.touch()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("XDG_BIN_HOME", str(executable.parent))
+    monkeypatch.setattr("riftlift.meta_auth.shutil.which", lambda _name: None)
+    monkeypatch.setattr("riftlift.meta_auth.run", lambda _arguments: None)
+
+    desktop = install_protocol_handler()
+
+    assert f"Exec={executable} callback %u" in desktop.read_text()
 
 
 def test_verified_callback_is_exchanged_for_oculus_token(tmp_path, monkeypatch) -> None:
