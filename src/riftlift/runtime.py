@@ -5,6 +5,7 @@ import contextlib
 import hashlib
 import json
 import os
+import platform
 import secrets
 import shutil
 import struct
@@ -1297,153 +1298,41 @@ def envision_profile() -> EnvisionProfile | None:
     )
 
 
-def _runtime_manifest(candidate: Path, *, explicit: bool = False) -> Path | None:
-    try:
-        manifest = json.loads(candidate.read_text())
-        runtime = manifest["runtime"]
-        library = runtime["library_path"]
-    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
-        if explicit:
-            raise RiftLiftError(
-                f"XR_RUNTIME_JSON is not a valid OpenXR runtime manifest: {candidate}"
-            ) from error
-        return None
-    if not isinstance(library, str) or not library:
-        return None
-    library_path = Path(library).expanduser()
-    if library_path.is_absolute() or library_path.parent != Path("."):
-        resolved_library = (
-            library_path
-            if library_path.is_absolute()
-            else candidate.parent / library_path
-        ).resolve()
-        if not resolved_library.is_file():
-            message = (
-                f"OpenXR runtime manifest points to a missing library: "
-                f"{resolved_library}"
-            )
-            if explicit:
-                raise RiftLiftError(message)
-            return None
-    return candidate.resolve()
-
-
-def running_steamvr_manifest() -> Path | None:
-    """Return Valve's manifest only while this user has SteamVR running."""
-    for comm in Path("/proc").glob("[0-9]*/comm"):
-        try:
-            if comm.stat().st_uid != os.getuid():
-                continue
-            if comm.read_text().strip() != "vrserver":
-                continue
-            executable = (comm.parent / "exe").resolve()
-        except OSError:
-            continue
-        try:
-            root = executable.parents[2]
-        except IndexError:
-            continue
-        manifest = root / "steamxr_linux64.json"
-        if (
-            root.name == "SteamVR"
-            and steamvr_runtime_for_openxr(manifest) == root.resolve()
-        ):
-            return manifest.resolve()
-    return None
-
-
-def installed_steamvr_manifest() -> Path | None:
-    """Find a normal SteamVR install without requiring OpenXR registration."""
-    try:
-        from .steam_oculus import steam_library_roots
-
-        libraries = steam_library_roots(steam_root())
-    except Exception:
-        return None
-    for library in libraries:
-        manifest = library / "steamapps/common/SteamVR/steamxr_linux64.json"
-        if steamvr_runtime_for_openxr(manifest) is not None:
-            return manifest.resolve()
-    return None
-
-
 def active_runtime_json() -> Path:
-    explicit = os.environ.get("XR_RUNTIME_JSON")
-    candidates = [Path(explicit)] if explicit else []
-    if not explicit:
-        running_steamvr = running_steamvr_manifest()
-        if running_steamvr is not None:
-            candidates.append(running_steamvr)
-    envision = envision_profile()
-    if not explicit and envision is not None:
-        candidates.append(envision.manifest)
-    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    if envision is None:
-        candidates.append(config_home / "openxr/1/active_runtime.json")
+    """Return the manifest selected by the standard Linux OpenXR loader.
 
-    data_dirs = [Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))]
-    data_dirs.extend(
+    Runtime managers own selection. RiftLift follows the loader's documented
+    override and XDG active-runtime paths instead of guessing from processes,
+    installed applications, or third-party configuration files.
+    """
+    explicit = os.environ.get("XR_RUNTIME_JSON", "").strip()
+    if explicit:
+        target = Path(explicit).expanduser()
+        if not target.is_absolute() or not target.is_file():
+            raise RiftLiftError(
+                f"XR_RUNTIME_JSON does not name an existing absolute file: {target}"
+            )
+        return target.resolve()
+
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    config_dirs = [config_home]
+    config_dirs.extend(
         Path(item)
-        for item in os.environ.get(
-            "XDG_DATA_DIRS", "/usr/local/share:/usr/share"
-        ).split(":")
+        for item in os.environ.get("XDG_CONFIG_DIRS", "/etc/xdg").split(":")
         if item
     )
-    if envision is None:
-        candidates.extend(
-            directory / "openxr/1/openxr_monado.json" for directory in data_dirs
-        )
-        candidates.append(Path("/etc/openxr/1/active_runtime.json"))
-        installed_steamvr = installed_steamvr_manifest()
-        if installed_steamvr is not None:
-            candidates.append(installed_steamvr)
-
-    seen: set[Path] = set()
-    for candidate in candidates:
-        candidate = candidate.expanduser()
-        if candidate in seen:
-            continue
-        seen.add(candidate)
-        if not candidate.is_file():
-            continue
-        resolved = _runtime_manifest(
-            candidate,
-            explicit=bool(explicit and candidate == Path(explicit).expanduser()),
-        )
-        if resolved is not None:
-            return resolved
-    if envision is not None:
-        if not envision.manifest.is_file():
-            raise RiftLiftError(
-                f"Envision selected profile {envision.name!r} [{envision.uuid}], but "
-                f"its Monado runtime is not built at {envision.manifest}; build that "
-                "profile in Envision, select it, and retry"
-            )
-        try:
-            payload = json.loads(envision.manifest.read_text())
-            library_value = payload["runtime"]["library_path"]
-            library = Path(library_value).expanduser()
-            if not library.is_absolute():
-                library = envision.manifest.parent / library
-            detail = f"missing runtime library {library.resolve()}"
-        except (OSError, KeyError, TypeError, json.JSONDecodeError):
-            detail = f"invalid runtime manifest {envision.manifest}"
-        raise RiftLiftError(
-            f"Envision selected profile {envision.name!r} [{envision.uuid}], but it "
-            f"has an unusable Monado build ({detail}); rebuild the profile in Envision"
-        )
+    config_dirs.append(Path("/etc"))
+    architecture = platform.machine()
+    names = (f"active_runtime.{architecture}.json", "active_runtime.json")
+    for directory in dict.fromkeys(config_dirs):
+        for name in names:
+            candidate = directory.expanduser() / "openxr/1" / name
+            if candidate.is_file():
+                return candidate.resolve()
     raise RiftLiftError(
-        "no usable OpenXR runtime was found; start an installed SteamVR session, "
-        "build and select a Monado profile in Envision, or select a manifest with "
-        "~/.config/openxr/1/active_runtime.json or XR_RUNTIME_JSON"
+        "no active OpenXR runtime is configured; select one with your runtime "
+        "manager or set XR_RUNTIME_JSON to its absolute manifest path"
     )
-
-
-def _envision_environment(runtime: Path) -> dict[str, str]:
-    profile = envision_profile()
-    if profile is None or profile.manifest != runtime.resolve():
-        return {}
-    return profile.environment.copy()
 
 
 def _envision_version() -> str:
@@ -1574,12 +1463,6 @@ def launch_environment(
 ) -> dict[str, str]:
     runtime = runtime or active_runtime_json()
     environment = proton_environment(paths, game_dir)
-    for key, value in _envision_environment(runtime).items():
-        if key == "LD_LIBRARY_PATH" and environment.get(key):
-            values = [*value.split(":"), *environment[key].split(":")]
-            environment[key] = ":".join(dict.fromkeys(item for item in values if item))
-        else:
-            environment.setdefault(key, value)
     existing_overrides = environment.get("WINEDLLOVERRIDES", "").strip(";")
     environment.update(
         {

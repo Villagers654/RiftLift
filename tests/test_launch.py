@@ -1,4 +1,5 @@
 import json
+import platform
 from pathlib import Path
 
 import pytest
@@ -553,98 +554,54 @@ def test_active_runtime_uses_explicit_standard_manifest(
     assert active_runtime_json() == runtime.resolve()
 
 
-def test_running_steamvr_takes_priority_over_selected_envision(
-    tmp_path: Path, monkeypatch
-) -> None:
-    steamvr = tmp_path / "SteamVR"
-    (steamvr / "bin/linux64").mkdir(parents=True)
-    (steamvr / "bin/linux64/vrclient.so").write_bytes(b"ELF")
-    steam_manifest = steamvr / "steamxr_linux64.json"
-    steam_manifest.write_text(
-        '{"runtime":{"name":"SteamVR","VALVE_runtime_is_steamvr":true,'
-        '"library_path":"bin/linux64/vrclient.so"}}'
-    )
-    monado = tmp_path / "openxr_monado.json"
-    monado.write_text('{"runtime":{"library_path":"libopenxr_monado.so"}}')
-    profile = type("Profile", (), {"manifest": monado})()
+def test_active_runtime_uses_xdg_active_manifest(tmp_path: Path, monkeypatch) -> None:
+    config_home = tmp_path / "config"
+    manifest = config_home / "openxr/1/active_runtime.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
     monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
-    monkeypatch.setattr(
-        "riftlift.runtime.running_steamvr_manifest", lambda: steam_manifest
-    )
-    monkeypatch.setattr("riftlift.runtime.envision_profile", lambda: profile)
-
-    from riftlift.runtime import active_runtime_json
-
-    assert active_runtime_json() == steam_manifest.resolve()
-
-
-def test_installed_steamvr_is_zero_configuration_fallback(
-    tmp_path: Path, monkeypatch
-) -> None:
-    steamvr = tmp_path / "SteamVR"
-    (steamvr / "bin/linux64").mkdir(parents=True)
-    (steamvr / "bin/linux64/vrclient.so").write_bytes(b"ELF")
-    manifest = steamvr / "steamxr_linux64.json"
-    manifest.write_text(
-        '{"runtime":{"name":"SteamVR","VALVE_runtime_is_steamvr":true,'
-        '"library_path":"bin/linux64/vrclient.so"}}'
-    )
-    monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-    monkeypatch.setenv("XDG_DATA_DIRS", str(tmp_path / "system-data"))
-    monkeypatch.setattr("riftlift.runtime.envision_profile", lambda: None)
-    monkeypatch.setattr("riftlift.runtime.running_steamvr_manifest", lambda: None)
-    monkeypatch.setattr("riftlift.runtime.installed_steamvr_manifest", lambda: manifest)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    monkeypatch.setenv("XDG_CONFIG_DIRS", str(tmp_path / "system-config"))
 
     from riftlift.runtime import active_runtime_json
 
     assert active_runtime_json() == manifest.resolve()
 
 
-def test_active_runtime_uses_selected_envision_profile_without_shell_exports(
+def test_active_runtime_prefers_arch_specific_manifest(
     tmp_path: Path, monkeypatch
 ) -> None:
     config_home = tmp_path / "config"
-    data_home = tmp_path / "data"
-    prefix = data_home / "envision/prefixes/clean_profile"
-    manifest = prefix / "share/openxr/1/openxr_monado.json"
-    library = prefix / "lib64/libopenxr_monado.so"
-    manifest.parent.mkdir(parents=True)
-    library.parent.mkdir(parents=True)
-    library.write_bytes(b"\x7fELF")
-    manifest.write_text(
-        '{"file_format_version":"1.0.0","runtime":{'
-        '"name":"Monado","library_path":"../../../lib64/libopenxr_monado.so"}}'
-    )
-    envision = config_home / "envision/envision.json"
-    envision.parent.mkdir(parents=True)
-    envision.write_text(
-        json.dumps(
-            {
-                "selected_profile_uuid": "clean-profile",
-                "user_profiles": [
-                    {
-                        "uuid": "clean-profile",
-                        "name": "Clean Monado",
-                        "prefix": str(prefix),
-                        "environment": {"DRI_PRIME": "1", "XRT_TEST": "selected"},
-                    }
-                ],
-            }
-        )
-    )
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
-    monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
+    generic = config_home / "openxr/1/active_runtime.json"
+    architecture = config_home / f"openxr/1/active_runtime.{platform.machine()}.json"
+    generic.parent.mkdir(parents=True)
+    generic.write_text("{}")
+    architecture.write_text("{}")
     monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
-    monkeypatch.setattr("riftlift.runtime.running_steamvr_manifest", lambda: None)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    monkeypatch.setenv("XDG_CONFIG_DIRS", str(tmp_path / "system-config"))
+
+    from riftlift.runtime import active_runtime_json
+
+    assert active_runtime_json() == architecture.resolve()
+
+
+def test_active_runtime_uses_xdg_config_dirs(tmp_path: Path, monkeypatch) -> None:
+    config_home = tmp_path / "user-config"
+    system_config = tmp_path / "system-config"
+    manifest = system_config / "openxr/1/active_runtime.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    monkeypatch.setenv("XDG_CONFIG_DIRS", str(system_config))
+    monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
 
     from riftlift.runtime import active_runtime_json
 
     assert active_runtime_json() == manifest.resolve()
 
 
-def test_launch_environment_imports_selected_envision_profile(
+def test_launch_environment_uses_selected_manifest_without_vendor_config(
     tmp_path: Path, monkeypatch
 ) -> None:
     paths = Paths(
@@ -655,53 +612,20 @@ def test_launch_environment_imports_selected_envision_profile(
         tmp_path / "prefix",
         tmp_path / "tools",
     )
-    config_home = tmp_path / "config"
-    data_home = tmp_path / "data"
-    prefix = data_home / "envision/prefixes/profile-id"
-    manifest = prefix / "share/openxr/1/openxr_monado.json"
-    library = prefix / "lib64/libopenxr_monado.so"
-    manifest.parent.mkdir(parents=True)
-    library.parent.mkdir(parents=True)
-    library.write_bytes(b"\x7fELF")
-    manifest.write_text(
-        '{"file_format_version":"1.0.0","runtime":{'
-        '"name":"Monado","library_path":"../../../lib64/libopenxr_monado.so"}}'
+    manifest = tmp_path / "openxr.json"
+    manifest.write_text("{}")
+    monkeypatch.setattr("riftlift.runtime.proton_environment", lambda *_args: {})
+
+    environment = launch_environment(
+        paths, paths.games / "sample", False, runtime=manifest
     )
-    envision = config_home / "envision/envision.json"
-    envision.parent.mkdir(parents=True)
-    envision.write_text(
-        json.dumps(
-            {
-                "selected_profile_uuid": "profile-id",
-                "user_profiles": [
-                    {
-                        "uuid": "profile-id",
-                        "prefix": str(prefix),
-                        "environment": {
-                            "DRI_PRIME": "pci-0000_03_00_0",
-                            "XRT_COMPOSITOR_COMPUTE": "1",
-                        },
-                    }
-                ],
-            }
-        )
-    )
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
-    monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
-    monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
-    monkeypatch.delenv("DRI_PRIME", raising=False)
-    monkeypatch.setattr("riftlift.runtime.steam_root", lambda: tmp_path / "steam")
-    monkeypatch.setattr("riftlift.runtime.running_steamvr_manifest", lambda: None)
 
-    environment = launch_environment(paths, paths.games / "sample", False)
-
-    assert environment["XR_RUNTIME_JSON"] == str(manifest.resolve())
-    assert environment["DRI_PRIME"] == "pci-0000_03_00_0"
-    assert environment["XRT_COMPOSITOR_COMPUTE"] == "1"
-    assert str(prefix / "lib64") in environment["LD_LIBRARY_PATH"].split(":")
+    assert environment["XR_RUNTIME_JSON"] == str(manifest)
+    assert "DRI_PRIME" not in environment
+    assert "LD_LIBRARY_PATH" not in environment
 
 
-def test_explicit_runtime_rejects_missing_relative_library(
+def test_explicit_runtime_selection_does_not_duplicate_loader_validation(
     tmp_path: Path, monkeypatch
 ) -> None:
     runtime = tmp_path / "broken-monado.json"
@@ -713,15 +637,13 @@ def test_explicit_runtime_rejects_missing_relative_library(
 
     from riftlift.runtime import active_runtime_json
 
-    with pytest.raises(RiftLiftError, match="points to a missing library"):
-        active_runtime_json()
+    assert active_runtime_json() == runtime.resolve()
 
 
-def test_unbuilt_selected_envision_profile_has_actionable_error(
+def test_active_runtime_does_not_guess_from_vendor_configuration(
     tmp_path: Path, monkeypatch
 ) -> None:
     config_home = tmp_path / "config"
-    data_home = tmp_path / "data"
     envision = config_home / "envision/envision.json"
     envision.parent.mkdir(parents=True)
     envision.write_text(
@@ -732,22 +654,19 @@ def test_unbuilt_selected_envision_profile_has_actionable_error(
                     {
                         "uuid": "clean-profile",
                         "name": "Clean Monado",
-                        "prefix": str(data_home / "envision/prefixes/clean-profile"),
+                        "prefix": str(tmp_path / "envision-prefix"),
                     }
                 ],
             }
         )
     )
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
-    monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
+    monkeypatch.setenv("XDG_CONFIG_DIRS", str(tmp_path / "system-config"))
     monkeypatch.delenv("XR_RUNTIME_JSON", raising=False)
-    monkeypatch.setattr("riftlift.runtime.running_steamvr_manifest", lambda: None)
 
     from riftlift.runtime import active_runtime_json
 
-    with pytest.raises(
-        RiftLiftError, match=r"selected profile 'Clean Monado'.*not built"
-    ):
+    with pytest.raises(RiftLiftError, match="no active OpenXR runtime"):
         active_runtime_json()
 
 

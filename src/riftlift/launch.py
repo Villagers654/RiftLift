@@ -404,6 +404,98 @@ def _clear_stale_openvr_registry(paths: Paths, proton_root: Path) -> None:
         ) from error
 
 
+def _configure_steamvr_openxr_fallback(
+    paths: Paths, backend: str, environment: dict[str, str]
+) -> None:
+    """Mirror SteamVR's private OpenVR registry for its OpenXR native client."""
+    if backend != "openxr" or not environment.get("XR_RUNTIME_JSON"):
+        return
+    manifest = Path(environment["XR_RUNTIME_JSON"])
+    if steamvr_runtime_for_openxr(manifest) is None:
+        return
+    _, registry, _ = select_openvr_runtime(paths, manifest)
+    environment["VR_PATHREG_OVERRIDE"] = str(registry)
+    environment["XDG_CONFIG_HOME"] = str(paths.config)
+
+
+def _disable_openxr_for_direct_openvr(
+    environment: dict[str, str], openvr_kind: str
+) -> None:
+    """Prevent two conflicting native compositor clients in one Wine process."""
+    if openvr_kind == "xrizer":
+        return
+    environment.pop("XR_RUNTIME_JSON", None)
+    environment.pop("PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES", None)
+    environment.pop("OXR_ZERO_TIME_IS_NOW", None)
+    overrides = environment.get("WINEDLLOVERRIDES", "").strip(";")
+    environment["WINEDLLOVERRIDES"] = (
+        f"wineopenxr=d{';' + overrides if overrides else ''}"
+    )
+
+
+def _configure_proton_identity(environment: dict[str, str], game: Game) -> None:
+    """Select a direct GE-Proton/UMU identity without a Steam client relaunch."""
+    if game.source == "steam" and game.steam_app_id:
+        steam_id = str(game.steam_app_id)
+        environment["SteamAppId"] = steam_id
+        environment["SteamGameId"] = steam_id
+        environment["UMU_ID"] = f"umu-{steam_id}"
+    else:
+        environment["UMU_ID"] = "umu-default"
+    environment["UMU_USE_STEAM"] = "0"
+
+
+def _configure_openvr_environment(
+    paths: Paths,
+    environment: dict[str, str],
+    rift_runtime: Path,
+    proton_root: Path,
+    openvr_runtime: str,
+    openvr_registry: Path,
+    openvr_kind: str,
+) -> None:
+    """Apply environment that is meaningful only to an OpenVR launch."""
+    action_manifest = rift_runtime / "Input/action_manifest.json"
+    environment["RIFTLIFT_ACTION_MANIFEST"] = (
+        str(action_manifest)
+        if openvr_kind == "xrizer"
+        else linux_to_windows(action_manifest)
+    )
+    environment["VR_OVERRIDE"] = openvr_runtime
+    environment["VR_PATHREG_OVERRIDE"] = str(openvr_registry)
+    environment["XDG_CONFIG_HOME"] = str(paths.config)
+    if openvr_kind == "xrizer":
+        environment["RIFTLIFT_XRIZER"] = "1"
+    else:
+        environment.pop("RIFTLIFT_XRIZER", None)
+        environment.pop("XRIZER_LOG_DIR", None)
+    _clear_stale_openvr_registry(paths, proton_root)
+
+
+def _launch_wrapper() -> list[str]:
+    value = os.environ.get("RIFTLIFT_LAUNCH_WRAPPER", "").strip()
+    if not value:
+        return []
+    wrapper = shlex.split(value)
+    if not wrapper or not shutil.which(wrapper[0]):
+        raise RiftLiftError(f"configured launch wrapper was not found: {value}")
+    return wrapper
+
+
+def _game_capabilities(game: Game) -> list[str]:
+    return [
+        name
+        for name, detected in (
+            ("openvr", uses_openvr_runtime(game.game_dir)),
+            ("oculus-xr-plugin", uses_oculus_xr_plugin(game.game_dir)),
+            ("d3d12", uses_d3d12_runtime(game.executable_path)),
+            ("unity", is_unity_player(game.executable_path)),
+            ("unreal", is_unreal_shipping(game.executable_path)),
+        )
+        if detected
+    ]
+
+
 def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
     if not game.executable_path.is_file():
         raise RiftLiftError(f"game executable is missing: {game.executable_path}")
@@ -443,59 +535,16 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         game.platform_shim,
         game.platform_offline or verified_rift_download,
     )
-    if backend == "openxr" and environment.get("XR_RUNTIME_JSON"):
-        # SteamVR's OpenXR runtime is implemented by its native OpenVR client.
-        # Proton consumes VR_PATHREG_OVERRIDE while preparing Wine, so that
-        # client later needs the same registry at XDG's canonical fallback.
-        # Keep both files private to RiftLift; a fresh SteamVR install should
-        # not depend on (or alter) ~/.config/openvr.
-        openxr_manifest = Path(environment["XR_RUNTIME_JSON"])
-        if steamvr_runtime_for_openxr(openxr_manifest) is not None:
-            _, steamvr_registry, _ = select_openvr_runtime(paths, openxr_manifest)
-            environment["VR_PATHREG_OVERRIDE"] = str(steamvr_registry)
-            environment["XDG_CONFIG_HOME"] = str(paths.config)
-    if backend == "openvr" and openvr_kind != "xrizer":
-        # Valve's native OpenVR client is the compositor connection. Loading
-        # SteamVR's OpenXR client in the same Wine process gives vrclient.so a
-        # second, conflicting shared-state lifetime; current SteamVR then
-        # faults on ordinary device queries. XRizer is the only OpenVR target
-        # here that needs WineOpenXR and the host OpenXR runtime alongside it.
-        environment.pop("XR_RUNTIME_JSON", None)
-        environment.pop("PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES", None)
-        environment.pop("OXR_ZERO_TIME_IS_NOW", None)
-        overrides = environment.get("WINEDLLOVERRIDES", "").strip(";")
-        environment["WINEDLLOVERRIDES"] = (
-            f"wineopenxr=d{';' + overrides if overrides else ''}"
-        )
+    _configure_steamvr_openxr_fallback(paths, backend, environment)
+    if backend == "openvr":
+        _disable_openxr_for_direct_openvr(environment, openvr_kind)
     if environment.get("PROTON_LOG") == "1":
         environment["RIFTLIFT_RUNTIME_TRACE"] = "1"
         # The bridge writes a compact first-call trace in Wine's temp folder.
         # Keep only the current reproduction so this cannot grow indefinitely
         # or make doctor correlate an old game's calls with a new failure.
         clear_runtime_traces(paths)
-    if game.source == "steam" and game.steam_app_id:
-        # Steam-distributed Oculus builds may still use Steamworks for DRM,
-        # ownership, saves, or startup. Rift-store games deliberately keep the
-        # isolated zero identity supplied by proton_environment. A Meta game
-        # synchronized into Steam also has a shortcut app ID; that ID is not a
-        # Steamworks identity and must never select Proton's steam.exe path.
-        steam_id = str(game.steam_app_id)
-        environment["SteamAppId"] = steam_id
-        environment["SteamGameId"] = steam_id
-        # GE-Proton's direct entry point normally starts its steam.exe shim
-        # for a nonzero Steam identity. That shim asks the host client to
-        # relaunch the title and loses RiftLift's selected XR runtime. UMU's
-        # no-Steam entry point bypasses only that launcher shim; Proton's
-        # lsteamclient and the real Steam identity remain available to games.
-        environment["UMU_ID"] = f"umu-{steam_id}"
-        environment["UMU_USE_STEAM"] = "0"
-    else:
-        # GE-Proton's generic non-Steam entry point avoids its steam.exe shim
-        # while retaining normal prefix and VR-runtime initialization. A
-        # shared compatibility prefix is intentional, so use UMU's documented
-        # neutral identity instead of inventing per-title database entries.
-        environment["UMU_ID"] = "umu-default"
-        environment["UMU_USE_STEAM"] = "0"
+    _configure_proton_identity(environment, game)
     if backend == "openxr":
         # Proton records OpenVR's Vulkan requirements in the shared Wine
         # prefix. DXVK otherwise consumes those stale requirements alongside
@@ -506,61 +555,23 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
         # XRizer; DXVK_NO_VR corrupts or suppresses that compositor path.
         environment["DXVK_NO_VR"] = "1"
     if backend == "openvr":
-        action_manifest = rift_runtime / "Input" / "action_manifest.json"
-        # XRizer consumes this value directly in its native Linux client, but
-        # Valve's Proton bridge treats SetActionManifestPath as a Windows API
-        # and converts its argument back to a host path. Passing Valve a host
-        # path makes that conversion return null and can abort the entire game.
-        environment["RIFTLIFT_ACTION_MANIFEST"] = (
-            str(action_manifest)
-            if openvr_kind == "xrizer"
-            else linux_to_windows(action_manifest)
+        if openvr_registry is None:
+            raise RiftLiftError("OpenVR launch has no selected path registry")
+        _configure_openvr_environment(
+            paths,
+            environment,
+            rift_runtime,
+            proton_root,
+            openvr_runtime,
+            openvr_registry,
+            openvr_kind,
         )
-    if backend == "openvr":
-        # proton_environment intentionally removes inherited OpenVR state so
-        # direct OpenXR launches cannot be polluted by it. The other bridge is
-        # an OpenVR client, however, so preserve the caller's selected
-        # OpenVR-to-OpenXR runtime (normally XRizer) for this backend only.
-        environment["VR_OVERRIDE"] = openvr_runtime
-        # Proton only consumes VR_OVERRIDE after it has loaded a valid path
-        # registry. Point it at RiftLift's private registry so fresh systems do
-        # not require SteamVR (or a pre-existing user OpenVR configuration).
-        environment["VR_PATHREG_OVERRIDE"] = str(openvr_registry)
-        # Proton consumes and removes VR_PATHREG_OVERRIDE while preparing its
-        # Windows bridge. The native vrclient loaded later therefore falls
-        # back to $XDG_CONFIG_HOME/openvr/openvrpaths.vrpath. Scope XDG config
-        # to RiftLift's private config root, where that same registry lives,
-        # instead of requiring or changing the user's global OpenVR registry.
-        environment["XDG_CONFIG_HOME"] = str(paths.config)
-        if openvr_kind == "xrizer":
-            environment["RIFTLIFT_XRIZER"] = "1"
-        else:
-            environment.pop("RIFTLIFT_XRIZER", None)
-            environment.pop("XRIZER_LOG_DIR", None)
-        _clear_stale_openvr_registry(paths, proton_root)
-    wrapper_value = os.environ.get("RIFTLIFT_LAUNCH_WRAPPER", "").strip()
-    wrapper: list[str] = []
-    if wrapper_value:
-        wrapper = shlex.split(wrapper_value)
-        if not wrapper or not shutil.which(wrapper[0]):
-            raise RiftLiftError(
-                f"configured launch wrapper was not found: {wrapper_value}"
-            )
+    wrapper = _launch_wrapper()
     print(
         f"Launching {game.name} through "
         f"RiftLift native {backend.upper()} runtime -> headset..."
     )
-    capabilities = [
-        name
-        for name, detected in (
-            ("openvr", uses_openvr_runtime(game.game_dir)),
-            ("oculus-xr-plugin", uses_oculus_xr_plugin(game.game_dir)),
-            ("d3d12", uses_d3d12_runtime(game.executable_path)),
-            ("unity", is_unity_player(game.executable_path)),
-            ("unreal", is_unreal_shipping(game.executable_path)),
-        )
-        if detected
-    ]
+    capabilities = _game_capabilities(game)
     launch_components = _launch_build_components(
         paths,
         proton_root,
