@@ -996,6 +996,63 @@ def _recent_envision_log_errors(
     return result
 
 
+_CHECK_RECOMMENDATIONS = (
+    (
+        {"Active OpenXR runtime"},
+        "Configure a working OpenXR runtime, then rerun `riftlift doctor`.",
+    ),
+    ({"Steam"}, "Start and sign in to Steam once so RiftLift can find it."),
+    (
+        {
+            "GE-Proton",
+            "RiftLift DXVK compatibility",
+            "Windows ABI launcher",
+            "OpenXR ABI bridge",
+            "OpenVR ABI bridge",
+            "Native OPENXR unixlib",
+            "Native OPENVR unixlib",
+            "RiftLift OpenVR translator",
+            "Meta client",
+            "Platform bridge",
+        },
+        "Run `riftlift setup` to repair missing compatibility components.",
+    ),
+    ({"Meta sign-in"}, "Run `riftlift login` before installing Meta-owned games."),
+)
+
+_EVIDENCE_RECOMMENDATIONS = (
+    (
+        ("xr_error_api_version_unsupported",),
+        "Update RiftLift and the selected OpenXR runtime, then run `riftlift setup`.",
+    ),
+    (
+        (
+            "xr_error_runtime_unavailable",
+            "openxr result -51",
+            "xrcreateinstance failed: -51",
+        ),
+        "Start the selected OpenXR runtime service and retry.",
+    ),
+    (
+        ("vk_error_device_lost", "gpu reset", "ring timeout", "vm fault"),
+        "The Vulkan device was lost. Inspect the kernel journal, restart the XR "
+        "runtime, and retry without graphics overlays.",
+    ),
+    (
+        ("xr_error_form_factor_unavailable",),
+        "Connect the headset and start an active HMD session before retrying.",
+    ),
+    (
+        ("xr_error_graphics_device_invalid",),
+        "Ensure the game and OpenXR runtime select the same GPU, then retry.",
+    ),
+    (
+        ("out_of_device_memory", "out of device memory"),
+        "Close GPU-heavy applications, reduce VR resolution, and retry.",
+    ),
+)
+
+
 def _recommendations(
     checks: list[tuple[str, bool, str]],
     launches: list[dict[str, object]],
@@ -1004,31 +1061,9 @@ def _recommendations(
     current_components: dict[str, str],
 ) -> list[str]:
     failed_labels = {label for label, ok, _detail in checks if not ok}
-    result: list[str] = []
-    if "Active OpenXR runtime" in failed_labels:
-        result.append(
-            "Configure a working OpenXR runtime, then rerun `riftlift doctor`."
-        )
-    if "Steam" in failed_labels:
-        result.append("Start and sign in to Steam once so RiftLift can find it.")
-    setup_labels = {
-        "GE-Proton",
-        "RiftLift DXVK compatibility",
-        "Windows ABI launcher",
-        "OpenXR ABI bridge",
-        "OpenVR ABI bridge",
-        "Native OPENXR unixlib",
-        "Native OPENVR unixlib",
-        "RiftLift OpenVR translator",
-        "Meta client",
-        "Platform bridge",
-    }
-    if failed_labels & setup_labels:
-        result.append(
-            "Run `riftlift setup` to repair missing compatibility components."
-        )
-    if "Meta sign-in" in failed_labels:
-        result.append("Run `riftlift login` before installing Meta-owned games.")
+    result = [
+        message for labels, message in _CHECK_RECOMMENDATIONS if failed_labels & labels
+    ]
     if any(label.startswith("Game: ") for label in failed_labels):
         result.append("Repair or re-register games whose executable is marked missing.")
     unsuccessful = [item for item in launches if _failed_launch(item)]
@@ -1062,60 +1097,11 @@ def _recommendations(
                 "launch was captured with different component versions."
             )
     evidence_text = "\n".join(evidence).casefold()
-    if "xr_error_api_version_unsupported" in evidence_text:
-        result.append(
-            "The selected OpenXR runtime rejected the API level requested by the "
-            "captured compatibility bridge. Update RiftLift, run `riftlift setup`, "
-            "and update the selected XR runtime if the build table is already current."
-        )
-    if (
-        "xr_error_runtime_unavailable" in evidence_text
-        or "openxr result -51" in evidence_text
-        or "xrcreateinstance failed: -51" in evidence_text
-    ):
-        result.append(
-            "Start the XR service in Envision, confirm Monado remains running, "
-            "then retry. The selected runtime manifest exists, but its service "
-            "was unavailable when the game initialized OpenXR."
-        )
-    if any(
-        signature in evidence_text
-        for signature in (
-            "vk_error_device_lost",
-            "gpu reset",
-            "ring timeout",
-            "vm fault",
-        )
-    ):
-        result.append(
-            "The Vulkan device was lost. Check `journalctl -k -b` for an amdgpu "
-            "reset, then retry after restarting the XR runtime and game; disable "
-            "GPU overlays or experimental upscaling if it repeats."
-        )
-    if "xr_error_form_factor_unavailable" in evidence_text:
-        result.append(
-            "Make sure the headset is connected and the selected OpenXR runtime has "
-            "an active HMD session before retrying."
-        )
-    if "xr_error_graphics_device_invalid" in evidence_text:
-        result.append(
-            "Ensure the game and OpenXR runtime select the same GPU; remove forced "
-            "DXVK/VKD3D device filters and retry."
-        )
-    if (
-        "out_of_device_memory" in evidence_text
-        or "out of device memory" in evidence_text
-    ):
-        result.append(
-            "Close GPU-heavy applications and overlays, reduce VR resolution, and "
-            "retry after restarting the XR runtime."
-        )
-    if "please authorize this new location" in evidence_text:
-        result.append(
-            "Authorize the new location through the EchoVRCE account prompt, then "
-            "retry. The captured log confirms that the community service was "
-            "reachable."
-        )
+    result.extend(
+        message
+        for signatures, message in _EVIDENCE_RECOMMENDATIONS
+        if any(signature in evidence_text for signature in signatures)
+    )
     if not launches:
         if not debug_logging:
             result.append(
@@ -1186,78 +1172,68 @@ def _debug_capture_summary(paths: Paths, enabled: bool) -> list[str]:
     return lines
 
 
+_CAUSE_RULES = (
+    (
+        ("doctor safety observation",),
+        "High confidence: one or more XR processes disappeared while doctor was "
+        "inspecting the system.",
+    ),
+    (
+        ("riftlift: patched 0 executable runtime imports",),
+        "High confidence: RiftLift loaded but could not intercept the game's Oculus "
+        "runtime imports.",
+    ),
+    (
+        ("xr_error_api_version_unsupported",),
+        "High confidence: the selected OpenXR runtime rejected the API version "
+        "requested by the game. Check the build comparison and update the stale "
+        "component.",
+    ),
+    (
+        (
+            "xr_error_runtime_unavailable",
+            "openxr result -51",
+            "xrcreateinstance failed: -51",
+        ),
+        "High confidence: the selected OpenXR runtime service was unavailable when "
+        "the game initialized XR.",
+    ),
+    (
+        ("failed to inject", "failed to create process"),
+        "High confidence: the RiftLift launcher could not start or inject the "
+        "compatibility bridge.",
+    ),
+    (
+        ("gpu reset", "ring timeout", "vm fault", "illegal opcode in command stream"),
+        "High confidence: the kernel recorded an AMD GPU command-stream hang, reset, "
+        "or memory fault during the launch window.",
+    ),
+    (
+        ("vk_error_device_lost", "device lost"),
+        "Strong lead: DXVK/Vulkan lost the logical GPU device. Check the kernel "
+        "journal to distinguish a driver reset from a userspace graphics failure.",
+    ),
+    (
+        ("xr_error_form_factor_unavailable",),
+        "High confidence: the OpenXR runtime did not have an available headset.",
+    ),
+    (
+        ("xr_error_graphics_device_invalid",),
+        "High confidence: the game and OpenXR runtime selected incompatible graphics "
+        "devices.",
+    ),
+    (
+        ("out_of_device_memory", "out of device memory"),
+        "Strong lead: the Vulkan graphics device exhausted available memory.",
+    ),
+)
+
+
 def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> list[str]:
     joined = "\n".join(evidence).casefold()
-    if "doctor safety observation" in joined:
-        return [
-            "High confidence: one or more XR processes disappeared while doctor "
-            "was inspecting the system. The before/after process evidence and "
-            "Envision log below identify the affected process."
-        ]
-    if "please authorize this new location" in joined:
-        return [
-            "High confidence: Echo VR reached the community service, but that "
-            "service requires this new location to be authorized. XR and network "
-            "transport initialized successfully; this is an account authorization "
-            "gate, not an offline or lost-headset failure."
-        ]
-    if "riftlift: patched 0 executable runtime imports" in joined:
-        return [
-            "High confidence: RiftLift loaded, but could not intercept the game's "
-            "Oculus runtime imports. This compatibility runtime build does not "
-            "support the executable's loader layout."
-        ]
-    if "xr_error_api_version_unsupported" in joined:
-        return [
-            "High confidence: the selected OpenXR runtime rejected the API version "
-            "requested by the captured RiftLift compatibility bridge. The build "
-            "comparison above shows whether RiftLift/setup is stale; otherwise the "
-            "selected XR runtime needs updating."
-        ]
-    if (
-        "xr_error_runtime_unavailable" in joined
-        or "openxr result -51" in joined
-        or "xrcreateinstance failed: -51" in joined
-    ):
-        return [
-            "High confidence: the selected OpenXR manifest was found, but its "
-            "runtime service was unavailable when the game initialized XR. Start "
-            "the XR service in Envision and confirm Monado stays running."
-        ]
-    if "failed to inject" in joined or "failed to create process" in joined:
-        return [
-            "High confidence: the RiftLift launcher could not start or inject the "
-            "Oculus compatibility bridge into the game process."
-        ]
-    if (
-        "gpu reset" in joined
-        or "ring timeout" in joined
-        or re.search(r"\bring\s+[^\n]{0,80}\btimeout\b", joined)
-        or "vm fault" in joined
-        or "illegal opcode in command stream" in joined
-    ):
-        return [
-            "High confidence: the kernel recorded an AMD GPU command-stream hang, "
-            "reset, or memory fault during the launch window."
-        ]
-    if "vk_error_device_lost" in joined or "device lost" in joined:
-        return [
-            "Strong lead: DXVK/Vulkan lost the logical GPU device. Check the "
-            "Kernel/GPU journal evidence below to distinguish a driver reset from "
-            "a userspace graphics failure."
-        ]
-    if "xr_error_form_factor_unavailable" in joined:
-        return [
-            "High confidence: the OpenXR runtime did not have an available headset "
-            "for the game session."
-        ]
-    if "xr_error_graphics_device_invalid" in joined:
-        return [
-            "High confidence: the game and OpenXR runtime selected incompatible "
-            "graphics devices."
-        ]
-    if "out_of_device_memory" in joined or "out of device memory" in joined:
-        return ["Strong lead: the Vulkan graphics device exhausted available memory."]
+    for signatures, message in _CAUSE_RULES:
+        if any(signature in joined for signature in signatures):
+            return [message]
     vr_initialization_failed = bool(
         re.search(
             r"failed to initialize.{0,100}(?:oculus|ovr|openxr|vr (?:api|library|runtime|session))"

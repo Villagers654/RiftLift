@@ -143,7 +143,7 @@ def paths(tmp_path: Path) -> Paths:
     )
 
 
-def test_likely_cause_identifies_unavailable_monado_service() -> None:
+def test_likely_cause_identifies_unavailable_runtime_service() -> None:
     cause = _likely_cause(
         [
             "RiftLift: xrEnumerateInstanceExtensionProperties failed with "
@@ -153,7 +153,6 @@ def test_likely_cause_identifies_unavailable_monado_service() -> None:
     )
 
     assert "runtime service was unavailable" in cause[0]
-    assert "Start the XR service in Envision" in cause[0]
 
 
 def test_likely_cause_identifies_process_lost_during_doctor() -> None:
