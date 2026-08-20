@@ -2,8 +2,11 @@
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-data_root=${XDG_DATA_HOME:-$HOME/.local/share}/riftlift
+data_home=${XDG_DATA_HOME:-$HOME/.local/share}
 bin_root=${XDG_BIN_HOME:-$HOME/.local/bin}
+[[ $data_home == /* ]] || data_home=$HOME/.local/share
+[[ $bin_root == /* ]] || bin_root=$HOME/.local/bin
+data_root=$data_home/riftlift
 venv="$data_root/venv"
 
 command -v python3 >/dev/null || { echo "Python 3.10 or newer is required." >&2; exit 1; }
@@ -19,8 +22,8 @@ python3 -m venv "$venv"
 ln -sfn "$venv/bin/riftlift" "$bin_root/riftlift"
 ln -sfn "$venv/bin/riftlift-gui" "$bin_root/riftlift-gui"
 
-applications_root=${XDG_DATA_HOME:-$HOME/.local/share}/applications
-icons_root=${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps
+applications_root=$data_home/applications
+icons_root=$data_home/icons/hicolor/scalable/apps
 mkdir -p "$applications_root" "$icons_root"
 sed "s|^Exec=.*|Exec=\"$bin_root/riftlift-gui\"|" \
   "$repo_root/assets/io.github.villagers654.RiftLift.desktop" \

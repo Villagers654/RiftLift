@@ -8,10 +8,13 @@ release_base='https://github.com/Villagers654/RiftLift/releases/download'
 wheel_name="riftlift-${version}-py3-none-any.whl"
 wheel_url="${release_base}/${release_tag}/${wheel_name}"
 
-data_root=${XDG_DATA_HOME:-$HOME/.local/share}/riftlift
+data_home=${XDG_DATA_HOME:-$HOME/.local/share}
 bin_root=${XDG_BIN_HOME:-$HOME/.local/bin}
-applications_root=${XDG_DATA_HOME:-$HOME/.local/share}/applications
-icons_root=${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps
+[[ $data_home == /* ]] || data_home=$HOME/.local/share
+[[ $bin_root == /* ]] || bin_root=$HOME/.local/bin
+data_root=$data_home/riftlift
+applications_root=$data_home/applications
+icons_root=$data_home/icons/hicolor/scalable/apps
 venv="$data_root/venv"
 run_setup=true
 
