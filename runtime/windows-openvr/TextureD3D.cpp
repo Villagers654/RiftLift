@@ -301,6 +301,12 @@ bool TextureD3D::Init(ovrTextureType Type, int Width, int Height, int MipLevels,
 		desc.Format = TextureFormatToDXGIFormat(Format, typeless);
 		desc.Usage = D3D11_USAGE_DEFAULT;
 		desc.BindFlags = BindFlagsToD3DBindFlags(BindFlags);
+		// Proton locks the DXVK image backing an OpenVR texture when it first
+		// exports its Vulkan handle. GenerateMips may need storage-image usage
+		// after that point, when DXVK can no longer relocate the image to add it.
+		// Declare that usage when creating mip-generating textures under Wine.
+		if (RunningUnderWine() && (MiscFlags & ovrTextureMisc_AllowGenerateMips))
+			desc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
 		desc.CPUAccessFlags = 0;
 		desc.MiscFlags = MiscFlagsToD3DMiscFlags(MiscFlags);
 		if (Type == ovrTexture_Cube)
