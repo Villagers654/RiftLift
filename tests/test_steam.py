@@ -135,6 +135,7 @@ def test_steam_client_is_started_before_a_steamworks_game(monkeypatch) -> None:
     readiness = iter((False, False, True))
     popen_calls = []
     monkeypatch.setattr("riftlift.steam._steam_client_ready", lambda: next(readiness))
+    monkeypatch.setattr("riftlift.steam._steam_ipc_state", frozenset)
     monkeypatch.setattr("riftlift.steam.shutil.which", lambda _name: "/usr/bin/steam")
     monkeypatch.setattr(
         "riftlift.steam.subprocess.Popen",
@@ -146,6 +147,20 @@ def test_steam_client_is_started_before_a_steamworks_game(monkeypatch) -> None:
 
     assert popen_calls[0][0] == ("/usr/bin/steam", "-silent")
     assert popen_calls[0][1]["start_new_session"] is True
+
+
+def test_started_steam_must_refresh_its_ipc_pipe(monkeypatch) -> None:
+    ipc = iter(
+        (frozenset({("pipe", 1, 2, 3)}),) * 2 + (frozenset({("pipe", 1, 4, 5)}),)
+    )
+    readiness = iter((False, True, True))
+    monkeypatch.setattr("riftlift.steam._steam_ipc_state", lambda: next(ipc))
+    monkeypatch.setattr("riftlift.steam._steam_client_ready", lambda: next(readiness))
+    monkeypatch.setattr("riftlift.steam.shutil.which", lambda _name: "/usr/bin/steam")
+    monkeypatch.setattr("riftlift.steam._start_steam", lambda _executable: None)
+    monkeypatch.setattr("riftlift.steam.time.sleep", lambda _seconds: None)
+
+    ensure_steam_running()
 
 
 def test_missing_steam_launcher_has_actionable_error(monkeypatch) -> None:
