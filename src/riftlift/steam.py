@@ -4,7 +4,6 @@ import binascii
 import json
 import os
 import shutil
-import stat
 import subprocess
 import time
 from pathlib import Path
@@ -183,31 +182,8 @@ def _steam_running() -> bool:
     return _same_user_process_running({"steam", "steamwebhelper"})
 
 
-def _steam_ipc_state(root: Path | None = None) -> frozenset[tuple[str, int, int, int]]:
-    """Return Steam's live-client pipe identities without opening the FIFOs."""
-    candidates = {
-        Path.home() / ".steam/steam.pipe",
-        Path.home() / ".local/share/Steam/steam.pipe",
-        Path.home() / ".var/app/com.valvesoftware.Steam/.steam/steam.pipe",
-        Path.home() / ".var/app/com.valvesoftware.Steam/data/Steam/steam.pipe",
-    }
-    if root is not None:
-        candidates.add(root / "steam.pipe")
-    result = set()
-    for candidate in candidates:
-        try:
-            details = candidate.stat()
-        except OSError:
-            continue
-        if stat.S_ISFIFO(details.st_mode):
-            result.add(
-                (str(candidate), details.st_dev, details.st_ino, details.st_mtime_ns)
-            )
-    return frozenset(result)
-
-
 def _steam_client_ready(root: Path | None = None) -> bool:
-    """Return whether Steam's main process and client IPC are available."""
+    """Return whether Steam's recorded main process is still alive."""
     candidates = [
         Path.home() / ".steam/steam.pid",
         Path.home() / ".local/share/Steam/steam.pid",
@@ -222,12 +198,23 @@ def _steam_client_ready(root: Path | None = None) -> bool:
         except (OSError, ValueError):
             continue
         if _same_user_process(Path("/proc") / str(pid) / "comm", {"steam"}):
-            return bool(_steam_ipc_state(root))
+            return True
     # Steam can replace its main process while updating or recovering from a
     # crash before steam.pid catches up. A same-user main process is stronger
     # readiness evidence than starting a second client and perturbing a live
     # VR session; steamwebhelper alone is deliberately insufficient.
-    return _same_user_process_running({"steam"}) and bool(_steam_ipc_state(root))
+    return _same_user_process_running({"steam"})
+
+
+def _steam_launcher() -> str | None:
+    """Return Valve's launcher for the discovered installation when available."""
+    try:
+        installed = steam_root() / "steam.sh"
+    except RiftLiftError:
+        installed = None
+    if installed is not None and os.access(installed, os.X_OK):
+        return str(installed)
+    return shutil.which("steam")
 
 
 def _start_steam(executable: str) -> None:
@@ -249,19 +236,22 @@ def ensure_steam_running(timeout: float = 30.0) -> None:
     """
     if _steam_client_ready():
         return
-    steam = shutil.which("steam")
+    steam = _steam_launcher()
     if not steam:
         raise RiftLiftError(
             "Steam is not running and its launcher is not on PATH; start Steam and retry"
         )
-    previous_ipc = _steam_ipc_state()
     print("Starting Steam before the Steamworks game...")
     _start_steam(steam)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        current_ipc = _steam_ipc_state()
-        if _steam_client_ready() and (not previous_ipc or current_ipc != previous_ipc):
-            return
+        if _steam_client_ready():
+            # Steam publishes its PID before the client finishes restoring its
+            # session. Give a fresh process one bounded startup window, then
+            # verify it survived before allowing Steamworks initialization.
+            time.sleep(min(8.0, max(0.0, deadline - time.monotonic())))
+            if _steam_client_ready():
+                return
         time.sleep(0.2)
     raise RiftLiftError("Steam did not become ready in time; start Steam and retry")
 

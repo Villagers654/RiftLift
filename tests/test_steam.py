@@ -9,6 +9,7 @@ from riftlift.steam import (
     _same_user_process_running,
     _shortcut,
     _shortcut_games,
+    _steam_launcher,
     ensure_steam_running,
     sync_with_restart,
     user_config,
@@ -131,41 +132,41 @@ def test_process_discovery_finds_current_user(tmp_path: Path, monkeypatch) -> No
     assert _same_user_process_running({"steam", "steamwebhelper"}, tmp_path)
 
 
+def test_installed_steam_launcher_takes_precedence_over_path(
+    tmp_path: Path, monkeypatch
+) -> None:
+    launcher = tmp_path / "steam.sh"
+    launcher.touch(mode=0o755)
+    monkeypatch.setattr("riftlift.steam.steam_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        "riftlift.steam.shutil.which", lambda _name: "/home/user/.local/bin/steam"
+    )
+
+    assert _steam_launcher() == str(launcher)
+
+
 def test_steam_client_is_started_before_a_steamworks_game(monkeypatch) -> None:
-    readiness = iter((False, False, True))
+    readiness = iter((False, False, True, True))
     popen_calls = []
+    sleeps = []
     monkeypatch.setattr("riftlift.steam._steam_client_ready", lambda: next(readiness))
-    monkeypatch.setattr("riftlift.steam._steam_ipc_state", frozenset)
-    monkeypatch.setattr("riftlift.steam.shutil.which", lambda _name: "/usr/bin/steam")
+    monkeypatch.setattr("riftlift.steam._steam_launcher", lambda: "/usr/bin/steam")
     monkeypatch.setattr(
         "riftlift.steam.subprocess.Popen",
         lambda command, **kwargs: popen_calls.append((command, kwargs)),
     )
-    monkeypatch.setattr("riftlift.steam.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("riftlift.steam.time.sleep", sleeps.append)
 
     ensure_steam_running()
 
     assert popen_calls[0][0] == ("/usr/bin/steam", "-silent")
     assert popen_calls[0][1]["start_new_session"] is True
-
-
-def test_started_steam_must_refresh_its_ipc_pipe(monkeypatch) -> None:
-    ipc = iter(
-        (frozenset({("pipe", 1, 2, 3)}),) * 2 + (frozenset({("pipe", 1, 4, 5)}),)
-    )
-    readiness = iter((False, True, True))
-    monkeypatch.setattr("riftlift.steam._steam_ipc_state", lambda: next(ipc))
-    monkeypatch.setattr("riftlift.steam._steam_client_ready", lambda: next(readiness))
-    monkeypatch.setattr("riftlift.steam.shutil.which", lambda _name: "/usr/bin/steam")
-    monkeypatch.setattr("riftlift.steam._start_steam", lambda _executable: None)
-    monkeypatch.setattr("riftlift.steam.time.sleep", lambda _seconds: None)
-
-    ensure_steam_running()
+    assert 8.0 in sleeps
 
 
 def test_missing_steam_launcher_has_actionable_error(monkeypatch) -> None:
     monkeypatch.setattr("riftlift.steam._steam_client_ready", lambda: False)
-    monkeypatch.setattr("riftlift.steam.shutil.which", lambda _name: None)
+    monkeypatch.setattr("riftlift.steam._steam_launcher", lambda: None)
 
     with pytest.raises(RiftLiftError, match="start Steam and retry"):
         ensure_steam_running()
