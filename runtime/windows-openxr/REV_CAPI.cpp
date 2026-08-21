@@ -16,6 +16,7 @@
 #include <list>
 #include <vector>
 #include <algorithm>
+#include <atomic>
 #include <shared_mutex>
 #include <thread>
 #include <chrono>
@@ -1016,6 +1017,12 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_EndFrame(ovrSession session, long long frameI
 	};
 
 	std::vector<XrCompositionLayerBaseHeader*> layers;
+	static std::atomic<bool> submissionTraced = false;
+	const bool traceSubmission = !submissionTraced.load(std::memory_order_relaxed);
+	const auto TraceScaled = [](const char* name, float value)
+	{
+		TraceOculusValue(name, static_cast<long long>(value * 1000000.0f));
+	};
 	std::list<XrCompositionLayerUnion> layerData;
 	std::list<XrCompositionLayerProjectionViewStereo> viewData;
 	std::list<XrCompositionLayerDepthInfoKHR> depthData;
@@ -1112,6 +1119,24 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_EndFrame(ovrSession session, long long frameI
 				view.subImage.swapchain = texture->Swapchain;
 				view.subImage.imageRect = ClampRect(layer->EyeFov.Viewport[i], texture);
 				view.subImage.imageArrayIndex = 0;
+				if (traceSubmission)
+				{
+					const bool left = i == ovrEye_Left;
+					TraceOculusValue(left ? "firstSubmission.left.textureWidth" : "firstSubmission.right.textureWidth", texture->Desc.Width);
+					TraceOculusValue(left ? "firstSubmission.left.textureHeight" : "firstSubmission.right.textureHeight", texture->Desc.Height);
+					TraceOculusValue(left ? "firstSubmission.left.textureArraySize" : "firstSubmission.right.textureArraySize", texture->Desc.ArraySize);
+					TraceOculusValue(left ? "firstSubmission.left.viewportX" : "firstSubmission.right.viewportX", view.subImage.imageRect.offset.x);
+					TraceOculusValue(left ? "firstSubmission.left.viewportY" : "firstSubmission.right.viewportY", view.subImage.imageRect.offset.y);
+					TraceOculusValue(left ? "firstSubmission.left.viewportWidth" : "firstSubmission.right.viewportWidth", view.subImage.imageRect.extent.width);
+					TraceOculusValue(left ? "firstSubmission.left.viewportHeight" : "firstSubmission.right.viewportHeight", view.subImage.imageRect.extent.height);
+					TraceScaled(left ? "firstSubmission.left.positionX.1e6" : "firstSubmission.right.positionX.1e6", view.pose.position.x);
+					TraceScaled(left ? "firstSubmission.left.positionY.1e6" : "firstSubmission.right.positionY.1e6", view.pose.position.y);
+					TraceScaled(left ? "firstSubmission.left.positionZ.1e6" : "firstSubmission.right.positionZ.1e6", view.pose.position.z);
+					TraceScaled(left ? "firstSubmission.left.fovLeft.1e6" : "firstSubmission.right.fovLeft.1e6", view.fov.angleLeft);
+					TraceScaled(left ? "firstSubmission.left.fovRight.1e6" : "firstSubmission.right.fovRight.1e6", view.fov.angleRight);
+					TraceScaled(left ? "firstSubmission.left.fovUp.1e6" : "firstSubmission.right.fovUp.1e6", view.fov.angleUp);
+					TraceScaled(left ? "firstSubmission.left.fovDown.1e6" : "firstSubmission.right.fovDown.1e6", view.fov.angleDown);
+				}
 			}
 
 			// Verify all views were initialized without errors, otherwise ignore the layer
@@ -1200,6 +1225,11 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_EndFrame(ovrSession session, long long frameI
 	endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 	endInfo.layerCount = (uint32_t)layers.size();
 	endInfo.layers = layers.data();
+	if (traceSubmission && !layers.empty())
+	{
+		TraceOculusValue("firstSubmission.layerCount", endInfo.layerCount);
+		submissionTraced.store(true, std::memory_order_relaxed);
+	}
 	XrResult endResult = xrEndFrame(session->Session, &endInfo);
 	TraceOculusValue("xrEndFrame.result", endResult);
 	CHK_XR(endResult);
