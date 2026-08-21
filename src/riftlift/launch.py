@@ -410,11 +410,10 @@ def _disable_openxr_for_direct_openvr(
     environment: dict[str, str], openvr_kind: str
 ) -> None:
     """Prevent two conflicting native compositor clients in one Wine process."""
-    if openvr_kind == "xrizer":
-        return
-    environment.pop("XR_RUNTIME_JSON", None)
-    environment.pop("PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES", None)
-    environment.pop("OXR_ZERO_TIME_IS_NOW", None)
+    if openvr_kind != "xrizer":
+        environment.pop("XR_RUNTIME_JSON", None)
+        environment.pop("PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES", None)
+        environment.pop("OXR_ZERO_TIME_IS_NOW", None)
     overrides = environment.get("WINEDLLOVERRIDES", "").strip(";")
     environment["WINEDLLOVERRIDES"] = (
         f"wineopenxr=d{';' + overrides if overrides else ''}"

@@ -399,7 +399,11 @@ def test_direct_openvr_bridge_uses_windows_action_manifest(
     )
     monkeypatch.setattr(
         "riftlift.launch.launch_environment",
-        lambda *_args: {"XRIZER_LOG_DIR": "/tmp/xrizer"},
+        lambda *_args: {
+            "XRIZER_LOG_DIR": "/tmp/xrizer",
+            "XR_RUNTIME_JSON": "/tmp/openxr.json",
+            "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
+        },
     )
     openvr = tmp_path / "xrizer"
     (openvr / "bin/linux64").mkdir(parents=True)
@@ -460,7 +464,11 @@ def test_xrizer_bridge_uses_host_action_manifest(tmp_path: Path, monkeypatch) ->
     )
     monkeypatch.setattr(
         "riftlift.launch.launch_environment",
-        lambda *_args: {"XRIZER_LOG_DIR": "/tmp/xrizer"},
+        lambda *_args: {
+            "XRIZER_LOG_DIR": "/tmp/xrizer",
+            "XR_RUNTIME_JSON": "/tmp/openxr.json",
+            "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
+        },
     )
     captured: dict[str, object] = {}
     monkeypatch.setattr(
@@ -474,6 +482,9 @@ def test_xrizer_bridge_uses_host_action_manifest(tmp_path: Path, monkeypatch) ->
     assert launch(paths, game, []) == 0
     assert captured["env"]["RIFTLIFT_ACTION_MANIFEST"] == str(manifest)
     assert captured["env"]["RIFTLIFT_XRIZER"] == "1"
+    assert captured["env"]["XR_RUNTIME_JSON"] == "/tmp/openxr.json"
+    assert captured["env"]["PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES"] == "1"
+    assert captured["env"]["WINEDLLOVERRIDES"].split(";")[0] == "wineopenxr=d"
 
 
 def test_openvr_launch_clears_only_protons_generated_runtime_cache(
