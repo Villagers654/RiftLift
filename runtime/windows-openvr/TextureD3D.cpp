@@ -1,4 +1,5 @@
 #include "TextureD3D.h"
+#include "Common.h"
 #include "OVR_CAPI.h"
 
 #include <openvr.h>
