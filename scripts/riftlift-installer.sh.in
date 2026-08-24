@@ -4,11 +4,16 @@ set -euo pipefail
 version='@VERSION@'
 release_tag='@RELEASE_TAG@'
 wheel_sha256='@WHEEL_SHA256@'
+runtime_sha256='@RUNTIME_SHA256@'
+openvr_sha256='@OPENVR_SHA256@'
+dxvk_sha256='@DXVK_SHA256@'
 desktop_base64='@DESKTOP_BASE64@'
 icon_base64='@ICON_BASE64@'
 release_base='https://github.com/Villagers654/RiftLift/releases/download'
 wheel_name="riftlift-${version}-py3-none-any.whl"
-wheel_url="${release_base}/${release_tag}/${wheel_name}"
+runtime_name='riftlift-compat.zip'
+openvr_name='riftlift-xrizer.tar.gz'
+dxvk_name='riftlift-dxvk.tar.gz'
 
 data_home=${XDG_DATA_HOME:-$HOME/.local/share}
 bin_root=${XDG_BIN_HOME:-$HOME/.local/bin}
@@ -57,19 +62,28 @@ cleanup() {
 trap cleanup EXIT
 wheel="$temporary/$wheel_name"
 
-echo "Downloading RiftLift $version..."
-if [[ -n ${RIFTLIFT_INSTALLER_WHEEL:-} ]]; then
-  cp -- "$RIFTLIFT_INSTALLER_WHEEL" "$wheel"
-elif command -v curl >/dev/null; then
-  curl --fail --location --retry 3 --output "$wheel" "$wheel_url"
-elif command -v wget >/dev/null; then
-  wget --tries=3 --output-document="$wheel" "$wheel_url"
-else
-  echo "curl or wget is required." >&2
-  exit 1
-fi
+download_asset() {
+  local name=$1
+  local override=$2
+  local target="$temporary/$name"
+  local url="${release_base}/${release_tag}/${name}"
+  if [[ -n $override ]]; then
+    cp -- "$override" "$target"
+  elif command -v curl >/dev/null; then
+    curl --fail --location --retry 3 --output "$target" "$url"
+  elif command -v wget >/dev/null; then
+    wget --tries=3 --output-document="$target" "$url"
+  else
+    echo "curl or wget is required." >&2
+    exit 1
+  fi
+}
 
-actual_sha256=$(python3 - "$wheel" <<'PY'
+verify_asset() {
+  local target=$1
+  local expected=$2
+  local actual
+  actual=$(python3 - "$target" <<'PY'
 import hashlib
 import pathlib
 import sys
@@ -81,9 +95,26 @@ with pathlib.Path(sys.argv[1]).open("rb") as stream:
 print(digest.hexdigest())
 PY
 )
-if [[ $actual_sha256 != "$wheel_sha256" ]]; then
-  echo "RiftLift wheel checksum mismatch; refusing to install." >&2
-  exit 1
+  if [[ $actual != "$expected" ]]; then
+    echo "checksum mismatch for $(basename -- "$target"); refusing to install." >&2
+    exit 1
+  fi
+}
+
+echo "Downloading RiftLift $version..."
+download_asset "$wheel_name" "${RIFTLIFT_INSTALLER_WHEEL:-}"
+verify_asset "$wheel" "$wheel_sha256"
+
+if $run_setup; then
+  runtime="$temporary/$runtime_name"
+  openvr="$temporary/$openvr_name"
+  dxvk="$temporary/$dxvk_name"
+  download_asset "$runtime_name" "${RIFTLIFT_RUNTIME_ARCHIVE:-}"
+  download_asset "$openvr_name" "${RIFTLIFT_OPENVR_RUNTIME_ARCHIVE:-}"
+  download_asset "$dxvk_name" "${RIFTLIFT_DXVK_ARCHIVE:-}"
+  verify_asset "$runtime" "$runtime_sha256"
+  verify_asset "$openvr" "$openvr_sha256"
+  verify_asset "$dxvk" "$dxvk_sha256"
 fi
 
 mkdir -p "$data_root" "$bin_root" "$applications_root" "$icons_root"
@@ -128,7 +159,10 @@ fi
 echo "Installed RiftLift $version at $bin_root/riftlift"
 if $run_setup; then
   echo "Installing RiftLift's pinned Proton, Meta, OpenXR, and OpenVR components..."
-  "$bin_root/riftlift" setup
+  RIFTLIFT_RUNTIME_ARCHIVE="$runtime" \
+    RIFTLIFT_OPENVR_RUNTIME_ARCHIVE="$openvr" \
+    RIFTLIFT_DXVK_ARCHIVE="$dxvk" \
+    "$bin_root/riftlift" setup
 fi
 
 cat <<EOF

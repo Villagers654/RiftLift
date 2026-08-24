@@ -15,21 +15,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install build
-      - name: Build Python distributions and standalone installer
+      - name: Build Python distributions
         shell: bash
         run: |
           python -m build --outdir release
-          version=$(PYTHONPATH=src python -c 'from riftlift import __version__; print(__version__)')
-          tag=$(python -c 'import re,sys; value=sys.argv[1]; match=re.fullmatch(r"(\d+(?:\.\d+){2,3})(?:a(\d+))?", value); assert match; print(f"v{match.group(1)}" + (f"-alpha.{match.group(2)}" if match.group(2) else ""))' "$version")
-          scripts/generate-release-installer.sh \
-            "$tag" \
-            "release/riftlift-${version}-py3-none-any.whl" \
-            release/riftlift-installer.sh
-          (cd release && sha256sum riftlift-* > SHA256SUMS)
-          (cd release && sha256sum -c SHA256SUMS)
-          bash -n release/riftlift-installer.sh
-          grep -F "release_tag='$tag'" release/riftlift-installer.sh
-          grep -F "wheel_sha256='$(sha256sum "release/riftlift-${version}-py3-none-any.whl" | cut -d' ' -f1)'" release/riftlift-installer.sh
       - uses: actions/upload-artifact@v4
         with:
           name: riftlift-python-release
@@ -206,3 +195,47 @@ jobs:
           path: |
             riftlift-compat.zip
             riftlift-compat.zip.sha256
+
+  release-bundle:
+    needs: [python-release, compatibility, xrizer, dxvk]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: riftlift-python-release
+          path: release
+      - uses: actions/download-artifact@v5
+        with:
+          name: riftlift-compat
+          path: release
+      - uses: actions/download-artifact@v5
+        with:
+          name: riftlift-xrizer
+          path: release
+      - uses: actions/download-artifact@v5
+        with:
+          name: riftlift-dxvk
+          path: release
+      - name: Generate verified all-in-one installer
+        shell: bash
+        run: |
+          rm -f release/*.sha256
+          version=$(PYTHONPATH=src python -c 'from riftlift import __version__; print(__version__)')
+          tag=$(python -c 'import re,sys; value=sys.argv[1]; match=re.fullmatch(r"(\d+(?:\.\d+){2,3})(?:a(\d+))?", value); assert match; print(f"v{match.group(1)}" + (f"-alpha.{match.group(2)}" if match.group(2) else ""))' "$version")
+          scripts/generate-release-installer.sh "$tag" release release/riftlift-installer.sh
+          (cd release && sha256sum riftlift-* > SHA256SUMS)
+          (cd release && sha256sum -c SHA256SUMS)
+          bash -n release/riftlift-installer.sh
+          grep -F "release_tag='$tag'" release/riftlift-installer.sh
+          for name in \
+            "riftlift-${version}-py3-none-any.whl" \
+            riftlift-compat.zip \
+            riftlift-xrizer.tar.gz \
+            riftlift-dxvk.tar.gz; do
+            grep -F "$(sha256sum "release/$name" | cut -d' ' -f1)" release/riftlift-installer.sh
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: riftlift-release
+          path: release/

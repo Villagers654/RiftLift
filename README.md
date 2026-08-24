@@ -35,10 +35,13 @@ Download `riftlift-installer.sh` from the latest GitHub release, then run:
 bash riftlift-installer.sh
 ```
 
-The installer verifies its matching build, adds desktop integration, and
-downloads the pinned compatibility components.
+The installer verifies its wheel and every matching compatibility payload,
+adds desktop integration, and installs the compatibility stack.
 
 To install from a source checkout instead, run `./install.sh` in the repository.
+Source installs use the checkout and selected payloads directly; release
+artifact hashes are enforced by the generated all-in-one installer, not baked
+into the application source.
 
 ### 2. Check your setup and sign in
 
