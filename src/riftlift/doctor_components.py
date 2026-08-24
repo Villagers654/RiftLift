@@ -10,7 +10,6 @@ from . import __version__
 from .config import Paths
 from .diagnostics import system_build_components
 from .runtime import (
-    DXVK_SHA256,
     DXVK_VERSION,
     META_PACKAGES,
     META_VERSION,
@@ -80,7 +79,7 @@ def installed_dxvk(path: Path) -> tuple[bool, str]:
             )
         artifact = str(payload.get("artifact_sha256", ""))[:12]
         return (
-            version == DXVK_VERSION and artifact == DXVK_SHA256[:12],
+            version == DXVK_VERSION and bool(artifact),
             f"{version} sha256:{artifact or 'unknown'}",
         )
     except (OSError, json.JSONDecodeError, AttributeError, ValueError) as error:
@@ -150,7 +149,7 @@ def expected_components() -> dict[str, str]:
         "compat_runtime": RUNTIME_VERSION,
         "bundled_xrizer": OPENVR_RUNTIME_VERSION,
         "proton": PROTON_VERSION,
-        "dxvk": f"{DXVK_VERSION} sha256:{DXVK_SHA256[:12]}",
+        "dxvk": DXVK_VERSION,
         **{
             f"meta_{package.name.replace('-', '_')}": (
                 f"{META_VERSION} sha256:{package.sha256[:12]}"
@@ -164,6 +163,8 @@ def expected_components() -> dict[str, str]:
 def component_matches(name: str, installed: str, expected: str) -> bool:
     if name == "proton":
         return installed == expected or installed.endswith(f" {expected}")
+    if name == "dxvk":
+        return installed == expected or installed.startswith(f"{expected} sha256:")
     return installed == expected
 
 

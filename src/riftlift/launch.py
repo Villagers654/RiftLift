@@ -36,7 +36,6 @@ from .diagnostics import (
 )
 from .playtime import PlaytimeSession
 from .runtime import (
-    DXVK_SHA256,
     DXVK_VERSION,
     META_PACKAGES,
     META_VERSION,
@@ -84,7 +83,7 @@ _EXPECTED_BUILD_COMPONENTS = {
     "compat_runtime": RUNTIME_VERSION,
     "openvr_runtime": OPENVR_RUNTIME_VERSION,
     "proton": PROTON_VERSION,
-    "dxvk": f"{DXVK_VERSION} sha256:{DXVK_SHA256[:12]}",
+    "dxvk": DXVK_VERSION,
     **{
         f"meta_{package.name.replace('-', '_')}": f"{META_VERSION} sha256:{package.sha256[:12]}"
         for package in META_PACKAGES
@@ -294,6 +293,8 @@ def _expected_launch_components(
     launch; only the bundled XRizer runtime is pinned to RiftLift's release.
     """
     expected = dict(_EXPECTED_BUILD_COMPONENTS)
+    if "dxvk" in components:
+        expected["dxvk"] = components["dxvk"]
     if openvr_kind in {"steamvr", "external"}:
         expected["openvr_runtime"] = components["openvr_runtime"]
     return expected

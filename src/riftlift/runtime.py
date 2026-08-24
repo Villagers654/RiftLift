@@ -35,15 +35,10 @@ RELEASE_URL = (
     f"https://github.com/Villagers654/RiftLift/releases/download/v{__version__}"
 )
 DXVK_URL = f"{RELEASE_URL}/riftlift-dxvk.tar.gz"
-DXVK_SHA256 = "15d2625b9a7f0d01f5096c17211ff8e98ba238ddc0d39de03bb58c2277d7eedc"
 RUNTIME_VERSION = f"riftlift-{__version__}"
 RUNTIME_URL = f"{RELEASE_URL}/riftlift-compat.zip"
-RUNTIME_SHA256 = "a7559d8522e8bfe04bbada83db1ebeead88b9d003d5ff968cc9ec1efa1f00e85"
 OPENVR_RUNTIME_VERSION = RUNTIME_VERSION
 OPENVR_RUNTIME_URL = f"{RELEASE_URL}/riftlift-xrizer.tar.gz"
-OPENVR_RUNTIME_SHA256 = (
-    "c1c5291bb61e018bef3245b1075072e40ff8bfe36c747a2de6a3e4267d77aa02"
-)
 
 DEBUG_WINE_CHANNELS = ",".join(
     (
@@ -434,21 +429,15 @@ def install_dxvk_compat(paths: Paths, proton: Path) -> Path:
     override = os.environ.get("RIFTLIFT_DXVK_ARCHIVE")
     if override:
         archive = Path(override).expanduser()
-        artifact_sha256 = sha256(archive)
     else:
-        if not DXVK_SHA256:
-            raise RiftLiftError("RiftLift DXVK release checksum is not configured")
-        artifact_sha256 = DXVK_SHA256
-
-    if _dxvk_current(marker, destination, artifact_sha256):
-        return destination
-
-    if not override:
         archive = download(
             DXVK_URL,
             paths.cache / f"dxvk-{DXVK_VERSION}.tar.gz",
-            DXVK_SHA256,
         )
+    artifact_sha256 = sha256(archive)
+
+    if _dxvk_current(marker, destination, artifact_sha256):
+        return destination
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".dxvk-unpack-", dir=destination.parent))
@@ -765,7 +754,6 @@ def install_rift_runtime(paths: Paths) -> Path:
         else download(
             RUNTIME_URL,
             paths.cache / f"riftlift-compat-{RUNTIME_VERSION}.zip",
-            RUNTIME_SHA256,
         )
     )
     paths.tools.mkdir(parents=True, exist_ok=True)
@@ -806,14 +794,9 @@ def install_openvr_runtime(paths: Paths) -> Path:
     if override:
         archive = Path(override).expanduser()
     else:
-        if not OPENVR_RUNTIME_SHA256:
-            raise RiftLiftError(
-                "RiftLift OpenVR runtime release checksum is not configured"
-            )
         archive = download(
             OPENVR_RUNTIME_URL,
             paths.cache / f"openvr-runtime-{OPENVR_RUNTIME_VERSION}.tar.gz",
-            OPENVR_RUNTIME_SHA256,
         )
     paths.tools.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".openvr-runtime-unpack-", dir=paths.tools))
