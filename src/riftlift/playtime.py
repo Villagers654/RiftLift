@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import threading
@@ -13,6 +12,11 @@ from typing import Any
 
 from .config import Paths
 from .util import atomic_write_text
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 _VERSION = 1
 _CHECKPOINT_SECONDS = 30.0
@@ -66,9 +70,16 @@ def _update(
     paths: Paths, slug: str, operation: Callable[[dict[str, Any]], None]
 ) -> None:
     paths.data.mkdir(parents=True, exist_ok=True)
-    with _lock_target(paths).open("a+", encoding="utf-8") as lock:
-        os.fchmod(lock.fileno(), 0o600)
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with _lock_target(paths).open("a+b") as lock:
+        if os.name == "nt":
+            if lock.tell() == 0:
+                lock.write(b"\0")
+                lock.flush()
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            os.fchmod(lock.fileno(), 0o600)
+            fcntl.flock(lock, fcntl.LOCK_EX)
         value = _read(paths)
         games = value.setdefault("games", {})
         record = games.setdefault(slug, {})
@@ -78,7 +89,7 @@ def _update(
         operation(record)
         value["version"] = _VERSION
         _write(paths, value)
-        fcntl.flock(lock, fcntl.LOCK_UN)
+        # Closing the descriptor releases either OS's lock, including on error.
 
 
 def playtime(paths: Paths, slug: str) -> Playtime:

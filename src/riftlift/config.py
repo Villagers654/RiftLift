@@ -62,6 +62,20 @@ class Paths:
 
     @classmethod
     def defaults(cls) -> Paths:
+        if os.name == "nt":
+            root = Path(
+                os.environ.get("RIFTLIFT_HOME")
+                or str(Path(os.environ["LOCALAPPDATA"]) / "RiftLift")
+            )
+            root = root.expanduser().resolve()
+            return cls(
+                root / "data",
+                root / "cache",
+                root / "config",
+                root / "games",
+                root / "compatdata",
+                root / "tools",
+            )
         home = Path.home()
         data = xdg_data_home() / "riftlift"
         cache = xdg_cache_home() / "riftlift"

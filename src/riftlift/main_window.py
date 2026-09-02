@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 import threading
 from collections.abc import Callable
 
@@ -18,10 +19,8 @@ from .config import (
     games,
     set_debug_logging,
 )
-from .doctor import doctor
 from .game_ui import LocalGameDialog, StoreGameDialog
-from .launch import launch
-from .library import add, add_local
+from .library import add
 from .metadata import populate_game_metadata
 from .playtime import playtime, playtime_label
 from .steam import sync_with_restart
@@ -29,6 +28,14 @@ from .steam_oculus import add_steam_game
 from .steam_ui import SteamGamesDialog
 from .theme import STYLE
 from .util import RiftLiftError
+
+if os.name == "nt":
+    from .windows import add_local
+    from .windows_ui_backend import doctor, launch
+else:
+    from .doctor import doctor
+    from .launch import launch
+    from .library import add_local
 
 
 class Events(QtCore.QObject):
@@ -118,6 +125,12 @@ class Window(QtWidgets.QMainWindow):
         self.setMinimumSize(1024, 637)
         self.setStyleSheet(STYLE)
         self._build()
+        if os.name == "nt":
+            for control in (self.signin, self.steam_games, self.debug_logging):
+                control.setEnabled(False)
+                control.setToolTip(
+                    "This integration is pending native Windows support."
+                )
         self.refresh()
 
     def label(self, text="", name=""):
@@ -420,6 +433,13 @@ class Window(QtWidgets.QMainWindow):
 
     def add_dialog(self):
         dialog = StoreGameDialog(self.local_dialog, self)
+        if os.name == "nt":
+            dialog.entry.setEnabled(False)
+            dialog.steam.setChecked(False)
+            dialog.steam.setEnabled(False)
+            dialog.validation.setText(
+                "Install with Meta's PC app, then choose Add a local game above."
+            )
         if dialog.exec() != QtWidgets.QDialog.Accepted:
             return
 
@@ -433,6 +453,9 @@ class Window(QtWidgets.QMainWindow):
 
     def local_dialog(self):
         dialog = LocalGameDialog(self)
+        if os.name == "nt":
+            dialog.steam.setChecked(False)
+            dialog.steam.setEnabled(False)
         if dialog.exec() != QtWidgets.QDialog.Accepted:
             return
 
