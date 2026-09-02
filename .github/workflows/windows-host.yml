@@ -1,0 +1,17 @@
+name: Experimental Windows host
+on:
+  push:
+  pull_request:
+jobs:
+  windows-host:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e . pytest
+      - run: python -m riftlift.cli --help
+      - run: python -m pytest tests/test_windows_native.py tests/test_util.py tests/test_library.py -q
+        env:
+          QT_QPA_PLATFORM: offscreen
