@@ -104,11 +104,41 @@ def test_gui_constructs_without_linux_imports(paths, monkeypatch):
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
 
-    from riftlift.windows_gui import Window
+    from riftlift.main_window import Window
 
     app = QApplication.instance() or QApplication([])
     window = Window()
-    assert "Windows" in window.windowTitle()
+    assert window.windowTitle() == "RiftLift"
+    assert Window.__module__ == "riftlift.main_window"
+    assert not window.signin.isEnabled()
+    assert not window.steam_games.isEnabled()
     assert window.library.count() == 0
     window.close()
     app.processEvents()
+
+
+def test_shared_ui_backend_reports_failures(paths, monkeypatch):
+    from riftlift import windows_ui_backend
+
+    monkeypatch.setattr(windows, "doctor", lambda p: ("Missing runtime", 2))
+    with pytest.raises(RiftLiftError, match="View Activity"):
+        windows_ui_backend.doctor(paths)
+    game = windows.add_local(paths, sys.executable, "Probe")
+    monkeypatch.setattr(windows, "runtime_ready", lambda b: True)
+    monkeypatch.setattr(windows, "launch", lambda *a, **k: 7)
+    with pytest.raises(RiftLiftError, match="code 7"):
+        windows_ui_backend.launch(paths, game, [])
+
+
+def test_windows_playtime_locks_across_processes(paths):
+    import subprocess
+
+    from riftlift.playtime import playtime
+
+    script = (
+        "from riftlift.config import Paths; from riftlift.playtime import mark_launch; "
+        "[mark_launch(Paths.defaults(), 'probe') for _ in range(5)]"
+    )
+    children = [subprocess.Popen([sys.executable, "-c", script]) for _ in range(3)]
+    assert all(child.wait(timeout=30) == 0 for child in children)
+    assert playtime(paths, "probe").launches == 15

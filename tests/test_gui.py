@@ -235,13 +235,13 @@ def test_store_action_matches_the_selected_game_source(tmp_path: Path) -> None:
     paths.create()
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
-    rift = Game("rift", "Rift Game", "123", "rift.game", "/tmp", "game.exe", [])
+    rift = Game("rift", "Rift Game", "123", "rift.game", str(tmp_path), "game.exe", [])
     steam = Game(
         "steam",
         "Steam Game",
         "456",
         "steam.app.456",
-        "/tmp",
+        str(tmp_path),
         "game.exe",
         [],
         store_url="https://store.steampowered.com/app/456/",
@@ -258,7 +258,7 @@ def test_store_action_matches_the_selected_game_source(tmp_path: Path) -> None:
         "Local Game",
         "",
         "local.local-game",
-        "/tmp",
+        str(tmp_path),
         "game.exe",
         [],
         source="local",
@@ -284,7 +284,7 @@ def test_selected_game_shows_local_playtime(tmp_path: Path) -> None:
     add_playtime(paths, "echo", 7380)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
-    game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
 
     window.show_game(game)
 

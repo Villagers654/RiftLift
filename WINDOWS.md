@@ -22,13 +22,18 @@ OpenVR headset runtime, and installed PC game files.
 For SteamVR use `--backend openvr`. The selected runtime must already be installed
 and configured; this installer does not change the system's active XR runtime.
 Run games through their normal client once first to finish prerequisites and
-account setup. The GUI lets you add installed executables, select a backend, view
-local diagnostics, and launch a game. It keeps launch work off the UI thread.
+account setup. The existing Linux GUI is reused unchanged in layout and styling: `main_window.py`,
+`game_ui.py`, `auth_ui.py`, and `theme.py`. No separate Windows UI exists.
+A service adapter connects System and Launch in VR to the native backend.
+Set `RIFTLIFT_WINDOWS_BACKEND=openvr` or `openxr` to override automatic backend
+selection. The existing background-task and activity-log implementation is reused.
 
 ## Current boundaries
 
-- Native Windows sign-in, store downloading, Steam shortcut management, and
-  playtime tracking are not implemented in this experimental frontend.
+- Native Windows sign-in, store downloading and Steam shortcut management
+  are not implemented in this experimental host. Their existing controls remain
+  visible but are disabled on Windows; Add Game retains the existing local-game
+  dialog. Shared playtime tracking uses Windows file locking.
 - Install purchases with Meta's PC application before adding their executables.
   Original platform authentication and entitlement checks remain in place.
 - Game folders are referenced in place. No game executable or platform DLL is
@@ -65,7 +70,7 @@ game build, exit code, and logs. Injection success alone is not a game pass.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install pytest
-.\.venv\Scripts\python.exe -m pytest tests/test_windows_native.py tests/test_util.py tests/test_library.py -q
+.\.venv\Scripts\python.exe -m pytest tests/test_windows_native.py tests/test_gui.py tests/test_playtime.py tests/test_util.py tests/test_library.py -q
 ```
 
 The Linux-focused full suite includes POSIX paths, permissions, and `fcntl` and

@@ -4,12 +4,6 @@ from __future__ import annotations
 
 
 def main() -> int:
-    import os
-
-    if os.name == "nt":
-        from .windows_gui import main as windows_main
-
-        return windows_main()
     try:
         from .main_window import main as window_main
     except ModuleNotFoundError as error:

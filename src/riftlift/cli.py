@@ -24,6 +24,10 @@ if os.name != "nt":
 
 
 def parser() -> argparse.ArgumentParser:
+    if os.name == "nt":
+        from .windows import parser as windows_parser
+
+        return windows_parser()
     root = argparse.ArgumentParser(
         prog="riftlift",
         description="Run owned Meta Rift games on Linux OpenXR/Monado.",

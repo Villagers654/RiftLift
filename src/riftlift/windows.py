@@ -134,12 +134,15 @@ def add_local(
     name: str | None = None,
     root: str | None = None,
     arguments: str | None = None,
+    artwork: str | None = None,
 ) -> Game:
     from .library import add_local as register
 
     if not is_pe64(Path(executable)):
         raise RiftLiftError("Native Windows launcher requires an x64 PE executable")
-    game = register(paths, executable, name=name, root=root, arguments=arguments)
+    game = register(
+        paths, executable, name=name, root=root, arguments=arguments, artwork=artwork
+    )
     game.platform_shim = False
     game.platform_offline = False
     game.save(paths)
@@ -196,7 +199,9 @@ def launch(
     # Do not write to game files or install the Linux platform shim.
     log = paths.data / "logs" / f"{game.slug}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
-    with log.open("a", encoding="utf-8") as stream:
+    from .playtime import PlaytimeSession
+
+    with log.open("a", encoding="utf-8") as stream, PlaytimeSession(paths, game.slug):
         process = subprocess.run(
             command,
             cwd=game.game_dir,
@@ -245,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     paths = Paths.defaults()
     try:
         if args.command == "gui":
-            from .windows_gui import main as gui
+            from .gui import main as gui
 
             return gui()
         if args.command == "setup":
