@@ -41,8 +41,9 @@ def atomic_write_bytes(target: Path, payload: bytes, mode: int = 0o600) -> None:
     descriptor, name = tempfile.mkstemp(prefix=f".{target.name}-", dir=target.parent)
     temporary = Path(name)
     try:
-        os.fchmod(descriptor, mode)
         with os.fdopen(descriptor, "wb") as stream:
+            if os.name != "nt":
+                os.fchmod(stream.fileno(), mode)
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
@@ -112,6 +113,7 @@ def download(url: str, target: Path, expected_sha256: str = "") -> Path:
                 break
             except (OSError, urllib.error.URLError, TimeoutError) as error:
                 if attempt == 3:
+                    stream.close()
                     temporary.unlink(missing_ok=True)
                     raise RiftLiftError(
                         f"could not download {target.name} after 4 attempts: {error}"
