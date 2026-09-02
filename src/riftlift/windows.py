@@ -1,8 +1,4 @@
-"""Experimental native Windows host; no Wine, Proton, or platform shim.
-
-The upstream native PE backends are used unchanged. A loaded DLL or successful
-injection is not proof of headset rendering or game compatibility.
-"""
+"""Native Windows backend for RiftLift's shared CLI and desktop application."""
 
 from __future__ import annotations
 
@@ -113,7 +109,7 @@ def doctor(paths: Paths) -> tuple[str, int]:
     installed = games(paths)
     text = "\n".join(
         [
-            f"RiftLift {__version__}: experimental native Windows host",
+            f"RiftLift {__version__} on Windows",
             f"Native payload: {'INSTALLED' if payload_ok else 'MISSING'} ({native})",
             f"OpenXR manifest: {xr or 'NOT REGISTERED'}",
             f"OpenVR runtime: {vr or 'NOT REGISTERED'}",
@@ -215,12 +211,13 @@ def launch(
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="riftlift", description="Experimental native Windows RiftLift host"
+        prog="riftlift",
+        description="Run Meta Rift games through native Windows VR runtimes.",
     )
     p.add_argument(
         "--version",
         action="version",
-        version=f"%(prog)s {__version__} (Windows experimental)",
+        version=f"%(prog)s {__version__}",
     )
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("gui", help="open the Windows library")

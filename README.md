@@ -1,8 +1,8 @@
 # RiftLift
 
-**Play your Meta Rift (Oculus Rift) PC VR games on Linux.**
+**Play your Meta Rift (Oculus Rift) PC VR games on Linux and Windows.**
 
-RiftLift is a Linux compatibility app for Meta Rift PC VR games. Its desktop
+RiftLift is a compatibility app for Meta Rift PC VR games. Its desktop
 GUI handles Meta sign-in, owned-game downloads, Steam shortcuts, local playtime,
 and launching through your existing VR headset setup. It supports Rift Store
 releases and compatible Steam games that include an Oculus mode. RiftLift can
@@ -19,7 +19,7 @@ See the [compatibility wiki](docs/COMPATIBILITY.md) for games tested with real V
 
 Before you start, you need:
 
-- a 64-bit Linux PC;
+- a 64-bit Linux or Windows PC;
 - Steam;
 - a VR headset that already works through SteamVR or Monado/OpenXR; and
 - a Meta account that owns a **Rift / PC VR** game.
@@ -42,6 +42,11 @@ To install from a source checkout instead, run `./install.sh` in the repository.
 Source installs use the checkout and selected payloads directly; release
 artifact hashes are enforced by the generated all-in-one installer, not baked
 into the application source.
+
+On Windows, run `./install-windows.ps1` from a source checkout with Python 3.12
+and Git installed, then open `RiftLift.cmd`. The same desktop app uses your
+native Windows OpenXR or SteamVR runtime. Install games with Meta's PC app,
+then choose **Add Game → Add a local game…** to add them to RiftLift.
 
 ### 2. Check your setup and sign in
 

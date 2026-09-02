@@ -40,6 +40,23 @@ def test_cli_help_has_native_backend(capsys):
     assert "native Windows" in capsys.readouterr().out
 
 
+def test_windows_uses_the_shared_product_version(capsys):
+    from riftlift import __version__
+    from riftlift.cli import main
+
+    with pytest.raises(SystemExit) as result:
+        main(["--version"])
+    assert result.value.code == 0
+    assert capsys.readouterr().out == f"riftlift {__version__}\n"
+
+
+def test_windows_metadata_is_part_of_the_main_package():
+    root = Path(__file__).resolve().parents[1]
+    metadata = (root / "pyproject.toml").read_text()
+    assert '"Operating System :: Microsoft :: Windows"' in metadata
+    assert not (root / "WINDOWS.md").exists()
+
+
 def test_add_local_preserves_game_binary(paths):
     executable = Path(sys.executable)
     before = executable.read_bytes()

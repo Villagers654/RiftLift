@@ -1,4 +1,4 @@
-name: Experimental Windows host
+name: Windows
 on:
   push:
   pull_request:
