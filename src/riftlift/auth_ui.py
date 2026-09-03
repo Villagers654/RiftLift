@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from concurrent.futures import Future, ThreadPoolExecutor
 
 from PySide6 import QtCore, QtWidgets
@@ -39,7 +40,10 @@ class AuthDialog(QtWidgets.QDialog):
         title.setObjectName("game")
         layout.addWidget(title)
         explanation = QtWidgets.QLabel(
-            "RiftLift opens your default browser in a dedicated sign-in window "
+            "RiftLift opens your default browser and returns here automatically "
+            "when Meta finishes. Your password and security codes go only to Meta."
+            if os.name == "nt"
+            else "RiftLift opens your default browser in a dedicated sign-in window "
             "and returns here automatically when Meta finishes. Your password "
             "and security codes go only to Meta."
         )
