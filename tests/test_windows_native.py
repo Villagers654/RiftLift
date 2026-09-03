@@ -88,7 +88,7 @@ def test_native_launch_builds_argv_without_shell_or_wine(paths):
     for name in windows.FILES:
         (runtime / name).touch()
     argv = windows.launch_command(paths, game, "openxr", ["tail"])
-    assert argv[1:4] == ["/openxr", "/wait", "/cwd"]
+    assert argv[1:6] == ["/openxr", "/wait", "/app", game.app_key, "/cwd"]
     assert argv[-2:] == ["two words", "tail"]
     assert "wine" not in argv and "proton" not in argv
     assert "LibOVRPlatformImpl64_1.dll" not in " ".join(argv)
@@ -117,6 +117,22 @@ def test_doctor_missing_runtime_is_not_success(paths, monkeypatch):
     assert "NOT VERIFIED" in report
 
 
+def test_doctor_requires_platform_dependencies_for_downloaded_games(paths, monkeypatch):
+    game = windows.add_local(paths, sys.executable, "Probe")
+    game.platform_shim = True
+    game.save(paths)
+    native = windows.runtime_dir(paths)
+    native.mkdir(parents=True)
+    for name in windows.FILES:
+        (native / name).touch()
+    monkeypatch.setattr(windows, "runtime_ready", lambda backend: True)
+    monkeypatch.setattr(windows, "active_openxr", lambda: None)
+    monkeypatch.setattr(windows, "active_openvr", lambda: None)
+    report, status = windows.doctor(paths)
+    assert status == 2
+    assert "Platform compatibility: MISSING" in report
+
+
 def test_gui_constructs_without_linux_imports(paths, monkeypatch):
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
@@ -127,7 +143,8 @@ def test_gui_constructs_without_linux_imports(paths, monkeypatch):
     window = Window()
     assert window.windowTitle() == "RiftLift"
     assert Window.__module__ == "riftlift.main_window"
-    assert not window.signin.isEnabled()
+    assert window.signin.isEnabled()
+    assert window.debug_logging.isEnabled()
     assert not window.steam_games.isEnabled()
     assert window.library.count() == 0
     window.close()
@@ -159,3 +176,130 @@ def test_windows_playtime_locks_across_processes(paths):
     children = [subprocess.Popen([sys.executable, "-c", script]) for _ in range(3)]
     assert all(child.wait(timeout=30) == 0 for child in children)
     assert playtime(paths, "probe").launches == 15
+
+
+def test_native_runtime_selection_is_automatic(paths, monkeypatch):
+    monkeypatch.setenv("RIFTLIFT_WINDOWS_BACKEND", "openvr")
+    game = windows.add_local(paths, sys.executable, "Probe")
+    monkeypatch.setattr(windows, "active_openxr", lambda: None)
+    monkeypatch.setattr(windows, "active_openvr", lambda: None)
+    monkeypatch.setattr(windows, "runtime_ready", lambda backend: backend == "openvr")
+    assert windows.select_backend(game) == "openvr"
+    monkeypatch.setattr(windows, "runtime_ready", lambda backend: True)
+    assert windows.select_backend(game) == "openxr"
+    assert windows.select_backend(game, "openvr") == "openvr"
+    with pytest.raises(RiftLiftError, match="backend"):
+        windows.select_backend(game, "invalid")
+
+
+def test_automatic_steamvr_uses_its_openvr_interface(paths, monkeypatch):
+    game = windows.add_local(paths, sys.executable, "Probe")
+    steamvr = paths.tools / "SteamVR"
+    monkeypatch.setattr(windows, "runtime_ready", lambda backend: True)
+    monkeypatch.setattr(
+        windows, "active_openxr", lambda: steamvr / "steamxr_win64.json"
+    )
+    monkeypatch.setattr(windows, "active_openvr", lambda: steamvr)
+    assert windows.select_backend(game) == "openvr"
+    monkeypatch.setattr(
+        windows, "active_openxr", lambda: paths.tools / "other/runtime.json"
+    )
+    assert windows.select_backend(game) == "openxr"
+
+
+def test_openvr_finds_current_steamvr_layout(tmp_path, monkeypatch):
+    import json
+
+    runtime = tmp_path / "SteamVR"
+    (runtime / "bin").mkdir(parents=True)
+    (runtime / "bin/vrclient_x64.dll").touch()
+    registry = tmp_path / "openvrpaths.vrpath"
+    registry.write_text(json.dumps({"runtime": [str(runtime)]}))
+    monkeypatch.setenv("VR_PATHREG_OVERRIDE", str(registry))
+    assert windows.active_openvr() == runtime
+
+
+def test_simulator_uses_isolated_configuration(paths, tmp_path):
+    import json
+
+    from riftlift.windows_simulator import configure
+
+    runtime = tmp_path / "SteamVR"
+    for name in (
+        "bin/win64/vrstartup.exe",
+        "bin/vrclient_x64.dll",
+        "drivers/null/bin/win64/driver_null.dll",
+        "steamxr_win64.json",
+    ):
+        target = runtime / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.touch()
+    environment = configure(paths, runtime)
+    registry = json.loads(Path(environment["VR_PATHREG_OVERRIDE"]).read_text())
+    assert registry["runtime"] == [str(runtime)]
+    assert Path(registry["config"][0]).is_relative_to(paths.data)
+    assert environment["XR_RUNTIME_JSON"] == str(runtime / "steamxr_win64.json")
+    settings = Path(registry["config"][0]) / "steamvr.vrsettings"
+    assert json.loads(settings.read_text())["driver_null"]["enable"]
+    settings.write_text('{"custom": true}')
+    configure(paths, runtime)
+    assert json.loads(settings.read_text()) == {"custom": True}
+
+
+def test_windows_browser_uses_os_default_without_owning_process(paths, monkeypatch):
+    from riftlift import auth_browser
+
+    opened = []
+    monkeypatch.setattr(
+        auth_browser.webbrowser, "open", lambda url: opened.append(url) or True
+    )
+    browser = auth_browser.default_browser()
+    assert (
+        auth_browser.launch_browser_login(paths, browser, "https://auth.meta.com/")
+        is None
+    )
+    assert opened == ["https://auth.meta.com/"]
+
+
+def test_download_error_is_concise_and_does_not_register_game(
+    paths, monkeypatch, capsys
+):
+    from meta_pcvr_downloader.download import DownloadError
+
+    def denied(*args, **kwargs):
+        raise DownloadError("Meta refused the manifest")
+
+    monkeypatch.setattr("riftlift.library.add", denied)
+    assert windows.main(["add", "123456789"]) == 1
+    assert "Meta refused the manifest" in capsys.readouterr().err
+    assert not list((paths.data / "games").glob("*.json"))
+
+
+def test_windows_download_preserves_manifest_and_enables_offline_compat(
+    paths, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from riftlift import library
+
+    monkeypatch.setattr(library, "runtime_access_token", lambda paths: "test-token")
+    build = SimpleNamespace(app_name="Test Download", version="1.0")
+    monkeypatch.setattr(library, "list_builds", lambda *args: [build])
+    monkeypatch.setattr(library, "select_build", lambda *args: build)
+    manifest = {
+        "canonicalName": "publisher.test",
+        "launchFile": "bin/game.exe",
+        "launchParameters": '"two words"',
+    }
+    monkeypatch.setattr(library, "fetch_manifest", lambda *args: manifest)
+    monkeypatch.setattr(library, "_best_executable", lambda *args: "bin/game.exe")
+    monkeypatch.setattr(library, "populate_game_metadata", lambda *args: None)
+    received = []
+    monkeypatch.setattr(
+        library, "Downloader", lambda *args: SimpleNamespace(run=received.append)
+    )
+    game = library.add(paths, "123456789")
+    assert received == [manifest]
+    assert game.app_key == "publisher.test"
+    assert game.arguments == ["two words"]
+    assert game.platform_shim and game.platform_offline

@@ -3,8 +3,6 @@
 No widgets, styles, or replacement windows live here.
 """
 
-import os
-
 from . import windows
 from .config import Game, Paths
 from .util import RiftLiftError
@@ -19,12 +17,11 @@ def doctor(paths: Paths) -> int:
 
 
 def launch(paths: Paths, game: Game, arguments: list[str]) -> int:
-    backend = os.environ.get("RIFTLIFT_WINDOWS_BACKEND") or (
-        "openxr" if windows.runtime_ready("openxr") else "openvr"
-    )
+    backend = windows.select_backend(game)
     result = windows.launch(paths, game, backend, extra=arguments)
     if result:
         raise RiftLiftError(
-            f"Native game launch exited with code {result}; see View Activity."
+            f"Native game launch exited with code {result} "
+            f"(0x{result & 0xffffffff:08X}). Log: {paths.data / 'logs' / (game.slug + '.log')}"
         )
     return result
