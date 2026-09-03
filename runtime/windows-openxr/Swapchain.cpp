@@ -60,6 +60,14 @@ ovrResult ovrTextureSwapChainData::Init(XrSession session, const ovrTextureSwapC
 	createInfo.faceCount = desc->Type == ovrTexture_Cube ? desc->ArraySize : 1;
 	createInfo.arraySize = desc->Type == ovrTexture_Cube ? 1 : desc->ArraySize;
 	createInfo.mipCount = desc->MipLevels;
+	TraceOculusValue("xrCreateSwapchain.ovrFormat", desc->Format);
+	TraceOculusValue("xrCreateSwapchain.format", format);
+	TraceOculusValue("xrCreateSwapchain.usageFlags", createInfo.usageFlags);
+	TraceOculusValue("xrCreateSwapchain.mipCount", createInfo.mipCount);
+	TraceOculusValue("xrCreateSwapchain.width", createInfo.width);
+	TraceOculusValue("xrCreateSwapchain.height", createInfo.height);
+	TraceOculusValue("xrCreateSwapchain.arraySize", createInfo.arraySize);
+	TraceOculusValue("xrCreateSwapchain.sampleCount", createInfo.sampleCount);
 	CHK_XR(xrCreateSwapchain(session, &createInfo, &Swapchain));
 
 	XrSwapchainImageAcquireInfo acqInfo = XR_TYPE(SWAPCHAIN_IMAGE_ACQUIRE_INFO);
@@ -103,10 +111,7 @@ DXGI_FORMAT ovrTextureSwapChainData::TextureFormatToDXGIFormat(ovrTextureFormat 
 
 		// Depth formats
 	case OVR_FORMAT_D16_UNORM:            return DXGI_FORMAT_D16_UNORM;
-	// WineOpenXR maps D24S8 to VK_FORMAT_D24_UNORM_S8_UINT, which is not
-	// universally advertised by Monado's Vulkan device. D32S8 preserves stencil
-	// and maps to the broadly supported VK_FORMAT_D32_SFLOAT_S8_UINT.
-	case OVR_FORMAT_D24_UNORM_S8_UINT:    return DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+	case OVR_FORMAT_D24_UNORM_S8_UINT:    return DXGI_FORMAT_D24_UNORM_S8_UINT;
 	case OVR_FORMAT_D32_FLOAT:            return DXGI_FORMAT_D32_FLOAT;
 	case OVR_FORMAT_D32_FLOAT_S8X24_UINT: return DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
 
@@ -148,6 +153,11 @@ DXGI_FORMAT ovrTextureSwapChainData::NegotiateFormat(ovrSession session, DXGI_FO
 {
 	if (session->SupportsFormat(format))
 		return format;
+	// Preserve native D24S8 when available; Wine/Monado may require D32S8.
+	if (format == DXGI_FORMAT_D24_UNORM_S8_UINT && session->SupportsFormat(DXGI_FORMAT_D32_FLOAT_S8X24_UINT))
+		return DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+	if (format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT && session->SupportsFormat(DXGI_FORMAT_D24_UNORM_S8_UINT))
+		return DXGI_FORMAT_D24_UNORM_S8_UINT;
 
 	// Upgrade R11G11B10F to RGBA16F if it's available
 	if (format == DXGI_FORMAT_R11G11B10_FLOAT && session->SupportsFormat(DXGI_FORMAT_R16G16B16A16_FLOAT))

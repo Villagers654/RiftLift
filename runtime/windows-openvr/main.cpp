@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 #include <detours/detours.h>
+#include "../PlatformCompat.h"
+#include "Common.h"
 
 #include "Extras\OVR_CAPI_Util.h"
 #include "OVR_Version.h"
@@ -146,6 +148,8 @@ bool IsOvrRuntimeName(LPCWSTR lpModuleName)
 
 HMODULE WINAPI HookLoadLibraryA(LPCSTR lpFileName)
 {
+	if (const char* platform = PlatformRedirect(lpFileName))
+		return TrueLoadLibraryA(platform);
 	LPCSTR name = PathFindFileNameA(lpFileName);
 	LPCSTR ext = PathFindExtensionA(name);
 	size_t length = ext - name;
@@ -156,6 +160,9 @@ HMODULE WINAPI HookLoadLibraryA(LPCSTR lpFileName)
 
 HMODULE WINAPI HookLoadLibraryExA(LPCSTR lpFileName, HANDLE file, DWORD flags)
 {
+	if (!(flags & (LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE)))
+	if (const char* platform = PlatformRedirect(lpFileName))
+		return TrueLoadLibraryA(platform);
 	LPCSTR name = PathFindFileNameA(lpFileName);
 	LPCSTR ext = PathFindExtensionA(name);
 	size_t length = ext - name;
@@ -166,6 +173,8 @@ HMODULE WINAPI HookLoadLibraryExA(LPCSTR lpFileName, HANDLE file, DWORD flags)
 
 HMODULE WINAPI HookLoadLibraryW(LPCWSTR lpFileName)
 {
+	if (const char* platform = PlatformRedirect(lpFileName))
+		return TrueLoadLibraryA(platform);
 	LPCWSTR name = PathFindFileNameW(lpFileName);
 	LPCWSTR ext = PathFindExtensionW(name);
 	size_t length = ext - name;
@@ -179,6 +188,9 @@ HMODULE WINAPI HookLoadLibraryW(LPCWSTR lpFileName)
 
 HMODULE WINAPI HookLoadLibraryExW(LPCWSTR lpLibFileName, HANDLE hFile, DWORD dwFlags)
 {
+	if (!(dwFlags & (LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE)))
+	if (const char* platform = PlatformRedirect(lpLibFileName))
+		return TrueLoadLibraryA(platform);
 	LPCWSTR name = PathFindFileNameW(lpLibFileName);
 	LPCWSTR ext = PathFindExtensionW(name);
 	size_t length = ext - name;
@@ -228,7 +240,7 @@ void AttachDetours()
 	DetourAttach((PVOID*)&TrueGetModuleHandleExW, HookGetModuleHandleExW);
 	DetourAttach((PVOID*)&TrueOpenEvent, HookOpenEvent);
 	DetourAttach((PVOID*)&TrueDXGIFactory, HookDXGIFactory);
-	DetourTransactionCommit();
+	TraceOculusValue("DetourTransactionCommit", DetourTransactionCommit());
 }
 
 void DetachDetours()
@@ -245,7 +257,7 @@ void DetachDetours()
 	DetourDetach((PVOID*)&TrueGetModuleHandleExW, HookGetModuleHandleExW);
 	DetourDetach((PVOID*)&TrueOpenEvent, HookOpenEvent);
 	DetourDetach((PVOID*)&TrueDXGIFactory, HookDXGIFactory);
-	DetourTransactionCommit();
+	TraceOculusValue("DetourTransactionCommit", DetourTransactionCommit());
 }
 
 BOOL APIENTRY DllMain(HANDLE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
