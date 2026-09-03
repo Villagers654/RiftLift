@@ -16,6 +16,7 @@ These games have been tested successfully with RiftLift. Results can vary with W
 | [StereoPaint](https://store.steampowered.com/app/1920760/StereoPaint/) | Steam | ✅ Working | Yes | — |
 | [Stormland](https://www.meta.com/experiences/pcvr/stormland/1360938750683878/) | Meta Rift Store | ✅ Working | Yes | — |
 | [SUPERHOT VR](https://store.steampowered.com/app/617830/SUPERHOT_VR/) | Steam Oculus mode | ✅ Working | No | — |
+| [The Thrill of the Fight](https://store.steampowered.com/app/494150/The_Thrill_of_the_Fight__VR_Boxing/) | Meta Rift Store | ✅ Working | No | Requires RiftLift 0.10.2.3 or newer for automatic legacy Unity runtime selection. |
 | [Vader Immortal: Episode I](https://www.playstation.com/en-us/games/vader-immortal-a-star-wars-vr-series/) | Meta Rift Store | ✅ Working | Yes | — |
 
 ## What “Oculus exclusive” means here
