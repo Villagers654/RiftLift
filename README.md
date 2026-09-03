@@ -13,7 +13,7 @@ use SteamVR directly or a Monado-based OpenXR setup.
 > [!WARNING]
 > **RiftLift is alpha software.** Game compatibility is still expanding.
 
-See the [compatibility wiki](docs/COMPATIBILITY.md) for games tested with real VR output.
+See the [compatibility wiki](docs/COMPATIBILITY.md) for Windows and Linux results.
 
 ## Quick start
 
@@ -29,7 +29,14 @@ drivers or Monado.
 
 ### 1. Install RiftLift
 
-Download `riftlift-installer.sh` from the latest GitHub release, then run:
+**Windows:** Windows builds produce `RiftLift-Setup-<version>-x64.exe`.
+Open the installer, choose **Install**, then launch **RiftLift** from the Start
+menu. Python, Git, administrator access, and a separate runtime download are
+not required. A desktop shortcut is optional. RiftLift selects your VR runtime
+automatically. Re-running the installer updates the app; Windows **Installed
+apps** can uninstall it while preserving your games and settings.
+
+**Linux:** Download `riftlift-installer.sh` from the latest GitHub release, then run:
 
 ```bash
 bash riftlift-installer.sh
@@ -43,10 +50,11 @@ Source installs use the checkout and selected payloads directly; release
 artifact hashes are enforced by the generated all-in-one installer, not baked
 into the application source.
 
-On Windows, run `./install-windows.ps1` from a source checkout with Python 3.12
-and Git installed, then open `RiftLift.cmd`. The same desktop app uses your
-native Windows OpenXR or SteamVR runtime. Install games with Meta's PC app,
-then choose **Add Game → Add a local game…** to add them to RiftLift.
+For Windows source development, run `./install-windows.ps1` with Python 3.12 and
+Git installed, then open `RiftLift.cmd`. To package a native build, install
+PyInstaller 6.22.0 and Inno Setup 6, then run
+`./scripts/build-windows.ps1 -RuntimeDirectory <complete-native-runtime-directory>`.
+The Windows installer workflow builds and checks the standalone distribution.
 
 ### 2. Check your setup and sign in
 
