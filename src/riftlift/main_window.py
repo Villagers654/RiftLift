@@ -126,11 +126,14 @@ class Window(QtWidgets.QMainWindow):
         self.setStyleSheet(STYLE)
         self._build()
         if os.name == "nt":
-            for control in (self.signin, self.steam_games, self.debug_logging):
+            for control in (self.steam_games,):
                 control.setEnabled(False)
                 control.setToolTip(
                     "This integration is pending native Windows support."
                 )
+            self.debug_logging.setToolTip(
+                "Include native launcher diagnostics in View Activity."
+            )
         self.refresh()
 
     def label(self, text="", name=""):
@@ -159,7 +162,7 @@ class Window(QtWidgets.QMainWindow):
         header.addWidget(self.debug_logging)
         self.check = self.button(
             "System",
-            lambda: self.run_task("Checking your system", lambda: doctor(self.paths)),
+            self.show_system,
         )
         self.check.setObjectName("nav")
         self.signin = self.button(
@@ -185,7 +188,11 @@ class Window(QtWidgets.QMainWindow):
         self.count = self.label("", "muted")
         heading.addWidget(self.count)
         heading.addStretch()
-        self.refresh_button = self.button("⟳", self.refresh_library)
+        self.refresh_button = self.button("", self.refresh_library)
+        self.refresh_button.setIcon(
+            self.style().standardIcon(QtWidgets.QStyle.SP_BrowserReload)
+        )
+        self.refresh_button.setAccessibleName("Refresh library")
         self.refresh_button.setObjectName("refresh")
         self.refresh_button.setToolTip("Refresh library and game info")
         self.refresh_button.setFixedSize(34, 34)
@@ -206,7 +213,7 @@ class Window(QtWidgets.QMainWindow):
         title.setAlignment(QtCore.Qt.AlignCenter)
         layout.addWidget(title)
         hint = self.label(
-            "Add an owned Meta Rift title to download it and make it ready for OpenXR.",
+            "Add an owned Meta Rift title to download it and play with your headset.",
             "muted",
         )
         hint.setAlignment(QtCore.Qt.AlignCenter)
@@ -233,6 +240,7 @@ class Window(QtWidgets.QMainWindow):
         info.addSpacing(8)
         self.meta = self.label("", "muted")
         self.meta.setWordWrap(True)
+        self.meta.setMaximumWidth(340)
         info.addWidget(self.meta)
         info.addSpacing(14)
         actions = QtWidgets.QHBoxLayout()
@@ -260,6 +268,7 @@ class Window(QtWidgets.QMainWindow):
         layout = QtWidgets.QHBoxLayout(bar)
         layout.setContentsMargins(0, 0, 0, 0)
         self.status = self.label("Ready", "muted")
+        self.status.setWordWrap(True)
         layout.addWidget(self.status, 1)
         activity = self.button("View Activity", self.show_activity)
         activity.setObjectName("nav")
@@ -390,6 +399,50 @@ class Window(QtWidgets.QMainWindow):
     def game(self):
         return next((g for g in self.installed if g.slug == self.slug), None)
 
+    def show_system(self):
+        if os.name != "nt":
+            self.run_task("Checking your system", lambda: doctor(self.paths))
+            return
+        from . import windows
+
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("RiftLift system")
+        dialog.resize(820, 530)
+        dialog.setStyleSheet(STYLE)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.addWidget(self.label("Windows VR setup", "game"))
+        report, status = windows.doctor(self.paths)
+        heading = self.label(
+            "Setup needs attention"
+            if status
+            else "Runtime files are ready; launch a game to test VR output.",
+            "muted",
+        )
+        heading.setWordWrap(True)
+        layout.addWidget(heading)
+        view = QtWidgets.QTextEdit(readOnly=True)
+        view.setPlainText(report)
+        layout.addWidget(view)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
+        buttons.rejected.connect(dialog.reject)
+        repair = buttons.addButton(
+            "Install / repair runtime", QtWidgets.QDialogButtonBox.ActionRole
+        )
+        repair.setEnabled(not self.busy)
+
+        def install():
+            dialog.accept()
+            self.run_task(
+                "Installing native runtime",
+                lambda: windows.install_payload(self.paths),
+                "Native runtime installed",
+            )
+
+        repair.clicked.connect(install)
+        layout.addWidget(buttons)
+        self._append_log(report + "\n")
+        dialog.exec()
+
     def launch_game(self):
         if g := self.game():
             self.run_task(
@@ -434,12 +487,8 @@ class Window(QtWidgets.QMainWindow):
     def add_dialog(self):
         dialog = StoreGameDialog(self.local_dialog, self)
         if os.name == "nt":
-            dialog.entry.setEnabled(False)
             dialog.steam.setChecked(False)
             dialog.steam.setEnabled(False)
-            dialog.validation.setText(
-                "Install with Meta's PC app, then choose Add a local game above."
-            )
         if dialog.exec() != QtWidgets.QDialog.Accepted:
             return
 
@@ -555,6 +604,11 @@ def main() -> int:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     app.setApplicationName("RiftLift")
     app.setStyle("Fusion")
+    if os.name == "nt":
+        from .windows_desktop import activate_existing
+
+        if activate_existing(app):
+            return 0
     window = Window()
     app._riftlift_window = window
     window.show()

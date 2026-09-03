@@ -77,9 +77,10 @@ def test_gui_exposes_only_the_primary_library_actions(tmp_path: Path) -> None:
         "Sign In",
         "Steam Games",
         "Add Game",
-        "⟳",
         "View Activity",
     } <= buttons
+    assert window.refresh_button.accessibleName() == "Refresh library"
+    assert not window.refresh_button.icon().isNull()
     assert "Refresh Info" not in buttons
     assert "Store" not in buttons
     assert "Open in Rift Store ↗" in buttons
