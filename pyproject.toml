@@ -34,6 +34,8 @@ xrizer = "https://github.com/Villagers654/xrizer"
 
 [project.scripts]
 riftlift = "riftlift.cli:main"
+
+[project.gui-scripts]
 riftlift-gui = "riftlift.gui:main"
 
 [tool.setuptools.packages.find]

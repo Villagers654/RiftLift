@@ -1,0 +1,72 @@
+name: Windows installer
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  pull_request:
+    paths:
+      - '.github/workflows/windows-package.yml'
+      - 'scripts/*windows*'
+      - 'src/riftlift/**'
+      - 'runtime/**'
+      - 'compat/**'
+      - 'pyproject.toml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install . pyinstaller==6.22.0 pefile ninja cmake pytest
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Fetch pinned native dependencies
+        shell: bash
+        run: |
+          scripts/prepare-runtime-ci-deps.sh
+          git clone https://github.com/microsoft/Detours.git build/Detours
+          git -C build/Detours checkout e4bfd6b03e50de46b47abfbd1e46b384f0c5f833
+          git clone https://github.com/KhronosGroup/OpenXR-SDK.git build/OpenXR-SDK
+          git -C build/OpenXR-SDK checkout 8899a91c17ce9618f565f42408b47db1d6e9ccc7
+      - name: Prepare signed SDK files
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://securecdn.oculus.com/binaries/download/?id=4377593722298679' -OutFile build/sdk.zip
+          if ((Get-FileHash build/sdk.zip).Hash -ne '3c8aeb66c822af731a8d1f1cb1cf97ab706100bf0bd003ef126f4bb9812906b3') { throw 'SDK checksum mismatch' }
+          Expand-Archive build/sdk.zip runtime/Externals -Force
+          Invoke-WebRequest 'https://securecdn-atl3-3.oculus.com/binaries/download/?id=3766757683456363' -OutFile build/platform.zip
+          if ((Get-FileHash build/platform.zip).Hash -ne 'adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009') { throw 'Platform checksum mismatch' }
+          Expand-Archive build/platform.zip build/meta-runtime -Force
+      - name: Build complete Windows native runtime
+        shell: pwsh
+        run: |
+          cmake -S runtime -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DBUILD_TESTING=OFF "-DDETOURS_SOURCE_DIR=$PWD/build/Detours" "-DOPENXR_SDK_SOURCE_DIR=$PWD/build/OpenXR-SDK" "-DMETA_PLATFORM_IMPL=$PWD/build/meta-runtime/LibOVRPlatformImpl64_1.dll"
+          if ($LASTEXITCODE -ne 0) { throw 'Native configuration failed' }
+          cmake --build build/native -j 4
+          if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
+      - name: Build self-contained app and per-user installer
+        run: ./scripts/build-windows.ps1 -RuntimeDirectory build/native/bin
+      - name: Check installation, upgrade, launch and uninstall
+        run: ./scripts/test-windows-install.ps1
+      - name: Windows regression tests
+        run: python -m pytest tests/test_windows_package.py tests/test_windows_native.py tests/test_gui.py tests/test_playtime.py tests/test_util.py tests/test_library.py tests/test_platform_exports.py -q
+        env:
+          QT_QPA_PLATFORM: offscreen
+      - uses: actions/upload-artifact@v4
+        with:
+          name: riftlift-windows-installer
+          path: |
+            dist/windows/RiftLift-Setup-*.exe
+            dist/windows/RiftLift-Setup-*.exe.sha256
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: riftlift-windows-install-checks
+          path: build/install-check/

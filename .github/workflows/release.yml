@@ -7,6 +7,9 @@ permissions:
   contents: read
 
 jobs:
+  windows-app:
+    uses: ./.github/workflows/windows-package.yml
+
   python-release:
     runs-on: ubuntu-latest
     steps:
@@ -197,10 +200,14 @@ jobs:
             riftlift-compat.zip.sha256
 
   release-bundle:
-    needs: [python-release, compatibility, xrizer, dxvk]
+    needs: [python-release, compatibility, xrizer, dxvk, windows-app]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: riftlift-windows-installer
+          path: release
       - uses: actions/download-artifact@v5
         with:
           name: riftlift-python-release
@@ -224,7 +231,7 @@ jobs:
           version=$(PYTHONPATH=src python -c 'from riftlift import __version__; print(__version__)')
           tag=$(python -c 'import re,sys; value=sys.argv[1]; match=re.fullmatch(r"(\d+(?:\.\d+){2,3})(?:a(\d+))?", value); assert match; print(f"v{match.group(1)}" + (f"-alpha.{match.group(2)}" if match.group(2) else ""))' "$version")
           scripts/generate-release-installer.sh "$tag" release release/riftlift-installer.sh
-          (cd release && sha256sum riftlift-* > SHA256SUMS)
+          (cd release && sha256sum riftlift-* RiftLift-Setup-*.exe > SHA256SUMS)
           (cd release && sha256sum -c SHA256SUMS)
           bash -n release/riftlift-installer.sh
           grep -F "release_tag='$tag'" release/riftlift-installer.sh

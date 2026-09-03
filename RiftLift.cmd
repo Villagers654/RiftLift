@@ -6,7 +6,7 @@ if not exist "%~dp0.venv\Scripts\python.exe" (
   exit /b 1
 )
 if "%~1"=="" (
-  "%~dp0.venv\Scripts\python.exe" -m riftlift.cli gui
+  start "" "%~dp0.venv\Scripts\pythonw.exe" -m riftlift.windows_app
 ) else (
   "%~dp0.venv\Scripts\python.exe" -m riftlift.cli %*
 )

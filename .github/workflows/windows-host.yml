@@ -12,6 +12,6 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -e . pytest
       - run: python -m riftlift.cli --help
-      - run: python -m pytest tests/test_windows_native.py tests/test_gui.py tests/test_playtime.py tests/test_util.py tests/test_library.py -q
+      - run: python -m pytest tests/test_windows_package.py tests/test_windows_native.py tests/test_gui.py tests/test_playtime.py tests/test_util.py tests/test_library.py tests/test_platform_exports.py -q
         env:
           QT_QPA_PLATFORM: offscreen
