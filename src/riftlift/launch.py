@@ -19,8 +19,8 @@ from .detection import (
     is_unity_player,
     is_unreal_shipping,
     uses_d3d12_runtime,
-    uses_oculus_xr_plugin,
     uses_openvr_runtime,
+    uses_unity_oculus_plugin,
 )
 from .diagnostics import (
     clear_runtime_traces,
@@ -313,7 +313,7 @@ def _select_runtime_backend(game: Game, capabilities: list[str]) -> str:
         for argument in game.arguments
     )
     needs_openvr = (
-        bool({"openvr", "oculus-xr-plugin", "d3d12"}.intersection(capabilities))
+        bool({"openvr", "unity-oculus-plugin", "d3d12"}.intersection(capabilities))
         or legacy_ovr_presentation
     )
     return "openvr" if needs_openvr else "openxr"
@@ -473,7 +473,7 @@ def _game_capabilities(game: Game) -> list[str]:
         name
         for name, detected in (
             ("openvr", uses_openvr_runtime(game.game_dir)),
-            ("oculus-xr-plugin", uses_oculus_xr_plugin(game.game_dir)),
+            ("unity-oculus-plugin", uses_unity_oculus_plugin(game.game_dir)),
             ("d3d12", uses_d3d12_runtime(game.executable_path)),
             ("unity", is_unity_player(game.executable_path)),
             ("unreal", is_unreal_shipping(game.executable_path)),

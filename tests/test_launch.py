@@ -954,6 +954,29 @@ def test_unity_oculus_xr_provider_uses_openvr_bridge_without_title_rules(
     assert runtime_backend(game) == "openvr"
 
 
+def test_legacy_unity_oculus_provider_uses_openvr_bridge_without_title_rules(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("RIFTLIFT_RUNTIME_BACKEND", raising=False)
+    game_dir = tmp_path / "generic-legacy-unity-game"
+    executable = game_dir / "Game.exe"
+    plugin = game_dir / "Game_Data/Plugins/x86_64/OVRPlugin.dll"
+    plugin.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    plugin.write_bytes(b"MZ")
+    game = Game(
+        "generic-legacy-unity-game",
+        "Generic Legacy Unity Game",
+        "1",
+        "generic-legacy-unity-key",
+        str(game_dir),
+        executable.name,
+        [],
+    )
+
+    assert runtime_backend(game) == "openvr"
+
+
 def test_d3d11_import_wins_over_incidental_d3d12_string(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -6,10 +6,13 @@ from pathlib import Path
 
 import pefile
 
-_OCULUS_FILENAMES = {
-    "libovrrt64_1.dll",
+_UNITY_OCULUS_PLUGIN_FILENAMES = {
     "oculusxrplugin.dll",
     "ovrplugin.dll",
+}
+_OCULUS_FILENAMES = {
+    "libovrrt64_1.dll",
+    *_UNITY_OCULUS_PLUGIN_FILENAMES,
 }
 _OCULUS_IMPORTS = (b"libovrrt64_1.dll",)
 _D3D12_IMPORTS = (b"d3d12.dll", "d3d12.dll".encode("utf-16le"))
@@ -112,16 +115,19 @@ def uses_openvr_runtime(directory: Path) -> bool:
     return any(path.name.casefold() == "openvr_api.dll" for path in _walk(directory))
 
 
-def uses_oculus_xr_plugin(directory: Path) -> bool:
-    """Return whether the install packages Unity's Oculus XR provider.
+def uses_unity_oculus_plugin(directory: Path) -> bool:
+    """Return whether the install packages a native Unity Oculus provider.
 
-    This provider loads the native Oculus SDK through a Unity subsystem and
-    performs graphics initialization before the game reaches its render loop.
-    Treating that integration as an installed capability lets the launcher
-    select the mature compositor-backed translation path without a title list.
+    Both the current Oculus XR provider (``OculusXRPlugin.dll``) and Unity's
+    legacy Oculus integration (``OVRPlugin.dll``) load the native Oculus SDK
+    through a Unity subsystem and perform graphics initialization before the
+    game reaches its render loop. Treating either integration as an installed
+    capability lets the launcher select the mature compositor-backed
+    translation path without a title list.
     """
     return any(
-        path.name.casefold() == "oculusxrplugin.dll" for path in _walk(directory)
+        path.name.casefold() in _UNITY_OCULUS_PLUGIN_FILENAMES
+        for path in _walk(directory)
     )
 
 

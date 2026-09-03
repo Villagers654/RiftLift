@@ -21,8 +21,8 @@ from .detection import (
     is_unity_player,
     is_unreal_shipping,
     uses_d3d12_runtime,
-    uses_oculus_xr_plugin,
     uses_openvr_runtime,
+    uses_unity_oculus_plugin,
 )
 from .diagnostics import (
     recent_launches,
@@ -579,7 +579,7 @@ def _game_checks(installed: list[Game]) -> tuple[list[Check], list[str]]:
             name
             for name, value in (
                 ("OpenVR", uses_openvr_runtime(game.game_dir)),
-                ("OculusXR", uses_oculus_xr_plugin(game.game_dir)),
+                ("UnityOculus", uses_unity_oculus_plugin(game.game_dir)),
                 ("D3D12", uses_d3d12_runtime(game.executable_path)),
                 ("Unity", is_unity_player(game.executable_path)),
                 ("Unreal", is_unreal_shipping(game.executable_path)),
