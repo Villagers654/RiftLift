@@ -131,6 +131,11 @@ def test_dxvk_compat_installs_both_architectures_and_repairs_changes(
         tmp_path / "tools",
     )
     proton = tmp_path / "GE-Proton"
+    original = proton / "files/lib/wine/dxvk"
+    for arch in ("i386-windows", "x86_64-windows"):
+        (original / arch).mkdir(parents=True)
+        (original / arch / "openvr_api_dxvk.dll").write_bytes(b"MZopenvr")
+        (original / arch / "d3d9.dll").write_bytes(b"MZd3d9")
     archive = _dxvk_archive(tmp_path, b"patched")
     monkeypatch.setenv("RIFTLIFT_DXVK_ARCHIVE", str(archive))
 
@@ -139,6 +144,7 @@ def test_dxvk_compat_installs_both_architectures_and_repairs_changes(
     x64 = destination / "x86_64-windows/d3d11.dll"
     x32 = destination / "i386-windows/d3d11.dll"
     assert x64.read_bytes() == b"MZpatched-x64-d3d11"
+
     assert x32.read_bytes() == b"MZpatched-x32-d3d11"
     marker = json.loads((destination / ".riftlift-dxvk.json").read_text())
     assert marker["version"] == DXVK_VERSION
@@ -152,6 +158,78 @@ def test_dxvk_compat_installs_both_architectures_and_repairs_changes(
     x64.write_bytes(b"corrupt")
     install_dxvk_compat(paths, proton)
     assert x64.read_bytes() == b"MZpatched-x64-d3d11"
+
+    for arch in ("i386-windows", "x86_64-windows"):
+        assert (destination / arch / "openvr_api_dxvk.dll").read_bytes() == b"MZopenvr"
+        assert (destination / arch / "d3d9.dll").read_bytes() == b"MZd3d9"
+
+
+@pytest.mark.parametrize("incomplete", [False, True])
+def test_dxvk_repairs_missing_proton_files_with_current_marker(
+    tmp_path, monkeypatch, incomplete
+):
+    paths = Paths(
+        *(
+            tmp_path / name
+            for name in ("data", "cache", "config", "games", "prefix", "tools")
+        )
+    )
+    proton = tmp_path / "GE-Proton"
+    destination = proton / "files/lib/wine/dxvk"
+    for arch in ("i386-windows", "x86_64-windows"):
+        (destination / arch).mkdir(parents=True)
+        (destination / arch / "openvr_api_dxvk.dll").write_bytes(b"MZopenvr")
+    monkeypatch.setenv(
+        "RIFTLIFT_DXVK_ARCHIVE", str(_dxvk_archive(tmp_path, b"patched"))
+    )
+    install_dxvk_compat(paths, proton)
+    for arch in ("i386-windows", "x86_64-windows"):
+        (destination / arch / "openvr_api_dxvk.dll").unlink()
+    (destination / "custom.dll").write_bytes(b"keep")
+    before = {
+        p.relative_to(destination): p.read_bytes()
+        for p in destination.rglob("*")
+        if p.is_file()
+    }
+    archive = tmp_path / "proton.tar.gz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        for arch in ("i386-windows", "x86_64-windows"):
+            for name in ("openvr_api_dxvk.dll", "d3d9.dll", "d3d11.dll"):
+                if incomplete and arch == "i386-windows":
+                    continue
+                info = tarfile.TarInfo(
+                    f"{PROTON_VERSION}/files/lib/wine/dxvk/{arch}/{name}"
+                )
+                info.size = len(b"MZstock")
+                bundle.addfile(info, io.BytesIO(b"MZstock"))
+    downloads = []
+
+    def download(*args):
+        downloads.append(args)
+        return archive
+
+    monkeypatch.setattr("riftlift.runtime.download", download)
+    if incomplete:
+        with pytest.raises(RiftLiftError, match="missing OpenVR"):
+            install_dxvk_compat(paths, proton)
+        assert {
+            p.relative_to(destination): p.read_bytes()
+            for p in destination.rglob("*")
+            if p.is_file()
+        } == before
+    else:
+        install_dxvk_compat(paths, proton)
+        for arch in ("i386-windows", "x86_64-windows"):
+            assert (
+                destination / arch / "openvr_api_dxvk.dll"
+            ).read_bytes() == b"MZstock"
+            assert (destination / arch / "d3d9.dll").read_bytes() == b"MZstock"
+        assert (
+            destination / "i386-windows/d3d11.dll"
+        ).read_bytes() == b"MZpatched-x32-d3d11"
+        assert (destination / "custom.dll").read_bytes() == b"keep"
+        install_dxvk_compat(paths, proton)
+    assert len(downloads) == 1
 
 
 def test_incomplete_dxvk_archive_preserves_installed_payload(

@@ -383,6 +383,11 @@ _DXVK_FILES = {
     "x32/dxgi.dll": "i386-windows/dxgi.dll",
 }
 
+_PROTON_OPENVR_FILES = (
+    "i386-windows/openvr_api_dxvk.dll",
+    "x86_64-windows/openvr_api_dxvk.dll",
+)
+
 
 def _dxvk_current(marker: Path, destination: Path, artifact_sha256: str) -> bool:
     try:
@@ -391,6 +396,7 @@ def _dxvk_current(marker: Path, destination: Path, artifact_sha256: str) -> bool
         return (
             installed.get("version") == DXVK_VERSION
             and installed.get("artifact_sha256") == artifact_sha256
+            and all((destination / name).is_file() for name in _PROTON_OPENVR_FILES)
             and all(
                 installed_files.get(relative) == sha256(destination / relative)
                 for relative in _DXVK_FILES.values()
@@ -444,8 +450,30 @@ def install_dxvk_compat(paths: Paths, proton: Path) -> Path:
     try:
         _safe_tar(archive, staging)
         source = staging / "dxvk"
+        patched = staging / "patched"
+        file_hashes = _install_dxvk_files(source, patched)
         staged_destination = staging / "installed"
-        file_hashes = _install_dxvk_files(source, staged_destination)
+        if not all((destination / name).is_file() for name in _PROTON_OPENVR_FILES):
+            # Older installs replaced the whole directory, losing Proton's DLLs.
+            proton_archive = download(
+                PROTON_URL, paths.cache / f"{PROTON_VERSION}.tar.gz", PROTON_SHA256
+            )
+            restored = staging / "proton"
+            _safe_tar(proton_archive, restored, allow_internal_links=True)
+            stock = restored / PROTON_VERSION / "files/lib/wine/dxvk"
+            if not all((stock / name).is_file() for name in _PROTON_OPENVR_FILES):
+                raise RiftLiftError("GE-Proton archive is missing OpenVR DXVK DLLs")
+            shutil.copytree(stock, staged_destination, symlinks=True)
+        if destination.exists():
+            shutil.copytree(
+                destination, staged_destination, symlinks=True, dirs_exist_ok=True
+            )
+        for relative in _DXVK_FILES.values():
+            atomic_write_bytes(
+                staged_destination / relative,
+                (patched / relative).read_bytes(),
+                mode=0o644,
+            )
         atomic_write_text(
             staged_destination / ".riftlift-dxvk.json",
             json.dumps(
