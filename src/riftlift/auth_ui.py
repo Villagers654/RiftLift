@@ -7,7 +7,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from PySide6 import QtCore, QtWidgets
 
 from .auth import is_signed_in, save_access_token, sign_out
-from .auth_browser import default_browser, launch_browser_login, stop_browser
+from .auth_browser import default_browser, launch_browser_login
 from .config import Paths
 from .meta_auth import MetaAuthSession
 from .theme import STYLE
@@ -39,8 +39,9 @@ class AuthDialog(QtWidgets.QDialog):
         title.setObjectName("game")
         layout.addWidget(title)
         explanation = QtWidgets.QLabel(
-            "RiftLift opens your default browser in a dedicated sign-in window "
-            "and returns here automatically when Meta finishes. Your password "
+            "RiftLift opens your default browser with your usual profile "
+            "and returns here when Meta finishes. Allow the browser to open RiftLift "
+            "when prompted. Your password "
             "and security codes go only to Meta."
         )
         explanation.setWordWrap(True)
@@ -78,7 +79,7 @@ class AuthDialog(QtWidgets.QDialog):
         self.reset.setVisible(signed_in)
 
     def start(self):
-        self.stop_browser()
+        self.process = None
         try:
             browser = default_browser()
             sign_out(self.paths)
@@ -124,9 +125,9 @@ class AuthDialog(QtWidgets.QDialog):
             self.operation = "complete"
             self.pending = self.executor.submit(self.session.complete)
             self.status.setText("Finishing sign-in securely…")
-        elif self.process is not None and self.process.poll() is not None:
+        elif self.process is not None and self.process.poll() not in (None, 0):
             self.show_error(
-                "The browser closed before sign-in finished. Try again when ready."
+                "Could not open the browser for Meta sign-in. Try again when ready."
             )
 
     def _finish_login(self):
@@ -143,12 +144,12 @@ class AuthDialog(QtWidgets.QDialog):
             self.pending = None
             self.completed = True
             self.status.setText("Signed in. Returning to RiftLift…")
-            self.stop_browser()
+            self.process = None
             QtCore.QTimer.singleShot(500, self.accept)
 
     def show_error(self, error):
         self.timer.stop()
-        self.stop_browser()
+        self.process = None
         self.pending = None
         self.operation = "idle"
         self.status.setText(str(error))
@@ -157,14 +158,9 @@ class AuthDialog(QtWidgets.QDialog):
         self.reset.setText("Sign out and reset")
         self.reset.setVisible(False)
 
-    def stop_browser(self):
-        if self.process is not None and self.browser is not None:
-            stop_browser(self.paths, self.browser, self.process)
-        self.process = None
-
     def reset_login(self):
         self.timer.stop()
-        self.stop_browser()
+        self.process = None
         sign_out(self.paths)
         self.browser = None
         self.session = None
@@ -180,12 +176,12 @@ class AuthDialog(QtWidgets.QDialog):
 
     def accept(self):
         self.timer.stop()
-        self.stop_browser()
+        self.process = None
         self.executor.shutdown(wait=False, cancel_futures=True)
         super().accept()
 
     def reject(self):
         self.timer.stop()
-        self.stop_browser()
+        self.process = None
         self.executor.shutdown(wait=False, cancel_futures=True)
         super().reject()

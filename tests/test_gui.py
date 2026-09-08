@@ -3,6 +3,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6 import QtWidgets
@@ -384,7 +386,7 @@ def test_auth_dialog_detects_browser_completion_and_returns(
 
     class Process:
         def poll(self):
-            return None
+            return 0
 
         def terminate(self):
             stopped.append(True)
@@ -400,9 +402,10 @@ def test_auth_dialog_detects_browser_completion_and_returns(
         "riftlift.auth_ui.launch_browser_login", lambda *_args: Process()
     )
     token = "FRL" + "a" * 176
+    callbacks = iter([False, True])
     session = SimpleNamespace(
         login_url="https://auth.meta.com/native_sso/confirm",
-        callback_ready=lambda: True,
+        callback_ready=lambda: next(callbacks),
         complete=lambda: token,
     )
     monkeypatch.setattr(
@@ -415,18 +418,21 @@ def test_auth_dialog_detects_browser_completion_and_returns(
     assert wait_until(app, lambda: dialog.pending is not None and dialog.pending.done())
     dialog.check_login()
     dialog.check_login()
+    assert dialog.operation == "waiting"
+    assert dialog.timer.isActive()
+    dialog.check_login()
     assert wait_until(app, lambda: dialog.pending is not None and dialog.pending.done())
     dialog.check_login()
 
     assert dialog.completed
     assert (paths.config / "meta-access-token").read_text().strip() == token
-    assert stopped
+    assert not stopped
     assert dialog.status.text() == "Signed in. Returning to RiftLift…"
     dialog.close()
     app.processEvents()
 
 
-def test_auth_dialog_closes_browser_after_login_error(
+def test_auth_dialog_preserves_browser_after_login_error(
     tmp_path: Path, monkeypatch
 ) -> None:
     paths = Paths(
@@ -444,14 +450,13 @@ def test_auth_dialog_closes_browser_after_login_error(
     monkeypatch.setattr(
         "riftlift.auth_ui.QtCore.QTimer.singleShot", lambda *_args: None
     )
-    monkeypatch.setattr("riftlift.auth_browser._profile_processes", lambda _path: [])
     dialog = AuthDialog(paths)
     dialog.browser = Browser("edge", "Microsoft Edge", "chromium", ("edge",))
     dialog.process = process
 
     dialog.show_error("Meta rejected the token")
 
-    assert stopped
+    assert not stopped
     assert dialog.process is None
     assert dialog.status.text() == "Meta rejected the token"
     dialog.close()
@@ -576,4 +581,51 @@ def test_install_stays_disabled_when_rift_game_does_not_exist(
 
     dialog.close()
     window.close()
+    app.processEvents()
+
+
+@pytest.mark.parametrize("action", ["reset_login", "accept", "reject"])
+def test_auth_dialog_leaves_personal_browser_running(tmp_path, monkeypatch, action):
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    monkeypatch.setattr("riftlift.auth_ui.QtCore.QTimer.singleShot", lambda *_: None)
+    stopped = []
+    dialog = AuthDialog(paths)
+    dialog.browser = Browser("firefox", "Firefox", "firefox", ("firefox",))
+    dialog.process = SimpleNamespace(
+        poll=lambda: None, terminate=lambda: stopped.append(True)
+    )
+    getattr(dialog, action)()
+    assert not stopped
+    assert dialog.process is None
+    dialog.close()
+    app.processEvents()
+
+
+def test_auth_dialog_reports_browser_launch_failure(tmp_path, monkeypatch):
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    monkeypatch.setattr("riftlift.auth_ui.QtCore.QTimer.singleShot", lambda *_: None)
+    dialog = AuthDialog(paths)
+    dialog.session = SimpleNamespace(callback_ready=lambda: False)
+    dialog.process = SimpleNamespace(poll=lambda: 1)
+    dialog.operation = "waiting"
+    dialog.check_login()
+    assert dialog.operation == "idle"
+    assert "Could not open the browser" in dialog.status.text()
+    dialog.close()
     app.processEvents()

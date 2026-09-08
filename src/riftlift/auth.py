@@ -9,7 +9,6 @@ from .auth_browser import (
     cleanup_browser_profiles,
     default_browser,
     launch_browser_login,
-    stop_browser,
 )
 from .config import Paths
 from .meta_auth import MetaAuthSession, clear_callback, record_callback
@@ -37,17 +36,14 @@ def login(paths: Paths) -> int:
     session = MetaAuthSession.begin(paths)
     process = launch_browser_login(paths, browser, session.login_url)
     print(f"Finish signing in to Meta in {browser.name}.")
-    try:
-        while True:
-            if session.callback_ready():
-                complete_browser_login(paths, session)
-                print("RiftLift is signed in to Meta.")
-                return 0
-            if process.poll() is not None:
-                raise RiftLiftError("the browser closed before Meta sign-in finished")
-            time.sleep(1)
-    finally:
-        stop_browser(paths, browser, process)
+    while True:
+        if session.callback_ready():
+            complete_browser_login(paths, session)
+            print("RiftLift is signed in to Meta.")
+            return 0
+        if process.poll() not in (None, 0):
+            raise RiftLiftError("could not open the browser for Meta sign-in")
+        time.sleep(1)
 
 
 def sign_out(paths: Paths) -> None:

@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,12 +7,10 @@ from riftlift.auth import complete_browser_login, login, runtime_access_token, s
 from riftlift.auth_browser import (
     META_LOGIN_URL,
     Browser,
-    _command_uses_profile,
     _desktop_browser,
     browser_home,
     default_browser,
     launch_browser_login,
-    stop_browser,
 )
 from riftlift.config import Paths
 from riftlift.util import RiftLiftError
@@ -122,122 +119,32 @@ def test_desktop_file_id_resolves_nested_entry_and_standard_field_codes(
     )
 
 
-def test_edge_login_uses_an_isolated_riftlift_profile(
-    tmp_path: Path, monkeypatch
-) -> None:
-    paths = paths_in(tmp_path)
-    launched = []
-    browser = Browser("edge", "Microsoft Edge", "chromium", ("edge",))
-    monkeypatch.setattr(
-        "riftlift.auth_browser.subprocess.Popen",
-        lambda command, **options: launched.append((command, options)) or object(),
-    )
-
-    launch_browser_login(paths, browser)
-
-    command, options = launched[0]
-    assert command[0] == "edge"
-    assert f"--user-data-dir={browser_home(paths, browser) / 'profile'}" in command
-    assert command[-1] == META_LOGIN_URL
-    assert options["start_new_session"] is True
-    preferences = json.loads(
-        (browser_home(paths, browser) / "profile/Default/Preferences").read_text()
-    )
-    assert preferences["protocol_handler"]["allowed_origin_protocol_pairs"][
-        "https://auth.meta.com"
-    ]["oculus"]
-
-
-def test_firefox_login_uses_an_isolated_riftlift_profile(
-    tmp_path: Path, monkeypatch
-) -> None:
-    paths = paths_in(tmp_path)
-    launched = []
-    browser = Browser("firefox", "Firefox", "firefox", ("firefox",))
-    monkeypatch.setattr(
-        "riftlift.auth_browser.subprocess.Popen",
-        lambda command, **options: launched.append((command, options)) or object(),
-    )
-
-    launch_browser_login(paths, browser)
-
-    command, _options = launched[0]
-    assert command[:2] == ["firefox", "--no-remote"]
-    assert str(browser_home(paths, browser) / "profile") in command[3]
-    assert command[-1] == META_LOGIN_URL
-    preferences = (browser_home(paths, browser) / "profile/user.js").read_text()
-    assert 'user_pref("browser.aboutwelcome.enabled", false);' in preferences
-    assert (
-        'user_pref("datareporting.policy.dataSubmissionPolicyBypassNotification", true);'
-        in preferences
-    )
-    assert (
-        'user_pref("network.protocol-handler.warn-external.oculus", false);'
-        in preferences
-    )
-
-
-def test_flatpak_browser_can_access_only_its_auth_profile(
-    tmp_path: Path, monkeypatch
-) -> None:
-    paths = paths_in(tmp_path)
-    launched = []
-    browser = Browser(
-        "firefox",
-        "Firefox",
-        "firefox",
+@pytest.mark.parametrize(
+    "command",
+    [
+        ("firefox",),
+        ("edge",),
+        ("brave",),
         ("/usr/bin/flatpak", "run", "org.mozilla.firefox"),
-    )
-    monkeypatch.setattr(
-        "riftlift.auth_browser.subprocess.Popen",
-        lambda command, **_options: launched.append(command) or object(),
-    )
-
-    launch_browser_login(paths, browser)
-
-    assert launched[0][2] == f"--filesystem={browser_home(paths, browser)}"
-    assert launched[0][3] == "org.mozilla.firefox"
-
-
-def test_snap_browser_profile_is_isolated_and_resettable(
-    tmp_path: Path, monkeypatch
-) -> None:
-    paths = paths_in(tmp_path / "workspace")
-    launched = []
-    browser = Browser(
-        "firefox_firefox", "Firefox", "firefox", ("snap", "run", "firefox")
-    )
-    monkeypatch.setattr("riftlift.auth_browser.Path.home", lambda: tmp_path)
-    monkeypatch.setattr(
-        "riftlift.auth_browser.subprocess.Popen",
-        lambda command, **_options: launched.append(command) or object(),
-    )
-
-    launch_browser_login(paths, browser)
-    launch_browser_login(paths, browser)
-
-    profile = tmp_path / "snap/firefox/common/riftlift-auth/firefox_firefox"
-    assert str(profile) in launched[0]
-    assert str(profile) in launched[1]
-    assert profile.is_dir()
-    sign_out(paths)
-    assert not profile.exists()
-
-
-def test_other_chromium_browsers_use_a_readable_isolated_profile(
-    tmp_path: Path, monkeypatch
-) -> None:
+        ("snap", "run", "firefox"),
+        ("firefox", "-P", "Personal"),
+    ],
+)
+def test_login_uses_the_existing_browser_profile(tmp_path, monkeypatch, command):
     paths = paths_in(tmp_path)
     launched = []
-    browser = Browser("brave", "Brave", "chromium", ("brave",))
+    browser = Browser("default", "Browser", "firefox", command)
     monkeypatch.setattr(
         "riftlift.auth_browser.subprocess.Popen",
-        lambda command, **_options: launched.append(command) or object(),
+        lambda command, **options: launched.append((command, options)) or object(),
     )
+    url = META_LOGIN_URL + "native_sso/confirm?native_sso_etoken=challenge"
 
-    launch_browser_login(paths, browser)
+    launch_browser_login(paths, browser, url)
 
-    assert f"--user-data-dir={browser_home(paths, browser) / 'profile'}" in launched[0]
+    assert launched[0][0] == [*command, url]
+    assert launched[0][1]["start_new_session"] is True
+    assert not (paths.config / "auth").exists()
 
 
 def test_browser_login_imports_and_protects_the_token(
@@ -262,28 +169,43 @@ def test_runtime_access_token_returns_the_persisted_login(tmp_path: Path) -> Non
     assert runtime_access_token(paths) == token
 
 
-def test_cli_login_always_stops_its_browser(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("returncode", [None, 0, 1])
+@pytest.mark.parametrize("rejected", [False, True])
+def test_cli_login_waits_for_callback_without_stopping_browser(
+    tmp_path, monkeypatch, returncode, rejected
+):
     paths = paths_in(tmp_path)
-    browser = Browser("edge", "Microsoft Edge", "chromium", ("edge",))
-    process = SimpleNamespace(poll=lambda: None)
-    session = SimpleNamespace(
-        login_url="https://auth.meta.com/",
-        callback_ready=lambda: True,
-        complete=lambda: (_ for _ in ()).throw(RiftLiftError("rejected")),
-    )
+    browser = Browser("firefox", "Firefox", "firefox", ("firefox",))
     stopped = []
+    process = SimpleNamespace(
+        poll=lambda: returncode, terminate=lambda: stopped.append(True)
+    )
+    ready = iter([False, True])
+    token = "FRL" + "a" * 176
+
+    def complete():
+        if rejected:
+            raise RiftLiftError("rejected")
+        return token
+
+    session = SimpleNamespace(
+        login_url=META_LOGIN_URL,
+        callback_ready=lambda: next(ready),
+        complete=complete,
+    )
     monkeypatch.setattr("riftlift.auth.default_browser", lambda: browser)
     monkeypatch.setattr("riftlift.auth.MetaAuthSession.begin", lambda _paths: session)
     monkeypatch.setattr("riftlift.auth.launch_browser_login", lambda *_args: process)
-    monkeypatch.setattr(
-        "riftlift.auth.stop_browser",
-        lambda *_args: stopped.append(True),
-    )
+    monkeypatch.setattr("riftlift.auth.time.sleep", lambda _: None)
 
-    with pytest.raises(RiftLiftError, match="rejected"):
-        login(paths)
-
-    assert stopped == [True]
+    if returncode == 1 or rejected:
+        message = "could not open" if returncode == 1 else "rejected"
+        with pytest.raises(RiftLiftError, match=message):
+            login(paths)
+    else:
+        assert login(paths) == 0
+        assert runtime_access_token(paths) == token
+    assert stopped == []
 
 
 def test_sign_out_removes_only_riftlift_auth_state(tmp_path: Path) -> None:
@@ -303,33 +225,3 @@ def test_sign_out_removes_only_riftlift_auth_state(tmp_path: Path) -> None:
     assert not token.exists()
     assert not (paths.config / "auth").exists()
     assert unrelated.read_text() == "keep"
-
-
-def test_stopping_login_closes_detached_profile_processes(
-    tmp_path: Path, monkeypatch
-) -> None:
-    paths = paths_in(tmp_path)
-    browser = Browser("firefox", "Firefox", "firefox", ("firefox",))
-    stopped = []
-    process = SimpleNamespace(poll=lambda: 0)
-    monkeypatch.setattr(
-        "riftlift.auth_browser._profile_processes", lambda _profile: [123]
-    )
-    monkeypatch.setattr(
-        "riftlift.auth_browser.os.kill",
-        lambda pid, signal: stopped.append((pid, signal)),
-    )
-
-    stop_browser(paths, browser, process)
-
-    assert stopped and stopped[0][0] == 123
-
-
-def test_profile_process_matching_supports_firefox_and_chromium() -> None:
-    profile = b"/tmp/riftlift/profile"
-
-    assert _command_uses_profile([b"firefox", b"--profile", profile], profile)
-    assert _command_uses_profile([b"chromium", b"--user-data-dir=" + profile], profile)
-    assert not _command_uses_profile(
-        [b"chromium", b"--user-data-dir=/tmp/regular-profile"], profile
-    )

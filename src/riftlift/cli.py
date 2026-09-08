@@ -37,9 +37,7 @@ def parser() -> argparse.ArgumentParser:
     setup_command.add_argument(
         "--login", action="store_true", help="start browser-backed Meta sign-in"
     )
-    commands.add_parser(
-        "login", help="sign in to Meta through an isolated default-browser window"
-    )
+    commands.add_parser("login", help="sign in to Meta through your default browser")
     callback = commands.add_parser("callback", help=argparse.SUPPRESS)
     callback.add_argument("url", nargs="?", help=argparse.SUPPRESS)
 
