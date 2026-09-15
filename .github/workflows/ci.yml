@@ -219,7 +219,7 @@ jobs:
         shell: bash
         run: |
           curl --fail --location --output platform.pkg \
-            "https://securecdn-atl3-3.oculus.com/binaries/download/?id=3766757683456363"
+            "https://securecdn.oculus.com/binaries/download/?id=3766757683456363"
           echo "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009  platform.pkg" | sha256sum -c -
           unzip -q platform.pkg LibOVRPlatformImpl64_1.dll
           scripts/build-platform-shim.sh LibOVRPlatformImpl64_1.dll RiftLiftPlatformShim.dll

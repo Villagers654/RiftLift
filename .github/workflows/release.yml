@@ -24,6 +24,16 @@ jobs:
           name: riftlift-python-release
           path: release/
 
+  appimage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: scripts/build-appimage.sh "$RUNNER_TEMP/riftlift-appimage"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: riftlift-appimage
+          path: ${{ runner.temp }}/riftlift-appimage/riftlift-*-x86_64.AppImage
+
   windows-bridge:
     runs-on: windows-2022
     defaults:
@@ -172,7 +182,7 @@ jobs:
       - name: Download pinned Meta Platform implementation
         run: |
           curl --fail --location --output platform.pkg \
-            "https://securecdn-atl3-3.oculus.com/binaries/download/?id=3766757683456363"
+            "https://securecdn.oculus.com/binaries/download/?id=3766757683456363"
           echo "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009  platform.pkg" | sha256sum -c -
       - name: Build complete compatibility payload
         run: |
@@ -197,13 +207,17 @@ jobs:
             riftlift-compat.zip.sha256
 
   release-bundle:
-    needs: [python-release, compatibility, xrizer, dxvk]
+    needs: [python-release, compatibility, xrizer, dxvk, appimage]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v5
         with:
           name: riftlift-python-release
+          path: release
+      - uses: actions/download-artifact@v5
+        with:
+          name: riftlift-appimage
           path: release
       - uses: actions/download-artifact@v5
         with:
