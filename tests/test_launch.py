@@ -22,7 +22,13 @@ from riftlift.launch import (
     runtime_backend,
 )
 from riftlift.playtime import playtime
-from riftlift.runtime import launch_environment, native_xr_bridge, setup
+from riftlift.runtime import (
+    _parse_pressure_vessel_command_line,
+    _wivrn_recommended_pressure_vessel_env,
+    launch_environment,
+    native_xr_bridge,
+    setup,
+)
 from riftlift.util import RiftLiftError
 
 
@@ -676,6 +682,207 @@ def test_launch_environment_uses_selected_manifest_without_vendor_config(
     assert environment["XR_RUNTIME_JSON"] == str(manifest)
     assert "DRI_PRIME" not in environment
     assert "LD_LIBRARY_PATH" not in environment
+    assert "PRESSURE_VESSEL_FILESYSTEMS_RW" not in environment
+
+
+def test_launch_environment_exposes_a_flatpak_runtime_to_pressure_vessel(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "rift-data",
+        tmp_path / "rift-cache",
+        tmp_path / "rift-config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    app_root = tmp_path / "var/lib/flatpak/app/io.github.wivrn.wivrn"
+    manifest = (
+        app_root / "x86_64/stable/deadbeef/files/share/openxr/1/openxr_wivrn.json"
+    )
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
+    monkeypatch.setattr("riftlift.runtime.proton_environment", lambda *_args: {})
+    # No WiVRn log to read - this exercises the static fallback specifically,
+    # so it must not pick up a real WiVRn install on the machine running it.
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+
+    environment = launch_environment(
+        paths, paths.games / "sample", False, runtime=manifest
+    )
+
+    assert environment["PRESSURE_VESSEL_FILESYSTEMS_RW"] == str(app_root)
+
+
+def test_launch_environment_prefers_wivrns_own_recommendation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "rift-data",
+        tmp_path / "rift-cache",
+        tmp_path / "rift-config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    app_root = tmp_path / "var/lib/flatpak/app/io.github.wivrn.wivrn"
+    manifest = (
+        app_root / "x86_64/stable/deadbeef/files/share/openxr/1/openxr_wivrn.json"
+    )
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
+    monkeypatch.setattr("riftlift.runtime.proton_environment", lambda *_args: {})
+    home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    # A recommendation naming a different (but real) RW path than the app
+    # root itself, so a match proves the log was actually used, not the
+    # static fallback happening to agree.
+    alternate_rw = tmp_path / "alternate-rw-target"
+    alternate_rw.mkdir()
+    log_dir = home / ".var/app/io.github.wivrn.wivrn/.local/state/wivrn/wivrn-dashboard"
+    log_dir.mkdir(parents=True)
+    (log_dir / "server_logs_2026-01-01T00:00:00.txt").write_text(
+        "[2026-01-01T00:00:00.000] WiVRn 1.0 starting\n"
+        "[2026-01-01T00:00:00.100] For Steam games, set command to "
+        f"PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 "
+        f"PRESSURE_VESSEL_FILESYSTEMS_RW={alternate_rw} %command%\n"
+    )
+
+    environment = launch_environment(
+        paths, paths.games / "sample", False, runtime=manifest
+    )
+
+    assert environment["PRESSURE_VESSEL_FILESYSTEMS_RW"] == str(alternate_rw)
+
+
+def test_launch_environment_falls_back_when_the_wivrn_log_has_no_valid_line(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "rift-data",
+        tmp_path / "rift-cache",
+        tmp_path / "rift-config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    app_root = tmp_path / "var/lib/flatpak/app/io.github.wivrn.wivrn"
+    manifest = (
+        app_root / "x86_64/stable/deadbeef/files/share/openxr/1/openxr_wivrn.json"
+    )
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
+    monkeypatch.setattr("riftlift.runtime.proton_environment", lambda *_args: {})
+    home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    log_dir = home / ".var/app/io.github.wivrn.wivrn/.local/state/wivrn/wivrn-dashboard"
+    log_dir.mkdir(parents=True)
+    (log_dir / "server_logs_2026-01-01T00:00:00.txt").write_text(
+        "[2026-01-01T00:00:00.000] WiVRn 1.0 starting\n"
+    )
+
+    environment = launch_environment(
+        paths, paths.games / "sample", False, runtime=manifest
+    )
+
+    assert environment["PRESSURE_VESSEL_FILESYSTEMS_RW"] == str(app_root)
+
+
+def test_parse_pressure_vessel_command_line_accepts_the_documented_shape(
+    tmp_path: Path,
+) -> None:
+    rw = tmp_path / "flatpak-app"
+    rw.mkdir()
+    line = (
+        "[t] For Steam games, set command to "
+        "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 "
+        f"PRESSURE_VESSEL_FILESYSTEMS_RW={rw} %command%"
+    )
+
+    assert _parse_pressure_vessel_command_line(line) == {
+        "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
+        "PRESSURE_VESSEL_FILESYSTEMS_RW": str(rw),
+    }
+
+
+def test_parse_pressure_vessel_command_line_accepts_an_unknown_flag(
+    tmp_path: Path,
+) -> None:
+    """A future WiVRn release adding a new flag should work without a code change."""
+    rw = tmp_path / "flatpak-app"
+    rw.mkdir()
+    line = f"set command to PRESSURE_VESSEL_SOME_FUTURE_FLAG={rw} %command%"
+
+    assert _parse_pressure_vessel_command_line(line) == {
+        "PRESSURE_VESSEL_SOME_FUTURE_FLAG": str(rw)
+    }
+
+
+def test_parse_pressure_vessel_command_line_accepts_colon_separated_paths(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    line = f"set command to PRESSURE_VESSEL_FILESYSTEMS_RW={first}:{second} %command%"
+
+    assert _parse_pressure_vessel_command_line(line) == {
+        "PRESSURE_VESSEL_FILESYSTEMS_RW": f"{first}:{second}"
+    }
+
+
+def test_parse_pressure_vessel_command_line_rejects_unrelated_variables() -> None:
+    line = "set command to LD_PRELOAD=/tmp/evil.so %command%"
+
+    assert _parse_pressure_vessel_command_line(line) is None
+
+
+def test_parse_pressure_vessel_command_line_rejects_shell_metacharacters() -> None:
+    line = (
+        "set command to "
+        "PRESSURE_VESSEL_FILESYSTEMS_RW=/tmp;rm${IFS}-rf${IFS}~ %command%"
+    )
+
+    assert _parse_pressure_vessel_command_line(line) is None
+
+
+def test_parse_pressure_vessel_command_line_rejects_a_nonexistent_path() -> None:
+    line = "set command to PRESSURE_VESSEL_FILESYSTEMS_RW=/no/such/directory %command%"
+
+    assert _parse_pressure_vessel_command_line(line) is None
+
+
+def test_parse_pressure_vessel_command_line_requires_the_marker() -> None:
+    assert _parse_pressure_vessel_command_line("nothing interesting here") is None
+
+
+def test_wivrn_recommended_pressure_vessel_env_picks_the_newest_log(
+    tmp_path: Path, monkeypatch
+) -> None:
+    older_rw = tmp_path / "older"
+    newer_rw = tmp_path / "newer"
+    older_rw.mkdir()
+    newer_rw.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    log_dir = (
+        tmp_path / ".var/app/io.github.wivrn.wivrn/.local/state/wivrn/wivrn-dashboard"
+    )
+    log_dir.mkdir(parents=True)
+    older = log_dir / "server_logs_2026-01-01T00:00:00.txt"
+    newer = log_dir / "server_logs_2026-02-01T00:00:00.txt"
+    older.write_text(
+        f"set command to PRESSURE_VESSEL_FILESYSTEMS_RW={older_rw} %command%\n"
+    )
+    newer.write_text(
+        f"set command to PRESSURE_VESSEL_FILESYSTEMS_RW={newer_rw} %command%\n"
+    )
+    os.utime(older, (1000, 1000))
+    os.utime(newer, (2000, 2000))
+
+    result = _wivrn_recommended_pressure_vessel_env("io.github.wivrn.wivrn")
+
+    assert result == {"PRESSURE_VESSEL_FILESYSTEMS_RW": str(newer_rw)}
 
 
 def test_explicit_runtime_selection_does_not_duplicate_loader_validation(

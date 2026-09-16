@@ -70,6 +70,7 @@ _DEBUG_ENVIRONMENT_KEYS = (
     "RIFTLIFT_XRIZER",
     "DXVK_NO_VR",
     "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES",
+    "PRESSURE_VESSEL_FILESYSTEMS_RW",
     "OXR_ZERO_TIME_IS_NOW",
     "WINEDLLOVERRIDES",
     "SteamAppId",
@@ -469,6 +470,7 @@ def _disable_openxr_for_direct_openvr(
         return
     environment.pop("XR_RUNTIME_JSON", None)
     environment.pop("PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES", None)
+    environment.pop("PRESSURE_VESSEL_FILESYSTEMS_RW", None)
     environment.pop("OXR_ZERO_TIME_IS_NOW", None)
     overrides = environment.get("WINEDLLOVERRIDES", "").strip(";")
     environment["WINEDLLOVERRIDES"] = (
