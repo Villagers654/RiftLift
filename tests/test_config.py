@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -52,6 +53,39 @@ def test_game_rejects_invalid_environment(tmp_path, environment):
             [],
             environment=environment,
         )
+
+
+def test_game_records_saved_before_description_lang_are_treated_as_unknown(
+    tmp_path: Path,
+) -> None:
+    # A record saved before this field existed could have been fetched in
+    # any language (e.g. via IP-geolocated content, not an explicit
+    # Accept-Language header), so it must never be assumed to already match
+    # the current UI language - that would silently skip a needed refresh.
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    game = Game(
+        "example",
+        "Example",
+        "123",
+        "example-key",
+        str(tmp_path),
+        "game.exe",
+        [],
+        description="A game.",
+    )
+    target = game.save(paths)
+    payload = json.loads(target.read_text())
+    del payload["description_lang"]
+    target.write_text(json.dumps(payload))
+
+    assert Game.load(paths, "example").description_lang == ""
 
 
 def test_default_paths_treat_empty_xdg_values_as_unset(
