@@ -23,6 +23,7 @@ from riftlift.doctor import (
     _likely_cause,
     _openvr_checks,
     build_report,
+    quick_launch_diagnosis,
     upload_report,
 )
 from riftlift.doctor_evidence import (
@@ -261,6 +262,69 @@ def test_likely_cause_decodes_openxr_api_version_failure() -> None:
 
     assert "rejected the API version" in cause[0]
     assert "build comparison" in cause[0]
+
+
+def test_likely_cause_identifies_the_meta_vendor_lock() -> None:
+    cause = _likely_cause(
+        [
+            "[OVRPlugin][ERROR] Non-Oculus OpenXR runtime is not supported. "
+            "(CompositorOpenXR.cpp:1934)"
+        ],
+        [],
+    )
+
+    assert "refuses to run against a non-Meta OpenXR runtime" in cause[0]
+    assert "OpenXR plugin instead of Oculus" in cause[0]
+
+
+def test_quick_launch_diagnosis_surfaces_the_meta_vendor_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    test_paths = paths(tmp_path)
+    log = (
+        test_paths.prefix
+        / "pfx/drive_c/users/steamuser/AppData/LocalLow/Some Game/Player.log"
+    )
+    log.parent.mkdir(parents=True)
+    log.write_text(
+        "[OVRPlugin][ERROR] \n"
+        "Non-Oculus OpenXR runtime is not supported. "
+        "(CompositorOpenXR.cpp:1934)\n"
+    )
+    monkeypatch.setattr("riftlift.doctor_evidence._launch_epoch", lambda _launches: 0)
+    monkeypatch.setattr(
+        "riftlift.doctor_evidence._launch_end_epoch", lambda _launches: 10**12
+    )
+    monkeypatch.setattr(
+        "riftlift.doctor.recent_launches",
+        lambda _paths, limit=1: [{"event": "finished", "exit_code": 5}],
+    )
+
+    result = quick_launch_diagnosis(test_paths)
+
+    assert result is not None
+    assert "refuses to run against a non-Meta OpenXR runtime" in result
+
+
+def test_quick_launch_diagnosis_is_quiet_without_evidence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    test_paths = paths(tmp_path)
+    monkeypatch.setattr(
+        "riftlift.doctor.recent_launches",
+        lambda _paths, limit=1: [{"event": "finished", "exit_code": 0}],
+    )
+
+    assert quick_launch_diagnosis(test_paths) is None
+
+
+def test_quick_launch_diagnosis_is_quiet_without_launch_history(
+    tmp_path: Path, monkeypatch
+) -> None:
+    test_paths = paths(tmp_path)
+    monkeypatch.setattr("riftlift.doctor.recent_launches", lambda _paths, limit=1: [])
+
+    assert quick_launch_diagnosis(test_paths) is None
 
 
 def test_successful_launcher_tail_is_not_reported_as_error_evidence(

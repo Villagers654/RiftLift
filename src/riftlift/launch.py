@@ -756,4 +756,17 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
             except OSError as error:
                 print(f"warning: local playtime could not be saved: {error}")
     launch_finished(paths, launch_id, started, exit_code=exit_code)
+    _print_quick_diagnosis(paths, exit_code)
     return exit_code
+
+
+def _print_quick_diagnosis(paths: Paths, exit_code: int) -> None:
+    if exit_code == 0:
+        return
+    # Deferred import: doctor.py imports runtime_backend from this module,
+    # so importing it at module load time would be circular.
+    from .doctor import quick_launch_diagnosis
+
+    cause = quick_launch_diagnosis(paths)
+    if cause is not None:
+        print(f"\n[Diagnostic] {cause}")
