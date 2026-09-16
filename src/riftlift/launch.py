@@ -463,10 +463,20 @@ def _clear_proton_openvr_cache(paths: Paths, proton_root: Path) -> None:
 def _disable_openxr_for_direct_openvr(
     environment: dict[str, str], openvr_kind: str
 ) -> None:
-    """Prevent two conflicting native compositor clients in one Wine process."""
+    """Prevent a standalone OpenVR runtime from fighting wineopenxr for the compositor.
+
+    A genuinely separate OpenVR runtime (SteamVR, or an explicit external
+    one) has its own complete native stack and doesn't expect Wine's OpenXR
+    passthrough involved at all, so wineopenxr is disabled for those. XRizer
+    is different: it's the OpenVR-to-OpenXR bridge itself, and its vrclient
+    already tries wineopenxr and falls back gracefully when it's missing -
+    it doesn't need it disabled. Leaving wineopenxr enabled there also
+    matters for any other Windows-side OpenXR client sharing the process:
+    Unity's OculusXRPlugin (OVRPlugin.dll) calls its own bundled OpenXR
+    loader directly, independent of vrclient, and that loader can only
+    reach the runtime through wineopenxr.dll.
+    """
     if openvr_kind == "xrizer":
-        # Unity providers can also call OpenXR directly, independently of the
-        # LibOVR bridge. XRizer uses the same OpenXR compositor.
         return
     environment.pop("XR_RUNTIME_JSON", None)
     environment.pop("PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES", None)
