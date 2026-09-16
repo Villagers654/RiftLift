@@ -214,10 +214,12 @@ class Game:
                 else "meta"
             )
         allowed = {field.name for field in fields(cls)}
-        if unknown := sorted(value.keys() - allowed):
-            raise ValueError(f"game record contains unknown fields {unknown}: {target}")
+        # A record can carry a field from a different build (an experimental
+        # branch, a downgrade) that this one doesn't know about - dropping it
+        # keeps that one game loadable instead of crashing the whole library.
+        known = {key: item for key, item in value.items() if key in allowed}
         try:
-            return cls(**value)
+            return cls(**known)
         except (TypeError, ValueError) as error:
             raise ValueError(f"invalid game record {target}: {error}") from error
 
