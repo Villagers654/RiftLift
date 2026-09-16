@@ -96,6 +96,7 @@ class Game:
     platform_offline: bool = False
     store_url: str = ""
     description: str = ""
+    description_lang: str = ""
     developer: str = ""
     publisher: str = ""
     genres: list[str] = field(default_factory=list)
@@ -166,6 +167,9 @@ class Game:
         target = _game_record(paths, self.slug)
         atomic_write_text(target, json.dumps(asdict(self), indent=2) + "\n")
         return target
+
+    def delete(self, paths: Paths) -> None:
+        _game_record(paths, self.slug).unlink(missing_ok=True)
 
     @classmethod
     def load(cls, paths: Paths, slug: str) -> Game:

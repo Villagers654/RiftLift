@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import shlex
+import shutil
 from pathlib import Path
 
 from meta_pcvr_downloader.api import list_builds, parse_app_id, select_build
@@ -13,6 +14,21 @@ from .config import Game, Paths
 from .detection import best_windows_executable, is_unreal_shipping
 from .metadata import generate_artwork, populate_game_metadata
 from .util import RiftLiftError
+
+_SEGMENTS_PROGRESS = re.compile(r"^\s*segments (\d+)/(\d+) \(\d+ cached\)$")
+_FILES_PROGRESS = re.compile(r"^\s*files (\d+)/(\d+) \([\d.]+/[\d.]+ GiB\)$")
+_SEGMENTS_TOTAL = re.compile(r"^Preparing (\d+) unique segments")
+
+
+def parse_download_progress(line: str) -> tuple[str, int, int] | None:
+    """Parse one line of the downloader's progress output, if it is one."""
+    if match := _SEGMENTS_TOTAL.match(line):
+        return "Preparing segments", 0, int(match.group(1))
+    if match := _SEGMENTS_PROGRESS.match(line):
+        return "Downloading", int(match.group(1)), int(match.group(2))
+    if match := _FILES_PROGRESS.match(line):
+        return "Assembling files", int(match.group(1)), int(match.group(2))
+    return None
 
 
 def slugify(value: str) -> str:
@@ -117,6 +133,14 @@ def add(
     except RiftLiftError as error:
         print(f"warning: catalog metadata was not available: {error}")
     return game
+
+
+def remove(paths: Paths, game: Game) -> None:
+    """Remove a game from RiftLift, deleting its downloaded files if RiftLift owns them."""
+    if game.source == "meta":
+        shutil.rmtree(game.game_dir, ignore_errors=True)
+    shutil.rmtree(paths.data / "artwork" / game.slug, ignore_errors=True)
+    game.delete(paths)
 
 
 def _local_game_root(
