@@ -54,6 +54,7 @@ from .runtime import (
     native_xr_bridge,
     proton_dir,
     steamvr_runtime_for_openxr,
+    validate_openvr_library,
 )
 from .steam import steam_root
 from .util import RiftLiftError
@@ -502,7 +503,15 @@ def _openvr_checks(paths: Paths) -> list[Check]:
         label = "SteamVR OpenVR client (direct; no XRizer)"
         expected_path = steamvr_runtime
 
-    checks: list[Check] = [(label, runtime.is_file(), _file_identity(runtime))]
+    usable = runtime.is_file()
+    detail = _file_identity(runtime)
+    if usable and steamvr_runtime is None:
+        try:
+            validate_openvr_library(runtime)
+        except RiftLiftError as error:
+            usable = False
+            detail = redact(str(error))
+    checks: list[Check] = [(label, usable, detail)]
     registry_path = paths.config / "openvr/openvrpaths.vrpath"
     try:
         registry = json.loads(registry_path.read_text())

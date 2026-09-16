@@ -21,6 +21,7 @@ from riftlift.diagnostics import (
 )
 from riftlift.doctor import (
     _likely_cause,
+    _openvr_checks,
     build_report,
     upload_report,
 )
@@ -44,6 +45,28 @@ def isolate_host_diagnostic_sources(monkeypatch) -> None:
     ):
         monkeypatch.setattr(f"riftlift.doctor.{name}", lambda *_args: [])
     monkeypatch.setattr("riftlift.doctor._relevant_processes", list)
+
+
+def test_doctor_rejects_an_unloadable_xrizer(tmp_path, monkeypatch):
+    paths = Paths(
+        *(
+            tmp_path / name
+            for name in ("data", "cache", "config", "games", "prefix", "tools")
+        )
+    )
+    library = paths.tools / "openvr-runtime/libxrizer.so"
+    library.parent.mkdir(parents=True)
+    library.write_bytes(b"not a shared library")
+    monkeypatch.setattr(
+        "riftlift.doctor.active_runtime_json", lambda: tmp_path / "xr.json"
+    )
+    monkeypatch.setattr("riftlift.doctor.steamvr_runtime_for_openxr", lambda _: None)
+
+    label, usable, detail = _openvr_checks(paths)[0]
+
+    assert "XRizer" in label
+    assert not usable
+    assert "XRizer cannot load" in detail
 
 
 def test_doctor_component_snapshot_skips_active_vulkan_probe(
@@ -104,7 +127,7 @@ def test_doctor_reports_selected_steamvr_and_bundled_xrizer_separately(
 
     current = _current_components(test_paths)
 
-    assert current["bundled_xrizer"] == "xrizer-test"
+    assert current["bundled_xrizer"] == "invalid (xrizer-test)"
     assert current["openvr_runtime"] == "SteamVR 1781734990"
     assert current["openvr_transport"] == "SteamVR direct (no XRizer)"
     assert _expected_components()["bundled_xrizer"] != "xrizer-test"

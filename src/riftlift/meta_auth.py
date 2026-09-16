@@ -119,20 +119,32 @@ def install_protocol_handler() -> Path:
     try:
         if update_database := shutil.which("update-desktop-database"):
             run((update_database, str(applications)), timeout=10)
-        if xdg_settings := shutil.which("xdg-settings"):
-            for scheme in ("oculus", "oculus-client"):
-                run(
-                    (
-                        xdg_settings,
-                        "set",
-                        "default-url-scheme-handler",
-                        scheme,
-                        desktop.name,
-                    ),
-                    timeout=10,
-                )
-        elif xdg_mime := shutil.which("xdg-mime"):
-            for scheme in ("oculus", "oculus-client"):
+        xdg_settings = shutil.which("xdg-settings")
+        xdg_mime = shutil.which("xdg-mime")
+        for scheme in ("oculus", "oculus-client"):
+            if xdg_settings:
+                try:
+                    run(
+                        (
+                            xdg_settings,
+                            "set",
+                            "default-url-scheme-handler",
+                            scheme,
+                            desktop.name,
+                        ),
+                        timeout=10,
+                    )
+                    continue
+                except (
+                    OSError,
+                    subprocess.CalledProcessError,
+                    subprocess.TimeoutExpired,
+                ):
+                    # Some xdg-settings backends cannot parse a quoted Exec path.
+                    # Preserve correct desktop quoting and register by desktop ID.
+                    if not xdg_mime:
+                        raise
+            if xdg_mime:
                 run(
                     (xdg_mime, "default", desktop.name, f"x-scheme-handler/{scheme}"),
                     timeout=10,
