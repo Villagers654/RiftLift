@@ -177,6 +177,15 @@ def expected_components() -> dict[str, str]:
     }
 
 
+def needs_setup(paths: Paths) -> bool:
+    """Whether any compatibility component doesn't match what this build expects."""
+    installed = current_components(paths)
+    return any(
+        not component_matches(key, installed.get(key, "unknown"), value)
+        for key, value in expected_components().items()
+    )
+
+
 def component_matches(name: str, installed: str, expected: str) -> bool:
     if name == "proton":
         return installed == expected or installed.endswith(f" {expected}")

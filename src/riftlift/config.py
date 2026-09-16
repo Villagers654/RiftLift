@@ -229,6 +229,19 @@ def games(paths: Paths) -> list[Game]:
     ]
 
 
+def language_preference(paths: Paths) -> str:
+    try:
+        value = (paths.config / "language").read_text().strip()
+    except (FileNotFoundError, OSError):
+        return "auto"
+    return value or "auto"
+
+
+def set_language_preference(paths: Paths, code: str) -> None:
+    paths.config.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(paths.config / "language", code)
+
+
 def debug_logging_enabled(paths: Paths) -> bool:
     return (paths.config / "debug-logging").is_file()
 

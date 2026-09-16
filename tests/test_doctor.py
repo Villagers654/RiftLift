@@ -105,6 +105,55 @@ def test_doctor_component_snapshot_skips_active_vulkan_probe(
     assert calls == {"vulkan": False, "xr": True}
 
 
+def test_needs_setup_reflects_a_component_mismatch(tmp_path: Path, monkeypatch) -> None:
+    from riftlift.doctor_components import needs_setup
+
+    test_paths = paths(tmp_path)
+    monkeypatch.setattr(
+        "riftlift.doctor_components.current_components",
+        lambda _paths: {"riftlift": "1.0", "compat_runtime": "missing"},
+    )
+    monkeypatch.setattr(
+        "riftlift.doctor_components.expected_components",
+        lambda: {"riftlift": "1.0", "compat_runtime": "riftlift-1.0"},
+    )
+    assert needs_setup(test_paths) is True
+
+    monkeypatch.setattr(
+        "riftlift.doctor_components.current_components",
+        lambda _paths: {"riftlift": "1.0", "compat_runtime": "riftlift-1.0"},
+    )
+    assert needs_setup(test_paths) is False
+
+
+def test_needs_setup_accepts_proton_and_dxvks_decorated_installed_strings(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Unlike the other components, proton/dxvk report extra info (a Steam
+    # depot id, a sha256) alongside the bare version doctor compares
+    # against - needs_setup must use the same component_matches logic the
+    # doctor report itself uses, not a strict equality check, or it would
+    # always claim setup is needed even on a perfectly matching install.
+    from riftlift.doctor_components import needs_setup
+
+    test_paths = paths(tmp_path)
+    monkeypatch.setattr(
+        "riftlift.doctor_components.current_components",
+        lambda _paths: {
+            "proton": "1784963766 GE-Proton11-3",
+            "dxvk": "3.0.2-riftlift.1 sha256:15d2625b9a7f",
+        },
+    )
+    monkeypatch.setattr(
+        "riftlift.doctor_components.expected_components",
+        lambda: {
+            "proton": "GE-Proton11-3",
+            "dxvk": "3.0.2-riftlift.1",
+        },
+    )
+    assert needs_setup(test_paths) is False
+
+
 def test_doctor_reports_selected_steamvr_and_bundled_xrizer_separately(
     tmp_path: Path, monkeypatch
 ) -> None:
