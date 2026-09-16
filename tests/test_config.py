@@ -145,7 +145,10 @@ def test_game_records_do_not_silently_escape_or_disappear(tmp_path: Path) -> Non
         games(paths)
 
 
-def test_game_records_reject_unknown_fields(tmp_path: Path) -> None:
+def test_game_records_ignore_unknown_fields(tmp_path: Path) -> None:
+    # A record can carry a field from a different build (an experimental
+    # branch, a downgrade) - it should still load instead of crashing the
+    # whole library over one game.
     paths = Paths(
         tmp_path / "data",
         tmp_path / "cache",
@@ -159,12 +162,11 @@ def test_game_records_reject_unknown_fields(tmp_path: Path) -> None:
     )
     target = game.save(paths)
     payload = target.read_text().replace(
-        '"source": "meta"', '"source": "meta",\n  "launch_argumants": []'
+        '"source": "meta"', '"source": "meta",\n  "unity_xr_plugin": "openxr"'
     )
     target.write_text(payload)
 
-    with pytest.raises(ValueError, match=r"unknown fields.*launch_argumants"):
-        Game.load(paths, "example")
+    assert Game.load(paths, "example") == game
 
 
 def test_debug_logging_setting_is_private_and_persistent(tmp_path: Path) -> None:
