@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.20)
+project(RiftLiftPlatformTests LANGUAGES C)
+include(CTest)
+add_library(PlatformTestRuntime SHARED tests/real-platform.c)
+set_target_properties(PlatformTestRuntime PROPERTIES PREFIX "" OUTPUT_NAME LibOVRPlatformImpl64_1_real)
+add_executable(PlatformShimTests tests/platform-shim.c)
+add_dependencies(PlatformShimTests PlatformTestRuntime)
+add_test(NAME PlatformShimMessages COMMAND PlatformShimTests)

@@ -71,6 +71,17 @@ jobs:
           & C:\vcpkg\vcpkg.exe install --triplet x86-windows-static detours openxr-loader glfw3
           & C:\vcpkg\vcpkg.exe install --triplet x64-windows-static detours openxr-loader glfw3
           & C:\vcpkg\vcpkg.exe integrate install
+      - name: Test platform messages and native forwarding
+        run: |
+          cmake -S ../compat -B ../compat/build -A x64
+          cmake --build ../compat/build --config Release
+          ctest --test-dir ../compat/build -C Release --output-on-failure
+      - name: Build and test the Windows OpenXR layer
+        shell: pwsh
+        run: |
+          cmake -S openxr-layer -B openxr-layer/build -A x64 -DOPENXR_INCLUDE_DIR=C:/vcpkg/installed/x64-windows-static/include
+          cmake --build openxr-layer/build --config Release
+          ctest --test-dir openxr-layer/build -C Release --output-on-failure
       - uses: microsoft/setup-msbuild@v2
       - name: Build Windows ABI bridges
         shell: pwsh
@@ -87,6 +98,7 @@ jobs:
         run: |
           $out = New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\riftlift-windows-bridge"
           Copy-Item Release\RiftLiftLauncher.exe $out
+          Copy-Item openxr-layer\build\Release\RiftLiftOpenXRLayer.dll $out
           Copy-Item Release\openvr_api64.dll $out
           Copy-Item Release\RiftLiftOpenVR64.dll $out
           Copy-Item Release\RiftLiftOpenXR32.dll $out

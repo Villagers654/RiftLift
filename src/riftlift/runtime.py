@@ -23,6 +23,7 @@ from .util import (
     atomic_write_bytes,
     atomic_write_text,
     download,
+    linux_to_windows,
     run,
     sha256,
 )
@@ -748,6 +749,7 @@ def install_meta_runtime(paths: Paths) -> Path:
 
 RIFT_RUNTIME_FILES = (
     "RiftLiftLauncher.exe",
+    "RiftLiftOpenXRLayer.dll",
     "RiftLiftOpenXR64.dll",
     "RiftLiftOpenVR64.dll",
     "openvr_api64.dll",
@@ -1133,9 +1135,51 @@ def setup(paths: Paths) -> None:
     proton_root = install_proton(paths)
     install_meta_runtime(paths)
     install_rift_runtime(paths)
+    install_openxr_layer(paths)
     install_openvr_runtime(paths)
     install_platform_compat(paths)
     shutdown_compat_prefix(paths, proton_root)
+
+
+def install_openxr_layer(paths: Paths) -> None:
+    """Register the Windows layer only in RiftLift's private Wine prefix."""
+    directory = paths.tools / "rift-runtime"
+    library = directory / "RiftLiftOpenXRLayer.dll"
+    if not library.is_file():
+        raise RiftLiftError("RiftLift OpenXR compatibility layer is missing")
+    manifest = directory / "openxr-layer.json"
+    payload = (
+        json.dumps(
+            {
+                "file_format_version": "1.0.0",
+                "api_layer": {
+                    "name": "XR_APILAYER_RIFTLIFT_ovr_compat",
+                    "library_path": linux_to_windows(library),
+                    "api_version": "1.0",
+                    "implementation_version": "1",
+                    "description": "RiftLift OVRPlugin compatibility",
+                    "enable_environment": "RIFTLIFT_OVR_COMPAT",
+                    "disable_environment": "RIFTLIFT_DISABLE_OVR_COMPAT",
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    if not manifest.is_file() or manifest.read_text() != payload:
+        atomic_write_text(manifest, payload)
+    key = r"Software\Khronos\OpenXR\1\ApiLayers\Implicit"
+    name = linux_to_windows(manifest)
+    registry = paths.prefix / "pfx/system.reg"
+    contents = registry.read_text(errors="replace") if registry.is_file() else ""
+    section = "[" + key.replace("\\", "\\\\") + "]"
+    value = '"' + name.replace("\\", "\\\\") + '"=dword:00000000'
+    registered = any(
+        block.startswith(section) and value in block.splitlines()
+        for block in contents.split("\n\n")
+    )
+    if not registered:
+        _registry_add(paths, "HKLM\\" + key, name, "REG_DWORD", "0")
 
 
 def launch_environment(
@@ -1147,6 +1191,7 @@ def launch_environment(
     runtime: Path | None = None,
 ) -> dict[str, str]:
     runtime = runtime or active_runtime_json()
+    install_openxr_layer(paths)
     environment = proton_environment(paths, game_dir)
     existing_overrides = environment.get("WINEDLLOVERRIDES", "").strip(";")
     environment.update(
@@ -1154,6 +1199,7 @@ def launch_environment(
             "XR_RUNTIME_JSON": str(runtime),
             "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
             "OXR_ZERO_TIME_IS_NOW": "1",
+            "RIFTLIFT_OVR_COMPAT": "1",
             "WINEDLLOVERRIDES": f"d3d11=n;dxgi=n{';' + existing_overrides if existing_overrides else ''}",
         }
     )

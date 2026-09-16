@@ -222,6 +222,18 @@ jobs:
           git -C "$RUNNER_TEMP/dxvk-source" checkout 3a4c6fa3cb1548d56a90a38dd8f526b6c13e63fd
           git -C "$RUNNER_TEMP/dxvk-source" apply --check "$GITHUB_WORKSPACE/components/dxvk/monotonic-fence-signals.patch"
 
+  platform-shim-tests:
+    needs: changes
+    if: needs.changes.outputs.compatibility == 'true'
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+      - name: Test platform messages and native forwarding
+        run: |
+          cmake -S compat -B compat/build -A x64
+          cmake --build compat/build --config Release
+          ctest --test-dir compat/build -C Release --output-on-failure
+
   platform-shim:
     needs: changes
     if: needs.changes.outputs.compatibility == 'true'
@@ -278,6 +290,12 @@ jobs:
           & C:\vcpkg\vcpkg.exe install --triplet x86-windows-static detours openxr-loader glfw3
           & C:\vcpkg\vcpkg.exe install --triplet x64-windows-static detours openxr-loader glfw3
           & C:\vcpkg\vcpkg.exe integrate install
+      - name: Build and test the Windows OpenXR layer
+        shell: pwsh
+        run: |
+          cmake -S openxr-layer -B openxr-layer/build -A x64 -DOPENXR_INCLUDE_DIR=C:/vcpkg/installed/x64-windows-static/include
+          cmake --build openxr-layer/build --config Release
+          ctest --test-dir openxr-layer/build -C Release --output-on-failure
       - uses: microsoft/setup-msbuild@v2
       - name: Build RiftLift translation backends
         shell: pwsh

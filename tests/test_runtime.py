@@ -28,6 +28,7 @@ from riftlift.runtime import (
     install_dxvk_compat,
     install_meta_runtime,
     install_openvr_runtime,
+    install_openxr_layer,
     install_proton,
     install_rift_runtime,
     meta_signing_root_installed,
@@ -39,8 +40,43 @@ from riftlift.runtime import (
 )
 from riftlift.util import RiftLiftError
 
+
+def test_openxr_layer_registration_is_private_and_idempotent(tmp_path, monkeypatch):
+    paths = Paths(
+        *(
+            tmp_path / name
+            for name in ("data", "cache", "config", "games", "prefix", "tools")
+        )
+    )
+    directory = paths.tools / "rift-runtime"
+    directory.mkdir(parents=True)
+    (directory / "RiftLiftOpenXRLayer.dll").write_bytes(b"test")
+    registry = paths.prefix / "pfx/system.reg"
+    registry.parent.mkdir(parents=True)
+    calls = []
+
+    def register(actual_paths, key, name, kind, value):
+        assert actual_paths == paths
+        calls.append((key, name, kind, value))
+        section = key.removeprefix("HKLM\\").replace("\\", "\\\\")
+        escaped = name.replace("\\", "\\\\")
+        registry.write_text(f'[{section}]\n"{escaped}"=dword:00000000\n\n')
+
+    monkeypatch.setattr("riftlift.runtime._registry_add", register)
+    install_openxr_layer(paths)
+    install_openxr_layer(paths)
+    assert len(calls) == 1
+    assert calls[0][0] == r"HKLM\Software\Khronos\OpenXR\1\ApiLayers\Implicit"
+    assert calls[0][2:] == ("REG_DWORD", "0")
+    layer = json.loads((directory / "openxr-layer.json").read_text())["api_layer"]
+    assert layer["library_path"].endswith(r"\rift-runtime\RiftLiftOpenXRLayer.dll")
+    assert layer["enable_environment"] == "RIFTLIFT_OVR_COMPAT"
+    assert layer["disable_environment"] == "RIFTLIFT_DISABLE_OVR_COMPAT"
+
+
 REQUIRED_RUNTIME_FILES = (
     "RiftLiftLauncher.exe",
+    "RiftLiftOpenXRLayer.dll",
     "RiftLiftOpenXR64.dll",
     "RiftLiftOpenVR64.dll",
     "openvr_api64.dll",

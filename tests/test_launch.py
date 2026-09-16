@@ -484,7 +484,7 @@ def test_xrizer_bridge_uses_host_action_manifest(tmp_path: Path, monkeypatch) ->
     assert captured["env"]["RIFTLIFT_XRIZER"] == "1"
     assert captured["env"]["XR_RUNTIME_JSON"] == "/tmp/openxr.json"
     assert captured["env"]["PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES"] == "1"
-    assert captured["env"]["WINEDLLOVERRIDES"].split(";")[0] == "wineopenxr=d"
+    assert "wineopenxr=d" not in captured["env"].get("WINEDLLOVERRIDES", "")
 
 
 def test_openvr_launch_clears_only_protons_generated_runtime_cache(
@@ -534,6 +534,7 @@ def test_openvr_launch_clears_only_protons_generated_runtime_cache(
 def test_platform_shim_does_not_redirect_oculus_vr_runtime(
     tmp_path: Path, monkeypatch
 ) -> None:
+    monkeypatch.setattr("riftlift.runtime.install_openxr_layer", lambda _paths: None)
     paths = Paths(
         tmp_path / "data",
         tmp_path / "cache",
@@ -631,6 +632,7 @@ def test_active_runtime_does_not_override_runtime_manager_selection(
 def test_launch_environment_uses_selected_manifest_without_vendor_config(
     tmp_path: Path, monkeypatch
 ) -> None:
+    monkeypatch.setattr("riftlift.runtime.install_openxr_layer", lambda _paths: None)
     paths = Paths(
         tmp_path / "rift-data",
         tmp_path / "rift-cache",
@@ -738,9 +740,20 @@ def test_setup_does_not_require_an_active_openxr_runtime(
         lambda _paths, _proton: actions.append("shutdown"),
     )
 
+    monkeypatch.setattr(
+        "riftlift.runtime.install_openxr_layer", lambda _paths: actions.append("layer")
+    )
     setup(paths)
 
-    assert actions == ["proton", "meta", "rift", "openvr", "platform", "shutdown"]
+    assert actions == [
+        "proton",
+        "meta",
+        "rift",
+        "layer",
+        "openvr",
+        "platform",
+        "shutdown",
+    ]
 
 
 def test_launch_has_no_device_specific_wrapper(tmp_path: Path, monkeypatch) -> None:
