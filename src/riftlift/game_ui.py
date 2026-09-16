@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 import threading
 from collections.abc import Callable
@@ -9,10 +10,27 @@ from urllib.parse import urlparse
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from .config import Paths
+from .i18n import namespace
+from .library import add, parse_download_progress
 from .metadata import fetch_catalog_metadata
+from .steam import sync_with_restart
 from .theme import STYLE
+from .titlebar import wrap_dialog
+from .util import LineWriter
 
 LINK_VALIDATION_DELAY_MS = 350
+
+ADD_GAME = namespace("add_game")
+LOCAL_GAME = namespace("local_game")
+GAME = namespace("game")
+ACTION = namespace("action")
+
+_PHASE_KEYS = {
+    "Preparing segments": "phase_preparing_segments",
+    "Downloading": "phase_downloading",
+    "Assembling files": "phase_assembling_files",
+}
 
 
 def rift_store_app_id(value: str) -> str | None:
@@ -54,39 +72,62 @@ class _ValidationEvents(QtCore.QObject):
     complete = QtCore.Signal(int, str, object, object)
 
 
+class _InstallEvents(QtCore.QObject):
+    progress = QtCore.Signal(str, int, int)
+    complete = QtCore.Signal(object, object)
+
+
 class StoreGameDialog(QtWidgets.QDialog):
-    def __init__(self, open_local: Callable[[], None], parent=None):
+    def __init__(
+        self,
+        paths: Paths,
+        open_local: Callable[[], None],
+        parent=None,
+        *,
+        initial_url: str = "",
+        simple_name: str = "",
+    ):
         super().__init__(parent)
-        self.url = ""
+        self.paths = paths
+        self.installed_game = None
         self.sync_steam = True
         self._generation = 0
         self._verified_url = ""
-        self.setWindowTitle("Add a Rift game")
+        self.setWindowTitle(ADD_GAME("title"))
         self.setMinimumWidth(560)
         self.setStyleSheet(STYLE)
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(26, 24, 26, 24)
+        layout = wrap_dialog(self, ADD_GAME("title"))
         layout.setSpacing(12)
-        layout.addWidget(_label("Add to your library", "game"))
-        local = QtWidgets.QPushButton("Add a local game…")
+        heading = _label(ADD_GAME("heading"), "game")
+        layout.addWidget(heading)
+        local = QtWidgets.QPushButton(ADD_GAME("add_local"))
         local.setObjectName("link")
         local.clicked.connect(lambda: (self.reject(), open_local()))
         layout.addWidget(local, alignment=QtCore.Qt.AlignLeft)
-        layout.addWidget(_label("Meta Rift store URL", "section"))
+        url_section = _label(ADD_GAME("url_section"), "section")
+        layout.addWidget(url_section)
+        browse = QtWidgets.QPushButton(ADD_GAME("browse_store"))
+        browse.setObjectName("link")
+        browse.clicked.connect(self._browse_store)
+        layout.addWidget(browse, alignment=QtCore.Qt.AlignLeft)
         self.entry = QtWidgets.QLineEdit()
-        self.entry.setPlaceholderText("https://www.meta.com/experiences/pcvr/…")
+        self.entry.setPlaceholderText(ADD_GAME("url_placeholder"))
         layout.addWidget(self.entry)
-        self.validation = _label(
-            "Paste a valid Meta Rift store link to continue.", "muted"
-        )
+        self.validation = _label(ADD_GAME("paste_valid_link"), "muted")
+        self.validation.setWordWrap(True)
         layout.addWidget(self.validation)
-        self.steam = QtWidgets.QCheckBox("Add to Steam when finished")
+        self.steam = QtWidgets.QCheckBox(ADD_GAME("add_to_steam"))
         self.steam.setChecked(True)
         layout.addWidget(self.steam)
+        self.progress = QtWidgets.QProgressBar()
+        self.progress.hide()
+        layout.addWidget(self.progress)
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
-        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setIcon(QtGui.QIcon())
+        self.cancel_button = buttons.button(QtWidgets.QDialogButtonBox.Cancel)
+        self.cancel_button.setIcon(QtGui.QIcon())
+        self.cancel_button.setText(ACTION("cancel"))
         self.submit = buttons.addButton(
-            "Install", QtWidgets.QDialogButtonBox.AcceptRole
+            GAME("install"), QtWidgets.QDialogButtonBox.AcceptRole
         )
         self.submit.setObjectName("primary")
         self.submit.setEnabled(False)
@@ -97,10 +138,37 @@ class StoreGameDialog(QtWidgets.QDialog):
         self.timer.setSingleShot(True)
         self.events = _ValidationEvents(self)
         self.events.complete.connect(self._finish_validation)
+        self.install_events = _InstallEvents(self)
+        self.install_events.progress.connect(self._update_progress)
+        self.install_events.complete.connect(self._finish_install)
         self.timer.timeout.connect(self._check_catalog)
         self.entry.textChanged.connect(self._validate)
         self.entry.returnPressed.connect(self._accept_selection)
         self.submit.clicked.connect(self._accept_selection)
+
+        if simple_name:
+            self.setWindowTitle(simple_name)
+            self.titlebar.set_title(simple_name)
+            heading.setText(ADD_GAME("install_heading"))
+            local.hide()
+            url_section.hide()
+            browse.hide()
+            self.entry.hide()
+            self.entry.blockSignals(True)
+            self.entry.setText(initial_url)
+            self.entry.blockSignals(False)
+            self._verified_url = initial_url
+            self.submit.setEnabled(True)
+            self.validation.setText(
+                ADD_GAME("confirm_install").format(name=simple_name)
+            )
+        elif initial_url:
+            self.entry.setText(initial_url)
+
+    def _browse_store(self) -> None:
+        QtGui.QDesktopServices.openUrl(
+            QtCore.QUrl("https://www.meta.com/experiences/pcvr/")
+        )
 
     def _validate(self, value: str) -> None:
         self._generation += 1
@@ -108,9 +176,9 @@ class StoreGameDialog(QtWidgets.QDialog):
         self.timer.stop()
         self.submit.setEnabled(False)
         if not is_valid_rift_store_url(value):
-            self.validation.setText("Paste a valid Meta Rift store link to continue.")
+            self.validation.setText(ADD_GAME("paste_valid_link"))
             return
-        self.validation.setText("Checking Rift store link…")
+        self.validation.setText(ADD_GAME("checking_link"))
         self.timer.start(LINK_VALIDATION_DELAY_MS)
 
     def _check_catalog(self) -> None:
@@ -136,25 +204,75 @@ class StoreGameDialog(QtWidgets.QDialog):
             return
         if error is not None:
             self.validation.setText(
-                "This Rift store game could not be found."
+                ADD_GAME("game_not_found")
                 if "has no catalog metadata" in str(error)
-                else "Could not verify this link. Check your connection."
+                else ADD_GAME("link_check_failed")
             )
             return
         if not metadata or not metadata.name.strip():
-            self.validation.setText("This Rift store game could not be found.")
+            self.validation.setText(ADD_GAME("game_not_found"))
             return
         self._verified_url = value
         self.submit.setEnabled(True)
-        self.validation.setText(f"Ready to install {metadata.name}.")
+        self.validation.setText(ADD_GAME("ready_to_install").format(name=metadata.name))
 
     def _accept_selection(self) -> None:
         value = self.entry.text().strip()
         if value != self._verified_url:
             self.entry.setFocus()
             return
-        self.url = value
+        self._start_install(value)
+
+    def _start_install(self, url: str) -> None:
         self.sync_steam = self.steam.isChecked()
+        self.entry.setEnabled(False)
+        self.steam.setEnabled(False)
+        self.submit.setEnabled(False)
+        self.cancel_button.setEnabled(False)
+        self.progress.setRange(0, 0)
+        self.progress.show()
+        self.validation.setText(ADD_GAME("starting_install"))
+
+        def emit_line(line: str) -> None:
+            parsed = parse_download_progress(line)
+            if parsed is not None:
+                self.install_events.progress.emit(*parsed)
+            elif line.strip():
+                self.install_events.progress.emit(line.strip(), -1, -1)
+
+        def worker() -> None:
+            try:
+                with contextlib.redirect_stdout(LineWriter(emit_line)):
+                    game = add(self.paths, url)
+                    if self.sync_steam:
+                        sync_with_restart(self.paths)
+                self.install_events.complete.emit(game, None)
+            except Exception as error:
+                self.install_events.complete.emit(None, error)
+
+        threading.Thread(target=worker, daemon=True, name="riftlift-install").start()
+
+    def _update_progress(self, label: str, current: int, total: int) -> None:
+        if key := _PHASE_KEYS.get(label):
+            label = ADD_GAME(key)
+        if total > 0:
+            self.progress.setRange(0, total)
+            self.progress.setValue(current)
+            self.validation.setText(f"{label}: {current}/{total}")
+        else:
+            self.progress.setRange(0, 0)
+            self.validation.setText(label)
+
+    def _finish_install(self, game, error) -> None:
+        if error is not None:
+            self.progress.hide()
+            self.entry.setEnabled(True)
+            self.steam.setEnabled(True)
+            self.submit.setEnabled(True)
+            self.cancel_button.setEnabled(True)
+            self.validation.setText(str(error))
+            return
+        self.installed_game = game
         self.accept()
 
 
@@ -166,41 +284,42 @@ class LocalGameDialog(QtWidgets.QDialog):
         self.arguments: str | None = None
         self.artwork: str | None = None
         self.sync_steam = True
-        self.setWindowTitle("Add a local VR game")
+        self.setWindowTitle(LOCAL_GAME("title"))
         self.setMinimumWidth(600)
         self.setStyleSheet(STYLE)
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(26, 24, 26, 24)
+        layout = wrap_dialog(self, LOCAL_GAME("title"))
         layout.setSpacing(12)
-        layout.addWidget(_label("Add a local VR game", "game"))
-        layout.addWidget(
-            _label(
-                "Choose an installed Windows VR game. RiftLift leaves its files in place.",
-                "muted",
-            )
-        )
+        layout.addWidget(_label(LOCAL_GAME("title"), "game"))
+        layout.addWidget(_label(LOCAL_GAME("hint"), "muted"))
         self.executable_entry = self._file_row(
-            layout, "Game executable", "/path/to/game.exe", "Windows games (*.exe)"
+            layout,
+            LOCAL_GAME("executable"),
+            "/path/to/game.exe",
+            "Windows games (*.exe)",
         )
-        layout.addWidget(_label("Name", "section"))
+        layout.addWidget(_label(LOCAL_GAME("name"), "section"))
         self.name_entry = QtWidgets.QLineEdit()
-        self.name_entry.setPlaceholderText("Filled from the executable")
+        self.name_entry.setPlaceholderText(LOCAL_GAME("name_placeholder"))
         layout.addWidget(self.name_entry)
-        layout.addWidget(_label("Launch arguments (optional)", "section"))
+        layout.addWidget(_label(LOCAL_GAME("arguments"), "section"))
         self.arguments_entry = QtWidgets.QLineEdit()
         layout.addWidget(self.arguments_entry)
         self.artwork_entry = self._file_row(
             layout,
-            "Cover image (optional)",
+            LOCAL_GAME("artwork"),
             "PNG, JPEG, or WebP",
             "Images (*.png *.jpg *.jpeg *.webp)",
         )
-        self.steam = QtWidgets.QCheckBox("Add to Steam when finished")
+        self.steam = QtWidgets.QCheckBox(ADD_GAME("add_to_steam"))
         self.steam.setChecked(True)
         layout.addWidget(self.steam)
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
-        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setIcon(QtGui.QIcon())
-        self.submit = buttons.addButton("Add", QtWidgets.QDialogButtonBox.AcceptRole)
+        cancel_button = buttons.button(QtWidgets.QDialogButtonBox.Cancel)
+        cancel_button.setIcon(QtGui.QIcon())
+        cancel_button.setText(ACTION("cancel"))
+        self.submit = buttons.addButton(
+            LOCAL_GAME("add"), QtWidgets.QDialogButtonBox.AcceptRole
+        )
         self.submit.setObjectName("primary")
         self.submit.setEnabled(False)
         buttons.rejected.connect(self.reject)
@@ -219,7 +338,7 @@ class LocalGameDialog(QtWidgets.QDialog):
         row = QtWidgets.QHBoxLayout()
         entry = QtWidgets.QLineEdit()
         entry.setPlaceholderText(placeholder)
-        browse = QtWidgets.QPushButton("Browse…")
+        browse = QtWidgets.QPushButton(LOCAL_GAME("browse"))
         browse.clicked.connect(lambda: self._choose_file(entry, file_filter))
         row.addWidget(entry, 1)
         row.addWidget(browse)
