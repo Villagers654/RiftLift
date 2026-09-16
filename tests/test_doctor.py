@@ -127,7 +127,7 @@ def test_doctor_reports_selected_steamvr_and_bundled_xrizer_separately(
 
     current = _current_components(test_paths)
 
-    assert current["bundled_xrizer"] == "xrizer-test"
+    assert current["bundled_xrizer"] == "invalid (xrizer-test)"
     assert current["openvr_runtime"] == "SteamVR 1781734990"
     assert current["openvr_transport"] == "SteamVR direct (no XRizer)"
     assert _expected_components()["bundled_xrizer"] != "xrizer-test"

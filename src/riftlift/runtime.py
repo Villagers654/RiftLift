@@ -642,22 +642,8 @@ def _install_meta_packages(paths: Paths, support: Path) -> None:
             package.url, paths.cache / "meta" / f"{package.name}.pkg", package.sha256
         )
         destination = support / package.name
-        marker = destination / ".riftlift-package.json"
-        if marker.is_file():
-            try:
-                current_package = json.loads(marker.read_text()).get(
-                    "sha256"
-                ) == package.sha256 and all(
-                    (destination / name).is_file() for name in package.required_files
-                )
-                if package.verify_signed_runtime:
-                    current_package = current_package and _signed_meta_runtime_current(
-                        destination
-                    )
-                if current_package:
-                    continue
-            except (OSError, json.JSONDecodeError):
-                pass
+        if meta_package_current(destination, package):
+            continue
         staging = Path(tempfile.mkdtemp(prefix=f".{package.name}-unpack-", dir=support))
         try:
             _safe_zip(archive, staging)
@@ -666,7 +652,14 @@ def _install_meta_packages(paths: Paths, support: Path) -> None:
             atomic_write_text(
                 staging / ".riftlift-package.json",
                 json.dumps(
-                    {"binary_id": package.binary_id, "sha256": package.sha256},
+                    {
+                        "binary_id": package.binary_id,
+                        "sha256": package.sha256,
+                        "files": {
+                            name: sha256(staging / name)
+                            for name in package.required_files
+                        },
+                    },
                     indent=2,
                 )
                 + "\n",
@@ -753,28 +746,76 @@ def install_meta_runtime(paths: Paths) -> Path:
     return support
 
 
+RIFT_RUNTIME_FILES = (
+    "RiftLiftLauncher.exe",
+    "RiftLiftOpenXR64.dll",
+    "RiftLiftOpenVR64.dll",
+    "openvr_api64.dll",
+    "LibOVRPlatformImpl64_1.dll",
+    "Input/action_manifest.json",
+    "Input/gamepad_default.json",
+    "Input/holographic_controller_default.json",
+    "Input/knuckles_default.json",
+    "Input/oculus_touch_default.json",
+    "Input/vive_controller_default.json",
+    "Input/vive_cosmos_default.json",
+)
+
+
+OPENVR_RUNTIME_FILES = ("libxrizer.so", "bin/linux64/vrclient.so", "bin/version.txt")
+
+
+def _file_hashes_match(
+    directory: Path, expected: object, required: tuple[str, ...]
+) -> bool:
+    if not isinstance(expected, dict) or not required:
+        return False
+    try:
+        return all(
+            isinstance(expected.get(name), str)
+            and sha256(directory / name) == expected[name]
+            for name in required
+        )
+    except OSError:
+        return False
+
+
+def installed_payload_current(
+    directory: Path, version: str, required: tuple[str, ...]
+) -> bool:
+    try:
+        marker = (directory / ".riftlift-version").read_text().strip()
+        hashes = json.loads((directory / ".riftlift-files.json").read_text())
+        return marker == version and _file_hashes_match(directory, hashes, required)
+    except (OSError, ValueError):
+        return False
+
+
+def _record_payload_files(directory: Path, required: tuple[str, ...]) -> None:
+    atomic_write_text(
+        directory / ".riftlift-files.json",
+        json.dumps({name: sha256(directory / name) for name in required}, indent=2)
+        + "\n",
+    )
+
+
+def meta_package_current(destination: Path, package: MetaPackage) -> bool:
+    try:
+        marker = json.loads((destination / ".riftlift-package.json").read_text())
+        if not isinstance(marker, dict) or marker.get("sha256") != package.sha256:
+            return False
+        if package.verify_signed_runtime:
+            return _signed_meta_runtime_current(destination)
+        return _file_hashes_match(
+            destination, marker.get("files"), package.required_files
+        )
+    except (OSError, ValueError):
+        return False
+
+
 def install_rift_runtime(paths: Paths) -> Path:
     destination = paths.tools / "rift-runtime"
-    version_marker = destination / ".riftlift-version"
-    required = (
-        "RiftLiftLauncher.exe",
-        "RiftLiftOpenXR64.dll",
-        "RiftLiftOpenVR64.dll",
-        "openvr_api64.dll",
-        "LibOVRPlatformImpl64_1.dll",
-        "Input/action_manifest.json",
-        "Input/gamepad_default.json",
-        "Input/holographic_controller_default.json",
-        "Input/knuckles_default.json",
-        "Input/oculus_touch_default.json",
-        "Input/vive_controller_default.json",
-        "Input/vive_cosmos_default.json",
-    )
-    if (
-        all((destination / name).is_file() for name in required)
-        and version_marker.is_file()
-        and version_marker.read_text().strip() == RUNTIME_VERSION
-    ):
+    if installed_payload_current(destination, RUNTIME_VERSION, RIFT_RUNTIME_FILES):
         return destination
     override = os.environ.get("RIFTLIFT_RUNTIME_ARCHIVE")
     archive = (
@@ -795,8 +836,9 @@ def install_rift_runtime(paths: Paths) -> Path:
             if nested.is_dir() and not (staging / "RiftLiftLauncher.exe").is_file()
             else staging
         )
-        if not all((source / name).is_file() for name in required):
+        if not all((source / name).is_file() for name in RIFT_RUNTIME_FILES):
             raise RiftLiftError("RiftLift runtime payload is incomplete")
+        _record_payload_files(source, RIFT_RUNTIME_FILES)
         (source / ".riftlift-version").write_text(f"{RUNTIME_VERSION}\n")
         _replace_directory(source, destination)
     finally:
@@ -833,13 +875,8 @@ def install_openvr_runtime(paths: Paths) -> Path:
     """Install RiftLift's native OpenVR-to-OpenXR implementation."""
     destination = paths.tools / "openvr-runtime"
     library = destination / "libxrizer.so"
-    proton_library = destination / "bin/linux64/vrclient.so"
-    version_marker = destination / ".riftlift-version"
-    if (
-        library.is_file()
-        and proton_library.is_file()
-        and version_marker.is_file()
-        and version_marker.read_text().strip() == OPENVR_RUNTIME_VERSION
+    if installed_payload_current(
+        destination, OPENVR_RUNTIME_VERSION, OPENVR_RUNTIME_FILES
     ):
         validate_openvr_library(library)
         _write_openvr_path_registry(paths, destination)
@@ -869,6 +906,7 @@ def install_openvr_runtime(paths: Paths) -> Path:
         except OSError:
             shutil.copy2(staged_library, staged_proton_library)
         (source / "bin/version.txt").write_text(f"{OPENVR_RUNTIME_VERSION}\n")
+        _record_payload_files(source, OPENVR_RUNTIME_FILES)
         (source / ".riftlift-version").write_text(f"{OPENVR_RUNTIME_VERSION}\n")
         _replace_directory(source, destination)
     finally:
@@ -997,6 +1035,27 @@ def _private_openvr_path_registry(paths: Paths, source: Path) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(target, json.dumps(payload, indent=2) + "\n")
     return target
+
+
+def platform_compat_current(paths: Paths) -> bool:
+    override = os.environ.get("RIFTLIFT_PLATFORM_SHIM")
+    source = (
+        Path(override).expanduser()
+        if override
+        else paths.tools / "rift-runtime/LibOVRPlatformImpl64_1.dll"
+    )
+    try:
+        expected = sha256(source)
+        return all(
+            sha256(target) == expected
+            for target in (
+                paths.tools / "platform-compat/LibOVRPlatformImpl64_1.dll",
+                paths.prefix
+                / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime/LibOVRPlatformImpl64_1.dll",
+            )
+        )
+    except OSError:
+        return False
 
 
 def install_platform_compat(paths: Paths) -> Path:

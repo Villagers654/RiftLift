@@ -659,6 +659,10 @@ def test_version_marker_does_not_hide_an_unloadable_openvr_runtime(tmp_path):
     (destination / "libxrizer.so").write_bytes(b"not a shared library")
     (destination / "bin/linux64/vrclient.so").write_bytes(b"not a shared library")
     (destination / ".riftlift-version").write_text(OPENVR_RUNTIME_VERSION)
+    (destination / "bin/version.txt").write_text(OPENVR_RUNTIME_VERSION)
+    from riftlift.runtime import OPENVR_RUNTIME_FILES, _record_payload_files
+
+    _record_payload_files(destination, OPENVR_RUNTIME_FILES)
 
     with pytest.raises(RiftLiftError, match="XRizer cannot load"):
         install_openvr_runtime(paths)
