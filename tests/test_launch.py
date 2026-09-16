@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -1199,3 +1200,151 @@ def test_local_game_does_not_inherit_verified_rift_offline_mode(
 
     assert launch(paths, game, []) == 0
     assert captured["environment_args"][-1] is False
+
+
+def test_unity_oculus_plugin_game_keeps_the_meta_oculus_service_alive(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "sample/Game.exe"
+    plugin = executable.parent / "Game_Data/Plugins/x86_64/OculusXRPlugin.dll"
+    plugin.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    plugin.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    proton.mkdir()
+    (proton / "proton").write_bytes(b"")
+    rift_runtime = tmp_path / "rift_runtime"
+    (rift_runtime / "Input").mkdir(parents=True)
+    (rift_runtime / "Input/action_manifest.json").write_text("{}")
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr(
+        "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
+    )
+    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
+    openvr = tmp_path / "xrizer"
+    (openvr / "bin/linux64").mkdir(parents=True)
+    (openvr / "bin/linux64/vrclient.so").write_bytes(b"ELF")
+    monkeypatch.setenv("VR_OVERRIDE", str(openvr))
+
+    service = (
+        paths.prefix
+        / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime/OVRServer_x64.exe"
+    )
+    service.parent.mkdir(parents=True)
+    service.write_bytes(b"MZ")
+
+    class FakeProcess:
+        pid = 4242
+
+        def __init__(self) -> None:
+            self.stopped = False
+
+        def poll(self):
+            return None if not self.stopped else 0
+
+        def wait(self, timeout=None):
+            self.stopped = True
+            return 0
+
+    real_popen = subprocess.Popen
+    popen_calls: list[list[str]] = []
+    fake_process = FakeProcess()
+    expected_command = [str(proton / "proton"), "run", str(service)]
+
+    def fake_popen(command, **kwargs):
+        if command == expected_command:
+            popen_calls.append(command)
+            return fake_process
+        return real_popen(command, **kwargs)
+
+    monkeypatch.setattr("riftlift.launch.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("riftlift.launch.time.sleep", lambda _seconds: None)
+    killed: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "riftlift.launch.os.killpg", lambda pid, value: killed.append((pid, value))
+    )
+    game_run_order: list[str] = []
+    monkeypatch.setattr(
+        "riftlift.launch._run_game_process",
+        lambda *_args, **_kwargs: game_run_order.append("game") or 0,
+    )
+
+    game = Game(
+        "sample", "Sample", "1", "sample-key", str(executable.parent), "Game.exe", []
+    )
+
+    assert launch(paths, game, []) == 0
+    assert popen_calls == [[str(proton / "proton"), "run", str(service)]]
+    assert game_run_order == ["game"]
+    assert killed == [(4242, 15)]
+
+
+def test_openvr_only_game_does_not_start_the_meta_oculus_service(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "sample/Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    proton.mkdir()
+    (proton / "proton").write_bytes(b"")
+    rift_runtime = tmp_path / "rift_runtime"
+    (rift_runtime / "Input").mkdir(parents=True)
+    (rift_runtime / "Input/action_manifest.json").write_text("{}")
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr(
+        "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
+    )
+    monkeypatch.setattr(
+        "riftlift.launch._select_runtime_backend", lambda _game, _capabilities: "openvr"
+    )
+    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
+    openvr = tmp_path / "xrizer"
+    (openvr / "bin/linux64").mkdir(parents=True)
+    (openvr / "bin/linux64/vrclient.so").write_bytes(b"ELF")
+    monkeypatch.setenv("VR_OVERRIDE", str(openvr))
+
+    service = (
+        paths.prefix
+        / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime/OVRServer_x64.exe"
+    )
+    service.parent.mkdir(parents=True)
+    service.write_bytes(b"MZ")
+
+    real_popen = subprocess.Popen
+    popen_calls: list[list[str]] = []
+    expected_command = [str(proton / "proton"), "run", str(service)]
+
+    def fake_popen(command, **kwargs):
+        if command == expected_command:
+            popen_calls.append(command)
+            raise AssertionError("the Oculus service should not have been started")
+        return real_popen(command, **kwargs)
+
+    monkeypatch.setattr("riftlift.launch.subprocess.Popen", fake_popen)
+    monkeypatch.setattr(
+        "riftlift.launch._run_game_process", lambda *_args, **_kwargs: 0
+    )
+
+    game = Game(
+        "sample", "Sample", "1", "sample-key", str(executable.parent), "Game.exe", []
+    )
+
+    assert launch(paths, game, []) == 0
+    assert popen_calls == []

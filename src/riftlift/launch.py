@@ -146,6 +146,57 @@ def _run_game_process(
         _terminate_marked_launch_processes(launch_id)
 
 
+def _meta_oculus_service_executable(paths: Paths) -> Path:
+    return (
+        paths.prefix
+        / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime/OVRServer_x64.exe"
+    )
+
+
+@contextmanager
+def _meta_oculus_service(paths: Paths, plan: _LaunchPlan) -> Iterator[None]:
+    """Keep Meta's real Oculus runtime service alive for the native plugin.
+
+    Unity's OculusXRPlugin (``-vrmode Oculus``) links directly against
+    ``LibOVRRT64_1.dll`` instead of going through RiftLift's OpenVR shim, so
+    it fails to initialize unless an Oculus runtime service is actually
+    running for it to connect to. ``OVRServiceLauncher.exe`` only probes the
+    runtime and exits within milliseconds under Wine instead of keeping a
+    service resident, so start the real server directly and tear it down
+    with the game.
+    """
+    if "unity-oculus-plugin" not in plan.capabilities:
+        yield
+        return
+    executable = _meta_oculus_service_executable(paths)
+    if not executable.is_file():
+        yield
+        return
+    process = subprocess.Popen(
+        [str(plan.proton_root / "proton"), "run", str(executable)],
+        cwd=executable.parent,
+        env=plan.environment,
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        time.sleep(1.5)
+        yield
+    finally:
+        if process.poll() is None:
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+        else:
+            process.wait()
+
+
 @contextmanager
 def _steam_appid_marker(game: Game) -> Iterator[None]:
     """Prevent Steamworks from replacing RiftLift's prepared game process.
@@ -641,7 +692,10 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
                 )
                 maintenance.start()
             try:
-                with _steam_appid_marker(game):
+                with (
+                    _steam_appid_marker(game),
+                    _meta_oculus_service(paths, plan),
+                ):
                     exit_code = _run_game_process(
                         [*plan.wrapper, *plan.arguments],
                         launch_id=launch_id,
