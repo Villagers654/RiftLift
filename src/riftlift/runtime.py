@@ -850,11 +850,32 @@ def install_rift_runtime(paths: Paths) -> Path:
     return destination
 
 
+def _raw_python_interpreter() -> str:
+    """A python interpreter that actually accepts `-c`, unlike `sys.executable` here.
+
+    Inside a python-appimage build, `sys.executable` is deliberately patched
+    (via a hook in the bundled ``encodings`` package keyed off the
+    ``APPIMAGE_COMMAND`` environment variable) to report the outer
+    ``.AppImage`` file itself rather than the bundled interpreter - useful
+    for an app that wants to relaunch itself, but wrong here: invoking the
+    AppImage with ``-c <code>`` just runs RiftLift's own CLI, which rejects
+    ``-c`` as an unknown argument. The bundled interpreter is still reachable
+    at its normal, unpatched location under ``$APPDIR``.
+    """
+    app_dir = os.environ.get("APPDIR")
+    if app_dir:
+        version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+        bundled = Path(app_dir) / "usr/bin" / version
+        if bundled.is_file():
+            return str(bundled)
+    return sys.executable
+
+
 def validate_openvr_library(library: Path) -> None:
     try:
         result = subprocess.run(
             [
-                sys.executable,
+                _raw_python_interpreter(),
                 "-c",
                 "import ctypes, sys; lib = ctypes.CDLL(sys.argv[1]); "
                 "lib.HmdSystemFactory; lib.VRClientCoreFactory",

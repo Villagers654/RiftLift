@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import sys
 import tarfile
 import zipfile
 from pathlib import Path
@@ -23,6 +24,7 @@ from riftlift.runtime import (
     _install_meta_signing_root,
     _meta_signing_root_der,
     _meta_signing_root_registry_blob,
+    _raw_python_interpreter,
     _safe_tar,
     initialize_prefix,
     install_dxvk_compat,
@@ -681,6 +683,37 @@ def test_openvr_library_rejects_an_invalid_binary(tmp_path):
     library.write_bytes(b"not a shared library")
     with pytest.raises(RiftLiftError, match="XRizer cannot load"):
         validate_openvr_library(library)
+
+
+def test_raw_python_interpreter_prefers_the_bundled_appimage_python(
+    tmp_path, monkeypatch
+):
+    # Inside a python-appimage build, sys.executable is patched to report the
+    # outer .AppImage file itself (so a script can relaunch the whole app),
+    # not the bundled interpreter - invoking that with -c just reruns
+    # RiftLift's own CLI instead of executing the given code.
+    app_dir = tmp_path / "AppDir"
+    version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    bundled = app_dir / "usr/bin" / version
+    bundled.parent.mkdir(parents=True)
+    bundled.write_text("")
+    monkeypatch.setenv("APPDIR", str(app_dir))
+
+    assert _raw_python_interpreter() == str(bundled)
+
+
+def test_raw_python_interpreter_falls_back_outside_an_appimage(monkeypatch):
+    monkeypatch.delenv("APPDIR", raising=False)
+
+    assert _raw_python_interpreter() == sys.executable
+
+
+def test_raw_python_interpreter_falls_back_when_appdir_has_no_bundled_python(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("APPDIR", str(tmp_path / "does-not-exist"))
+
+    assert _raw_python_interpreter() == sys.executable
 
 
 def test_version_marker_does_not_hide_an_unloadable_openvr_runtime(tmp_path):
