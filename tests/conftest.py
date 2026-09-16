@@ -1,3 +1,5 @@
+import gc
+
 import pytest
 
 from riftlift.i18n import set_language
@@ -25,3 +27,23 @@ def _english_ui_language():
     set_language("en")
     yield
     set_language("en")
+
+
+@pytest.fixture(autouse=True)
+def _collect_qt_garbage_between_tests():
+    """Destroy each test's Qt widgets before the next one instead of letting
+    them pile up for one big, unpredictable collection later.
+
+    PySide6/shiboken assumes a C++ parent-child chain (e.g. a QBoxLayout
+    inside a QWidget) is torn down before Python's own garbage collector
+    gets around to freeing the matching wrapper objects. With hundreds of
+    GUI tests each building their own Window, leaving that to whichever GC
+    pass happens to run last (often at interpreter shutdown) can destroy an
+    accumulated backlog in an order Qt doesn't expect, double-freeing a
+    layout and crashing the whole process (SIGSEGV/SIGBUS) - reproduced
+    locally, and only by running the full suite, not any single test.
+    Collecting right after each test keeps each cleanup small and in an
+    order Qt has already seen many times over without incident.
+    """
+    yield
+    gc.collect()
