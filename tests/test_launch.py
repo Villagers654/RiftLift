@@ -13,6 +13,7 @@ from riftlift.diagnostics import (
 )
 from riftlift.launch import (
     _clear_proton_openvr_cache,
+    _disable_openxr_for_direct_openvr,
     _expected_launch_components,
     _installed_openvr_build,
     _run_game_process,
@@ -475,6 +476,7 @@ def test_xrizer_bridge_uses_host_action_manifest(tmp_path: Path, monkeypatch) ->
             "XRIZER_LOG_DIR": "/tmp/xrizer",
             "XR_RUNTIME_JSON": "/tmp/openxr.json",
             "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
+            "WINEDLLOVERRIDES": "d3d11=n;dxgi=n",
         },
     )
     captured: dict[str, object] = {}
@@ -491,7 +493,52 @@ def test_xrizer_bridge_uses_host_action_manifest(tmp_path: Path, monkeypatch) ->
     assert captured["env"]["RIFTLIFT_XRIZER"] == "1"
     assert captured["env"]["XR_RUNTIME_JSON"] == "/tmp/openxr.json"
     assert captured["env"]["PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES"] == "1"
-    assert "wineopenxr=d" not in captured["env"].get("WINEDLLOVERRIDES", "")
+    # XRizer's own vrclient tries wineopenxr and falls back gracefully when
+    # it's missing, and other in-process Windows OpenXR clients (Unity's
+    # OculusXRPlugin) need it - so unlike a standalone OpenVR runtime, it
+    # must not be disabled here.
+    assert captured["env"]["WINEDLLOVERRIDES"] == "d3d11=n;dxgi=n"
+
+
+def test_disable_openxr_for_direct_openvr_leaves_xrizer_alone() -> None:
+    environment = {
+        "XR_RUNTIME_JSON": "/tmp/openxr.json",
+        "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
+        "PRESSURE_VESSEL_FILESYSTEMS_RW": "/tmp/flatpak",
+        "OXR_ZERO_TIME_IS_NOW": "1",
+        "WINEDLLOVERRIDES": "d3d11=n;dxgi=n",
+    }
+
+    _disable_openxr_for_direct_openvr(environment, "xrizer")
+
+    assert environment == {
+        "XR_RUNTIME_JSON": "/tmp/openxr.json",
+        "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
+        "PRESSURE_VESSEL_FILESYSTEMS_RW": "/tmp/flatpak",
+        "OXR_ZERO_TIME_IS_NOW": "1",
+        "WINEDLLOVERRIDES": "d3d11=n;dxgi=n",
+    }
+
+
+@pytest.mark.parametrize("openvr_kind", ["steamvr", "external"])
+def test_disable_openxr_for_direct_openvr_disables_it_for_a_standalone_runtime(
+    openvr_kind: str,
+) -> None:
+    environment = {
+        "XR_RUNTIME_JSON": "/tmp/openxr.json",
+        "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
+        "PRESSURE_VESSEL_FILESYSTEMS_RW": "/tmp/flatpak",
+        "OXR_ZERO_TIME_IS_NOW": "1",
+        "WINEDLLOVERRIDES": "d3d11=n;dxgi=n",
+    }
+
+    _disable_openxr_for_direct_openvr(environment, openvr_kind)
+
+    assert "XR_RUNTIME_JSON" not in environment
+    assert "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES" not in environment
+    assert "PRESSURE_VESSEL_FILESYSTEMS_RW" not in environment
+    assert "OXR_ZERO_TIME_IS_NOW" not in environment
+    assert environment["WINEDLLOVERRIDES"] == "wineopenxr=d;d3d11=n;dxgi=n"
 
 
 def test_openvr_launch_clears_only_protons_generated_runtime_cache(
