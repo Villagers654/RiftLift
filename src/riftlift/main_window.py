@@ -280,6 +280,8 @@ class Window(QtWidgets.QMainWindow):
                 lambda: setup(self.paths),
                 success="Compatibility runtime is ready",
             )
+        else:
+            self._check_setup_status()
         self.refresh_owned()
 
     def label(self, text="", name=""):
@@ -338,7 +340,6 @@ class Window(QtWidgets.QMainWindow):
         layout.addWidget(run_now)
         container_layout.addWidget(banner)
         outer.addWidget(container)
-        self._check_setup_status()
 
     def _check_setup_status(self) -> None:
         def worker():
@@ -1191,13 +1192,16 @@ class Window(QtWidgets.QMainWindow):
         self.busy_label = ""
         self.addbtn.setEnabled(True)
         self.refresh_button.setEnabled(True)
+        # Any task can be the one that just made (or failed to make) the
+        # compatibility runtime ready - not just setup itself - so the
+        # banner is re-checked either way, not only on a successful run.
+        self._check_setup_status()
         if error:
             self.status.setText(str(error))
             self._append_log(f"\nError: {error}\n")
             _themed_error(self, APP("name"), str(error))
         else:
             self.status.setText(message)
-            self._check_setup_status()
             if self.view_stack.currentIndex() == 1:
                 self._check_system_status()
             if refresh:

@@ -188,6 +188,10 @@ def test_window_auto_runs_setup_when_the_compatibility_runtime_is_not_ready(
     )
     paths.create()
     monkeypatch.setattr("riftlift.main_window.needs_setup", lambda _paths: True)
+    monkeypatch.setattr(
+        "riftlift.main_window.runtime_access_token", lambda _paths: "tok"
+    )
+    monkeypatch.setattr("riftlift.main_window.list_owned_pcvr_apps", lambda _token: [])
     calls = []
     monkeypatch.setattr("riftlift.main_window.setup", lambda _paths: calls.append(1))
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
@@ -462,19 +466,30 @@ def test_setup_banner_button_runs_setup_and_hides_once_done(
         "riftlift.main_window.runtime_access_token", lambda _paths: "tok"
     )
     monkeypatch.setattr("riftlift.main_window.list_owned_pcvr_apps", lambda _token: [])
+    monkeypatch.setattr("riftlift.main_window._themed_error", lambda *a: None)
     needed = [True]
     monkeypatch.setattr("riftlift.main_window.needs_setup", lambda _paths: needed[0])
-    calls = []
+    attempts = []
 
-    def fake_setup(_paths):
-        calls.append(1)
-        needed[0] = False
+    def failing_setup(_paths):
+        # The auto-run at startup attempts setup silently and fails here, the
+        # way it would for a user whose setup genuinely doesn't succeed on
+        # its own - that's the case the banner exists to surface.
+        attempts.append("auto")
+        raise RiftLiftError("boom")
 
-    monkeypatch.setattr("riftlift.main_window.setup", fake_setup)
+    monkeypatch.setattr("riftlift.main_window.setup", failing_setup)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
 
+    assert wait_until(app, lambda: not window.busy)
     assert wait_until(app, lambda: not window.setup_banner.isHidden())
+
+    def succeeding_setup(_paths):
+        attempts.append("manual")
+        needed[0] = False
+
+    monkeypatch.setattr("riftlift.main_window.setup", succeeding_setup)
     run_now = next(
         button
         for button in window.setup_banner.findChildren(QtWidgets.QPushButton)
@@ -483,7 +498,7 @@ def test_setup_banner_button_runs_setup_and_hides_once_done(
     run_now.click()
 
     assert wait_until(app, lambda: not window.busy)
-    assert calls == [1]
+    assert attempts == ["auto", "manual"]
     assert wait_until(app, lambda: window.setup_banner.isHidden())
 
     window.close()
