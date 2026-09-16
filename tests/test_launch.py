@@ -1602,3 +1602,77 @@ def test_openvr_only_game_does_not_start_the_meta_oculus_service(
 
     assert launch(paths, game, []) == 0
     assert popen_calls == []
+
+
+def test_launch_prints_a_quick_diagnosis_after_a_failed_launch(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "sample/Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    runtime = tmp_path / "runtime"
+    proton.mkdir()
+    runtime.mkdir()
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr("riftlift.launch.install_rift_runtime", lambda _paths: runtime)
+    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
+    monkeypatch.setattr("riftlift.launch._run_game_process", lambda *_a, **_k: 5)
+    monkeypatch.setattr(
+        "riftlift.doctor.quick_launch_diagnosis",
+        lambda _paths: "High confidence: something specific broke.",
+    )
+    game = Game(
+        "sample", "Sample", "1", "sample-key", str(executable.parent), "Game.exe", []
+    )
+
+    assert launch(paths, game, []) == 5
+
+    assert "[Diagnostic] High confidence: something specific broke." in (
+        capsys.readouterr().out
+    )
+
+
+def test_launch_stays_quiet_after_a_clean_exit(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "sample/Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    runtime = tmp_path / "runtime"
+    proton.mkdir()
+    runtime.mkdir()
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr("riftlift.launch.install_rift_runtime", lambda _paths: runtime)
+    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
+    monkeypatch.setattr("riftlift.launch._run_game_process", lambda *_a, **_k: 0)
+    called = []
+    monkeypatch.setattr(
+        "riftlift.doctor.quick_launch_diagnosis",
+        lambda _paths: called.append(1) or "should never be reached",
+    )
+    game = Game(
+        "sample", "Sample", "1", "sample-key", str(executable.parent), "Game.exe", []
+    )
+
+    assert launch(paths, game, []) == 0
+
+    assert called == []
+    assert "[Diagnostic]" not in capsys.readouterr().out
