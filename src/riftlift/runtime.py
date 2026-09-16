@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -1182,6 +1183,119 @@ def install_openxr_layer(paths: Paths) -> None:
         _registry_add(paths, "HKLM\\" + key, name, "REG_DWORD", "0")
 
 
+def _flatpak_app_parts(runtime: Path) -> tuple[str, str] | None:
+    """The (app directory, app id) owning `runtime`, if it lives in a Flatpak."""
+    parts = runtime.parts
+    for index, part in enumerate(parts):
+        if part == "flatpak" and parts[index + 1 : index + 2] == ("app",):
+            if index + 2 >= len(parts):
+                return None
+            return str(Path(*parts[: index + 3])), parts[index + 2]
+    return None
+
+
+def _flatpak_runtime_root(runtime: Path) -> str | None:
+    """The Flatpak app directory owning `runtime`, if it lives in one.
+
+    A Flatpak-packaged OpenXR runtime (WiVRn's own Flathub build prints this
+    exact requirement) sits inside its own sandbox, which Steam's Linux
+    Runtime container does not expose by default even when
+    PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 tells it to look for a host
+    runtime manifest - the container still can't read the library file the
+    manifest points to unless that Flatpak's directory is bind-mounted in.
+    """
+    found = _flatpak_app_parts(runtime)
+    return found[0] if found else None
+
+
+_PRESSURE_VESSEL_KEY_PATTERN = re.compile(r"\APRESSURE_VESSEL_[A-Z0-9_]+\Z")
+_PRESSURE_VESSEL_PATH_TOKEN = re.compile(r"\A/[\w./-]+\Z")
+_MAX_WIVRN_LOG_BYTES = 2 * 1024 * 1024
+
+
+def _valid_pressure_vessel_value(value: str) -> bool:
+    """A plain boolean flag, or one or more existing absolute paths.
+
+    Pressure-vessel's own filesystem flags accept a colon-separated path
+    list, so a single value is checked the same way a lone path would be.
+    """
+    if value in ("0", "1"):
+        return True
+    tokens = value.split(":")
+    return bool(tokens) and all(
+        _PRESSURE_VESSEL_PATH_TOKEN.match(token) and Path(token).is_dir()
+        for token in tokens
+    )
+
+
+def _parse_pressure_vessel_command_line(line: str) -> dict[str, str] | None:
+    """Validate and extract KEY=VALUE pairs from one "set command to" line.
+
+    Deliberately not a fixed allow-list of specific variable names - a future
+    WiVRn release adding a new PRESSURE_VESSEL_* flag should still work
+    without a RiftLift update. Instead, each assignment is checked by shape:
+    the key must look like a genuine PRESSURE_VESSEL_* variable and the value
+    must be a plain boolean or an existing absolute path (or colon-separated
+    paths) - nothing resembling a shell metacharacter, unrelated variable, or
+    dangling path survives. Anything that doesn't fit is treated the same as
+    no match at all, never partially trusted.
+    """
+    marker = "set command to "
+    if marker not in line:
+        return None
+    _prefix, _, remainder = line.partition(marker)
+    tokens = remainder.replace("%command%", "").split()
+    if not tokens:
+        return None
+    pairs: dict[str, str] = {}
+    for token in tokens:
+        key, sep, value = token.partition("=")
+        if (
+            not sep
+            or not _PRESSURE_VESSEL_KEY_PATTERN.match(key)
+            or not _valid_pressure_vessel_value(value)
+        ):
+            return None
+        pairs[key] = value
+    return pairs or None
+
+
+def _wivrn_recommended_pressure_vessel_env(app_id: str) -> dict[str, str] | None:
+    """Read the Flatpak WiVRn server's own Steam launch-option recommendation.
+
+    Its startup log prints the exact PRESSURE_VESSEL_* variables its sandbox
+    needs (e.g. "For Steam games, set command to
+    PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1
+    PRESSURE_VESSEL_FILESYSTEMS_RW=/var/lib/flatpak/app/io.github.wivrn.wivrn
+    %command%"), which can change (including adding flags this code has never
+    seen) across WiVRn versions - trust that over a value this code guesses
+    itself, whenever a recent log has one. Only assignments shaped like a
+    genuine PRESSURE_VESSEL_* flag are ever accepted; anything else in the
+    line, or any error reading it, falls through to the caller's own static
+    fallback instead of raising.
+    """
+    log_dir = Path.home() / ".var/app" / app_id / ".local/state/wivrn/wivrn-dashboard"
+    try:
+        logs = sorted(
+            log_dir.glob("server_logs_*.txt"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return None
+    for log in logs[:3]:
+        try:
+            if log.stat().st_size > _MAX_WIVRN_LOG_BYTES:
+                continue
+            text = log.read_text(errors="replace")
+        except OSError:
+            continue
+        for line in reversed(text.splitlines()):
+            if pairs := _parse_pressure_vessel_command_line(line):
+                return pairs
+    return None
+
+
 def launch_environment(
     paths: Paths,
     game_dir: Path,
@@ -1203,6 +1317,13 @@ def launch_environment(
             "WINEDLLOVERRIDES": f"d3d11=n;dxgi=n{';' + existing_overrides if existing_overrides else ''}",
         }
     )
+    if flatpak_app := _flatpak_app_parts(runtime):
+        flatpak_root, app_id = flatpak_app
+        dynamic = _wivrn_recommended_pressure_vessel_env(app_id)
+        if dynamic:
+            environment.update(dynamic)
+        else:
+            environment["PRESSURE_VESSEL_FILESYSTEMS_RW"] = flatpak_root
     if platform_shim:
         install_platform_compat(paths)
         meta_runtime_win = r"C:\Program Files\Oculus\Support\oculus-runtime"
