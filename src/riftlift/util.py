@@ -63,7 +63,17 @@ def command(name: str) -> str:
 
 
 def installed_command(name: str) -> Path:
-    """Find a RiftLift entry point installed on PATH or in the XDG bin directory."""
+    """Find a RiftLift entry point installed on PATH, in the XDG bin directory,
+    or as the AppImage currently running this process.
+
+    A standalone AppImage has no separately installed CLI for Steam shortcuts
+    or the Meta login callback to call back into - it is the only RiftLift
+    binary on the machine, so it must be able to point at itself.
+    """
+    if name == "riftlift" and (appimage := os.environ.get("APPIMAGE")):
+        appimage_path = Path(appimage)
+        if appimage_path.is_file():
+            return appimage_path
     if value := shutil.which(name):
         return Path(value)
     configured_bin_home = os.environ.get("XDG_BIN_HOME")

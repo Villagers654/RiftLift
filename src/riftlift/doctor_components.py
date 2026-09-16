@@ -185,6 +185,15 @@ def component_matches(name: str, installed: str, expected: str) -> bool:
     return installed == expected
 
 
+def needs_setup(paths: Paths) -> bool:
+    """Whether any compatibility component doesn't match what this build expects."""
+    installed = current_components(paths)
+    return any(
+        not component_matches(key, installed.get(key, "unknown"), value)
+        for key, value in expected_components().items()
+    )
+
+
 def component_comparison(
     launches: list[dict[str, object]], current: dict[str, str]
 ) -> list[str]:

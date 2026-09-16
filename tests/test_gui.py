@@ -125,6 +125,58 @@ def test_gui_cannot_close_while_an_operation_is_running(tmp_path: Path) -> None:
     app.processEvents()
 
 
+def test_window_auto_runs_setup_when_the_compatibility_runtime_is_not_ready(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    monkeypatch.setattr("riftlift.main_window.needs_setup", lambda _paths: True)
+    calls = []
+    monkeypatch.setattr("riftlift.main_window.setup", lambda _paths: calls.append(1))
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    window = Window(paths)
+
+    assert wait_until(app, lambda: not window.busy)
+    assert calls == [1]
+    assert window.status.text() == "Compatibility runtime is ready"
+    window.close()
+    app.processEvents()
+
+
+def test_window_does_not_run_setup_when_the_compatibility_runtime_is_ready(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    monkeypatch.setattr("riftlift.main_window.needs_setup", lambda _paths: False)
+    calls = []
+    monkeypatch.setattr("riftlift.main_window.setup", lambda _paths: calls.append(1))
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    window = Window(paths)
+    app.processEvents()
+
+    assert calls == []
+    assert not window.busy
+    window.close()
+    app.processEvents()
+
+
 def test_steam_store_fallback_never_opens_meta(tmp_path: Path, monkeypatch) -> None:
     paths = Paths(
         tmp_path / "data",

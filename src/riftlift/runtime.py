@@ -82,7 +82,7 @@ class MetaPackage:
 
     @property
     def url(self) -> str:
-        return f"https://securecdn-atl3-3.oculus.com/binaries/download/?id={self.binary_id}"
+        return f"https://securecdn.oculus.com/binaries/download/?id={self.binary_id}"
 
 
 META_RUNTIME_SIGNED_FILES = {

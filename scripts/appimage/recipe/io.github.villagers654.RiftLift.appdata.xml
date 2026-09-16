@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+    <id>io.github.villagers654.RiftLift</id>
+    <metadata_license>MIT</metadata_license>
+    <project_license>GPL-3.0-or-later</project_license>
+    <name>RiftLift</name>
+    <summary>Run owned Meta Rift games on Linux OpenXR</summary>
+    <description>
+        <p>
+            RiftLift is a plug-and-play bridge for playing owned Meta Rift /
+            PC VR store games on Linux systems with a working OpenXR runtime.
+        </p>
+    </description>
+    <launchable type="desktop-id">io.github.villagers654.RiftLift.desktop</launchable>
+    <url type="homepage">https://github.com/Villagers654/RiftLift</url>
+    <provides>
+        <binary>riftlift-gui</binary>
+    </provides>
+</component>
