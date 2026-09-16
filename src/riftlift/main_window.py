@@ -19,11 +19,13 @@ from .config import (
     set_debug_logging,
 )
 from .doctor import doctor
+from .doctor_components import needs_setup
 from .game_ui import LocalGameDialog, StoreGameDialog
 from .launch import launch
 from .library import add, add_local
 from .metadata import populate_game_metadata
 from .playtime import playtime, playtime_label
+from .runtime import setup
 from .steam import sync_with_restart
 from .steam_oculus import add_steam_game
 from .steam_ui import SteamGamesDialog
@@ -119,6 +121,12 @@ class Window(QtWidgets.QMainWindow):
         self.setStyleSheet(STYLE)
         self._build()
         self.refresh()
+        if needs_setup(self.paths):
+            self.run_task(
+                "Setting up the compatibility runtime",
+                lambda: setup(self.paths),
+                success="Compatibility runtime is ready",
+            )
 
     def label(self, text="", name=""):
         widget = QtWidgets.QLabel(text)
