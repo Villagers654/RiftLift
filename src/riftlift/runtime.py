@@ -7,6 +7,7 @@ import os
 import shutil
 import struct
 import subprocess
+import sys
 import tarfile
 import tempfile
 import zipfile
@@ -804,6 +805,30 @@ def install_rift_runtime(paths: Paths) -> Path:
     return destination
 
 
+def validate_openvr_library(library: Path) -> None:
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import ctypes, sys; lib = ctypes.CDLL(sys.argv[1]); "
+                "lib.HmdSystemFactory; lib.VRClientCoreFactory",
+                str(library.resolve()),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RiftLiftError(
+            f"Could not validate the XRizer library: {error}"
+        ) from error
+    if result.returncode:
+        detail = result.stderr.strip()[-2000:] or f"loader exited {result.returncode}"
+        raise RiftLiftError(f"XRizer cannot load on this system: {detail}")
+
+
 def install_openvr_runtime(paths: Paths) -> Path:
     """Install RiftLift's native OpenVR-to-OpenXR implementation."""
     destination = paths.tools / "openvr-runtime"
@@ -816,6 +841,7 @@ def install_openvr_runtime(paths: Paths) -> Path:
         and version_marker.is_file()
         and version_marker.read_text().strip() == OPENVR_RUNTIME_VERSION
     ):
+        validate_openvr_library(library)
         _write_openvr_path_registry(paths, destination)
         return destination
     override = os.environ.get("RIFTLIFT_OPENVR_RUNTIME_ARCHIVE")
@@ -835,6 +861,7 @@ def install_openvr_runtime(paths: Paths) -> Path:
         staged_library = source / "libxrizer.so"
         if not staged_library.is_file():
             raise RiftLiftError("RiftLift OpenVR runtime payload is incomplete")
+        validate_openvr_library(staged_library)
         staged_proton_library = source / "bin/linux64/vrclient.so"
         staged_proton_library.parent.mkdir(parents=True, exist_ok=True)
         try:

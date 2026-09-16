@@ -90,7 +90,7 @@ jobs:
           path: ${{ runner.temp }}\riftlift-windows-bridge.zip
 
   xrizer:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       CARGO_INCREMENTAL: "0"
     defaults:
@@ -101,14 +101,24 @@ jobs:
         with:
           submodules: true
       - name: Install native build dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang cmake glslc libopenxr-dev libvulkan-dev libx11-xcb-dev ninja-build
+        run: sudo apt-get update && sudo apt-get install -y clang cmake libopenxr-dev libvulkan-dev libx11-xcb-dev ninja-build
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/glslc
+          key: glslc-ubuntu22-3cd72062f297df05e6a042f2616c42bc8956c326
+      - name: Prepare the baseline shader compiler
+        run: |
+          test -x "$RUNNER_TEMP/glslc/bin/glslc" || ../../scripts/build-glslc.sh "$RUNNER_TEMP/glslc/bin/glslc"
+          echo "$RUNNER_TEMP/glslc/bin" >> "$GITHUB_PATH"
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: xrizer-release-v2-${{ runner.os }}-${{ hashFiles('components/xrizer/Cargo.lock') }}
-      - run: cargo build --release
+          key: xrizer-release-v3-ubuntu22-${{ hashFiles('components/xrizer/Cargo.lock') }}
+      - run: cargo build --locked --release
+      - name: Verify XRizer loads on the supported baseline
+        run: PYTHONPATH=../../src python3 -c 'from pathlib import Path; from riftlift.runtime import validate_openvr_library; validate_openvr_library(Path("target/release/libxrizer.so"))'
       - name: Collect xrizer payload
         run: |
           mkdir -p ../../out/xrizer
