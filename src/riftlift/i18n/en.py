@@ -55,6 +55,7 @@ STRINGS = {
     },
     "game": {
         "launch": "Launch in VR",
+        "stop": "Stop",
         "install": "Install",
         "files": "Files",
         "add_to_steam": "Add to Steam",
@@ -74,6 +75,7 @@ STRINGS = {
         "signed_in": "Signed in to Meta",
         "signed_out": "Signed out of Meta",
         "busy": "Another operation is already running",
+        "now_playing": "Playing",
     },
     "task": {
         "checking_system": "Checking your system",
@@ -81,6 +83,7 @@ STRINGS = {
         "added_from_steam": "Added {name} from Steam",
         "launching": "Launching {name}",
         "closed": "{name} closed",
+        "stopping": "Stopping {name}",
         "adding_to_steam": "Adding {name} to Steam",
         "added_to_steam": "Added {name} to Steam",
         "removing": "Removing {name}",

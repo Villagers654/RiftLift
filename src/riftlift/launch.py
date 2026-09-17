@@ -8,7 +8,7 @@ import signal
 import subprocess
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +31,7 @@ from .diagnostics import (
     prepare_debug_logs,
     prepare_launch_log,
     prepare_proton_logs,
+    recent_launches,
     system_build_components,
     trim_runtime_traces,
 )
@@ -106,6 +107,63 @@ def _marked_launch_processes(launch_id: str) -> list[int]:
         if marker in environment:
             result.append(int(target.name))
     return result
+
+
+def running_launch_id(paths: Paths, slug: str) -> str | None:
+    """The launch id of `slug`'s in-flight run, from any process, if still alive.
+
+    A game can be started outside RiftLift's own GUI entirely - Steam's Play
+    button on a synced shortcut, a headset's own WiVRn launch integration, a
+    bare `riftlift launch` from a terminal - all of which call this same
+    module's `launch()` in a separate process the GUI shares no memory with.
+    The GUI instead checks the on-disk launch history every launch already
+    writes to (recent_launches), then confirms the marked process is truly
+    still running rather than trusting a "started" record that never got a
+    matching "finished" one - which a crash or a force-kill could leave
+    behind just as easily as a game that's genuinely still going.
+    """
+    for record in recent_launches(paths, limit=20):
+        if record.get("slug") != slug:
+            continue
+        if record.get("event") != "started":
+            return None
+        launch_id = record.get("id")
+        if isinstance(launch_id, str) and _marked_launch_processes(launch_id):
+            return launch_id
+        return None
+    return None
+
+
+def running_launch(paths: Paths) -> tuple[str, str] | None:
+    """The (slug, launch_id) of whatever game is currently running, if any.
+
+    Same detection as `running_launch_id`, but for a header-level indicator
+    that isn't tied to any one game's detail page and so doesn't know the
+    slug to check in advance.
+    """
+    seen_slugs: set[str] = set()
+    for record in recent_launches(paths, limit=20):
+        slug = record.get("slug")
+        if not isinstance(slug, str) or slug in seen_slugs:
+            continue
+        seen_slugs.add(slug)
+        if record.get("event") != "started":
+            continue
+        launch_id = record.get("id")
+        if isinstance(launch_id, str) and _marked_launch_processes(launch_id):
+            return slug, launch_id
+    return None
+
+
+def stop_launch(launch_id: str) -> None:
+    """Ask every process still carrying this launch's marker to exit.
+
+    Public entry point for a caller (the GUI's Stop button) that only knows
+    the launch id and isn't the thread blocked inside `launch()` itself -
+    that thread's own `process.wait()` unblocks on its own once the process
+    tree it's watching actually exits, so no further coordination is needed.
+    """
+    _terminate_marked_launch_processes(launch_id)
 
 
 def _terminate_marked_launch_processes(launch_id: str) -> None:
@@ -670,10 +728,17 @@ def _start_launch_record(
     return launch_id, started, log_path
 
 
-def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
+def launch(
+    paths: Paths,
+    game: Game,
+    extra_arguments: list[str],
+    *,
+    on_started: Callable[[str], None] = lambda _launch_id: None,
+) -> int:
     plan = _prepare_launch(paths, game, extra_arguments)
     environment = plan.environment
     launch_id, started, log_path = _start_launch_record(paths, game, plan)
+    on_started(launch_id)
     playtime_session: PlaytimeSession | None = None
     try:
         try:
