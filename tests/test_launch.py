@@ -750,6 +750,7 @@ def test_launch_environment_exposes_a_flatpak_runtime_to_pressure_vessel(
     manifest.parent.mkdir(parents=True)
     manifest.write_text("{}")
     monkeypatch.setattr("riftlift.runtime.proton_environment", lambda *_args: {})
+    monkeypatch.setattr("riftlift.runtime.install_openxr_layer", lambda _paths: None)
     # No WiVRn log to read - this exercises the static fallback specifically,
     # so it must not pick up a real WiVRn install on the machine running it.
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
@@ -779,6 +780,7 @@ def test_launch_environment_prefers_wivrns_own_recommendation(
     manifest.parent.mkdir(parents=True)
     manifest.write_text("{}")
     monkeypatch.setattr("riftlift.runtime.proton_environment", lambda *_args: {})
+    monkeypatch.setattr("riftlift.runtime.install_openxr_layer", lambda _paths: None)
     home = tmp_path / "home"
     monkeypatch.setattr(Path, "home", lambda: home)
     # A recommendation naming a different (but real) RW path than the app
@@ -820,6 +822,7 @@ def test_launch_environment_falls_back_when_the_wivrn_log_has_no_valid_line(
     manifest.parent.mkdir(parents=True)
     manifest.write_text("{}")
     monkeypatch.setattr("riftlift.runtime.proton_environment", lambda *_args: {})
+    monkeypatch.setattr("riftlift.runtime.install_openxr_layer", lambda _paths: None)
     home = tmp_path / "home"
     monkeypatch.setattr(Path, "home", lambda: home)
     log_dir = home / ".var/app/io.github.wivrn.wivrn/.local/state/wivrn/wivrn-dashboard"
