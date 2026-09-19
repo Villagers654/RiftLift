@@ -177,14 +177,6 @@ def expected_components() -> dict[str, str]:
     }
 
 
-def component_matches(name: str, installed: str, expected: str) -> bool:
-    if name == "proton":
-        return installed == expected or installed.endswith(f" {expected}")
-    if name == "dxvk":
-        return installed == expected or installed.startswith(f"{expected} sha256:")
-    return installed == expected
-
-
 def needs_setup(paths: Paths) -> bool:
     """Whether any compatibility component doesn't match what this build expects."""
     installed = current_components(paths)
@@ -192,6 +184,14 @@ def needs_setup(paths: Paths) -> bool:
         not component_matches(key, installed.get(key, "unknown"), value)
         for key, value in expected_components().items()
     )
+
+
+def component_matches(name: str, installed: str, expected: str) -> bool:
+    if name == "proton":
+        return installed == expected or installed.endswith(f" {expected}")
+    if name == "dxvk":
+        return installed == expected or installed.startswith(f"{expected} sha256:")
+    return installed == expected
 
 
 def component_comparison(

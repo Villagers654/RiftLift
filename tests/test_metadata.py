@@ -8,6 +8,8 @@ from riftlift.config import Game, Paths
 from riftlift.metadata import (
     USER_AGENT,
     CatalogMetadata,
+    _composite,
+    fetch_owned_metadata,
     generate_artwork,
     parse_catalog_html,
     parse_steam_catalog,
@@ -17,6 +19,75 @@ from riftlift.metadata import (
 
 def test_user_agent_tracks_package_version() -> None:
     assert USER_AGENT.startswith(f"RiftLift/{__version__} ")
+
+
+def test_fetch_owned_metadata_only_hits_the_network_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    calls = []
+
+    def fake_fetch(app_id: str) -> CatalogMetadata:
+        calls.append(app_id)
+        return CatalogMetadata(
+            "Lone Echo", "https://example/lone-echo", "", "Ready At Dawn", "", [], ""
+        )
+
+    monkeypatch.setattr("riftlift.metadata.fetch_catalog_metadata", fake_fetch)
+
+    first = fetch_owned_metadata(paths, "123456789")
+    second = fetch_owned_metadata(paths, "123456789")
+
+    assert calls == ["123456789"]
+    assert (
+        first
+        == second
+        == CatalogMetadata(
+            "Lone Echo", "https://example/lone-echo", "", "Ready At Dawn", "", [], ""
+        )
+    )
+
+
+def test_fetch_owned_metadata_refresh_bypasses_the_cache(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    calls = []
+
+    def fake_fetch(app_id: str) -> CatalogMetadata:
+        calls.append(app_id)
+        return CatalogMetadata(
+            f"Lone Echo #{len(calls)}",
+            "https://example/lone-echo",
+            "",
+            "Ready At Dawn",
+            "",
+            [],
+            "",
+        )
+
+    monkeypatch.setattr("riftlift.metadata.fetch_catalog_metadata", fake_fetch)
+
+    first = fetch_owned_metadata(paths, "123456789")
+    second = fetch_owned_metadata(paths, "123456789", refresh=True)
+
+    assert calls == ["123456789", "123456789"]
+    assert first.name == "Lone Echo #1"
+    assert second.name == "Lone Echo #2"
 
 
 def test_parse_meta_json_ld_catalog() -> None:
@@ -102,6 +173,18 @@ def test_generate_all_steam_artwork_sizes(tmp_path: Path) -> None:
             assert image.size == size
 
 
+def test_composite_never_crops_the_source_image() -> None:
+    source = Image.new("RGB", (400, 800), "red")
+    for y in range(390, 410):
+        for x in range(400):
+            source.putpixel((x, y), (0, 255, 0))
+
+    result = _composite(source, (1920, 620))
+
+    assert result.size == (1920, 620)
+    assert result.getpixel((960, 310)) == (0, 255, 0)
+
+
 def test_metadata_catalog_uses_validated_game_source(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -139,3 +222,42 @@ def test_metadata_catalog_uses_validated_game_source(
     populate_game_metadata(paths, game)
 
     assert calls == [("meta", "123")]
+
+
+def test_metadata_ignores_a_meta_games_steam_shortcut_id(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # A Meta/local game that has been synced to Steam ("Add to Steam") gets
+    # a steam_app_id too, but that's Steam's own generated shortcut id, not
+    # a real store id - it must never be used to fetch Meta's catalog.
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    game = Game(
+        "example",
+        "Example",
+        "123456789",
+        "meta.example",
+        str(tmp_path),
+        "game.exe",
+        [],
+        source="meta",
+        steam_app_id=3820161062,
+    )
+    metadata = CatalogMetadata(
+        "Example", "meta", "description", "developer", "", [], ""
+    )
+    calls = []
+    monkeypatch.setattr(
+        "riftlift.metadata.fetch_catalog_metadata",
+        lambda app_id: calls.append(app_id) or metadata,
+    )
+
+    populate_game_metadata(paths, game)
+
+    assert calls == ["123456789"]

@@ -9,8 +9,12 @@ from PySide6 import QtCore, QtWidgets
 from .auth import is_signed_in, save_access_token, sign_out
 from .auth_browser import default_browser, launch_browser_login
 from .config import Paths
+from .i18n import namespace
 from .meta_auth import MetaAuthSession
 from .theme import STYLE
+from .titlebar import wrap_dialog
+
+AUTH = namespace("auth")
 
 
 class AuthDialog(QtWidgets.QDialog):
@@ -28,22 +32,16 @@ class AuthDialog(QtWidgets.QDialog):
             max_workers=1, thread_name_prefix="meta-auth"
         )
         self.completed = False
-        self.setWindowTitle("Meta account")
+        self.setWindowTitle(AUTH("title"))
         self.setMinimumWidth(520)
         self.setStyleSheet(STYLE)
 
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(24, 22, 24, 22)
+        layout = wrap_dialog(self, AUTH("title"), margins=(24, 22, 24, 22))
         layout.setSpacing(12)
-        title = QtWidgets.QLabel("Sign in to Meta")
+        title = QtWidgets.QLabel(AUTH("heading"))
         title.setObjectName("game")
         layout.addWidget(title)
-        explanation = QtWidgets.QLabel(
-            "RiftLift opens your default browser with your usual profile "
-            "and returns here when Meta finishes. Allow the browser to open RiftLift "
-            "when prompted. Your password "
-            "and security codes go only to Meta."
-        )
+        explanation = QtWidgets.QLabel(AUTH("explanation"))
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
 
@@ -52,12 +50,12 @@ class AuthDialog(QtWidgets.QDialog):
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
 
-        self.retry = QtWidgets.QPushButton("Open default browser")
+        self.retry = QtWidgets.QPushButton(AUTH("open_browser"))
         self.retry.setObjectName("primary")
         self.retry.clicked.connect(self.start)
         layout.addWidget(self.retry)
 
-        self.reset = QtWidgets.QPushButton("Sign out and reset")
+        self.reset = QtWidgets.QPushButton(AUTH("sign_out_reset"))
         self.reset.clicked.connect(self.reset_login)
         layout.addWidget(self.reset)
 
@@ -70,11 +68,7 @@ class AuthDialog(QtWidgets.QDialog):
 
     def show_state(self):
         signed_in = is_signed_in(self.paths)
-        self.status.setText(
-            "RiftLift is signed in to Meta."
-            if signed_in
-            else "Opening your default browser…"
-        )
+        self.status.setText(AUTH("signed_in") if signed_in else AUTH("opening_browser"))
         self.retry.setVisible(False)
         self.reset.setVisible(signed_in)
 
@@ -90,9 +84,9 @@ class AuthDialog(QtWidgets.QDialog):
         self.session = None
         self.operation = "begin"
         self.pending = self.executor.submit(MetaAuthSession.begin, self.paths)
-        self.status.setText("Preparing a secure Meta sign-in…")
+        self.status.setText(AUTH("preparing"))
         self.retry.setVisible(False)
-        self.reset.setText("Cancel sign-in")
+        self.reset.setText(AUTH("cancel_sign_in"))
         self.reset.setVisible(True)
         self.timer.start()
 
@@ -118,17 +112,15 @@ class AuthDialog(QtWidgets.QDialog):
             return
         self.pending = None
         self.operation = "waiting"
-        self.status.setText(f"Waiting for Meta in {self.browser.name}…")
+        self.status.setText(AUTH("waiting_for_meta").format(browser=self.browser.name))
 
     def _check_callback(self):
         if self.session is not None and self.session.callback_ready():
             self.operation = "complete"
             self.pending = self.executor.submit(self.session.complete)
-            self.status.setText("Finishing sign-in securely…")
+            self.status.setText(AUTH("finishing"))
         elif self.process is not None and self.process.poll() not in (None, 0):
-            self.show_error(
-                "Could not open the browser for Meta sign-in. Try again when ready."
-            )
+            self.show_error(AUTH("browser_open_failed"))
 
     def _finish_login(self):
         if self.pending is None or not self.pending.done():
@@ -143,7 +135,7 @@ class AuthDialog(QtWidgets.QDialog):
             self.operation = "idle"
             self.pending = None
             self.completed = True
-            self.status.setText("Signed in. Returning to RiftLift…")
+            self.status.setText(AUTH("signed_in_returning"))
             self.process = None
             QtCore.QTimer.singleShot(500, self.accept)
 
@@ -153,9 +145,9 @@ class AuthDialog(QtWidgets.QDialog):
         self.pending = None
         self.operation = "idle"
         self.status.setText(str(error))
-        self.retry.setText("Try again")
+        self.retry.setText(AUTH("try_again"))
         self.retry.setVisible(True)
-        self.reset.setText("Sign out and reset")
+        self.reset.setText(AUTH("sign_out_reset"))
         self.reset.setVisible(False)
 
     def reset_login(self):
@@ -168,11 +160,11 @@ class AuthDialog(QtWidgets.QDialog):
             self.pending.cancel()
         self.pending = None
         self.operation = "idle"
-        self.reset.setText("Sign out and reset")
+        self.reset.setText(AUTH("sign_out_reset"))
         self.reset.setVisible(False)
-        self.retry.setText("Open default browser")
+        self.retry.setText(AUTH("open_browser"))
         self.retry.setVisible(True)
-        self.status.setText("Signed out. Open your default browser when ready.")
+        self.status.setText(AUTH("signed_out"))
 
     def accept(self):
         self.timer.stop()

@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -7,21 +8,33 @@ import pytest
 from riftlift.config import Game, Paths
 from riftlift.diagnostics import (
     clear_runtime_traces,
+    launch_finished,
+    launch_started,
     recent_launches,
     trim_runtime_traces,
 )
 from riftlift.launch import (
     _clear_proton_openvr_cache,
+    _disable_openxr_for_direct_openvr,
     _expected_launch_components,
     _installed_openvr_build,
     _run_game_process,
     _terminate_marked_launch_processes,
     launch,
     oculus_launch_arguments,
+    running_launch,
+    running_launch_id,
     runtime_backend,
+    stop_launch,
 )
 from riftlift.playtime import playtime
-from riftlift.runtime import launch_environment, native_xr_bridge, setup
+from riftlift.runtime import (
+    _parse_pressure_vessel_command_line,
+    _wivrn_recommended_pressure_vessel_env,
+    launch_environment,
+    native_xr_bridge,
+    setup,
+)
 from riftlift.util import RiftLiftError
 
 
@@ -468,6 +481,7 @@ def test_xrizer_bridge_uses_host_action_manifest(tmp_path: Path, monkeypatch) ->
             "XRIZER_LOG_DIR": "/tmp/xrizer",
             "XR_RUNTIME_JSON": "/tmp/openxr.json",
             "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
+            "WINEDLLOVERRIDES": "d3d11=n;dxgi=n",
         },
     )
     captured: dict[str, object] = {}
@@ -484,7 +498,52 @@ def test_xrizer_bridge_uses_host_action_manifest(tmp_path: Path, monkeypatch) ->
     assert captured["env"]["RIFTLIFT_XRIZER"] == "1"
     assert captured["env"]["XR_RUNTIME_JSON"] == "/tmp/openxr.json"
     assert captured["env"]["PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES"] == "1"
-    assert "wineopenxr=d" not in captured["env"].get("WINEDLLOVERRIDES", "")
+    # XRizer's own vrclient tries wineopenxr and falls back gracefully when
+    # it's missing, and other in-process Windows OpenXR clients (Unity's
+    # OculusXRPlugin) need it - so unlike a standalone OpenVR runtime, it
+    # must not be disabled here.
+    assert captured["env"]["WINEDLLOVERRIDES"] == "d3d11=n;dxgi=n"
+
+
+def test_disable_openxr_for_direct_openvr_leaves_xrizer_alone() -> None:
+    environment = {
+        "XR_RUNTIME_JSON": "/tmp/openxr.json",
+        "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
+        "PRESSURE_VESSEL_FILESYSTEMS_RW": "/tmp/flatpak",
+        "OXR_ZERO_TIME_IS_NOW": "1",
+        "WINEDLLOVERRIDES": "d3d11=n;dxgi=n",
+    }
+
+    _disable_openxr_for_direct_openvr(environment, "xrizer")
+
+    assert environment == {
+        "XR_RUNTIME_JSON": "/tmp/openxr.json",
+        "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
+        "PRESSURE_VESSEL_FILESYSTEMS_RW": "/tmp/flatpak",
+        "OXR_ZERO_TIME_IS_NOW": "1",
+        "WINEDLLOVERRIDES": "d3d11=n;dxgi=n",
+    }
+
+
+@pytest.mark.parametrize("openvr_kind", ["steamvr", "external"])
+def test_disable_openxr_for_direct_openvr_disables_it_for_a_standalone_runtime(
+    openvr_kind: str,
+) -> None:
+    environment = {
+        "XR_RUNTIME_JSON": "/tmp/openxr.json",
+        "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
+        "PRESSURE_VESSEL_FILESYSTEMS_RW": "/tmp/flatpak",
+        "OXR_ZERO_TIME_IS_NOW": "1",
+        "WINEDLLOVERRIDES": "d3d11=n;dxgi=n",
+    }
+
+    _disable_openxr_for_direct_openvr(environment, openvr_kind)
+
+    assert "XR_RUNTIME_JSON" not in environment
+    assert "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES" not in environment
+    assert "PRESSURE_VESSEL_FILESYSTEMS_RW" not in environment
+    assert "OXR_ZERO_TIME_IS_NOW" not in environment
+    assert environment["WINEDLLOVERRIDES"] == "wineopenxr=d;d3d11=n;dxgi=n"
 
 
 def test_openvr_launch_clears_only_protons_generated_runtime_cache(
@@ -652,6 +711,210 @@ def test_launch_environment_uses_selected_manifest_without_vendor_config(
     assert environment["XR_RUNTIME_JSON"] == str(manifest)
     assert "DRI_PRIME" not in environment
     assert "LD_LIBRARY_PATH" not in environment
+    assert "PRESSURE_VESSEL_FILESYSTEMS_RW" not in environment
+
+
+def test_launch_environment_exposes_a_flatpak_runtime_to_pressure_vessel(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "rift-data",
+        tmp_path / "rift-cache",
+        tmp_path / "rift-config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    app_root = tmp_path / "var/lib/flatpak/app/io.github.wivrn.wivrn"
+    manifest = (
+        app_root / "x86_64/stable/deadbeef/files/share/openxr/1/openxr_wivrn.json"
+    )
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
+    monkeypatch.setattr("riftlift.runtime.proton_environment", lambda *_args: {})
+    monkeypatch.setattr("riftlift.runtime.install_openxr_layer", lambda _paths: None)
+    # No WiVRn log to read - this exercises the static fallback specifically,
+    # so it must not pick up a real WiVRn install on the machine running it.
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+
+    environment = launch_environment(
+        paths, paths.games / "sample", False, runtime=manifest
+    )
+
+    assert environment["PRESSURE_VESSEL_FILESYSTEMS_RW"] == str(app_root)
+
+
+def test_launch_environment_prefers_wivrns_own_recommendation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "rift-data",
+        tmp_path / "rift-cache",
+        tmp_path / "rift-config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    app_root = tmp_path / "var/lib/flatpak/app/io.github.wivrn.wivrn"
+    manifest = (
+        app_root / "x86_64/stable/deadbeef/files/share/openxr/1/openxr_wivrn.json"
+    )
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
+    monkeypatch.setattr("riftlift.runtime.proton_environment", lambda *_args: {})
+    monkeypatch.setattr("riftlift.runtime.install_openxr_layer", lambda _paths: None)
+    home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    # A recommendation naming a different (but real) RW path than the app
+    # root itself, so a match proves the log was actually used, not the
+    # static fallback happening to agree.
+    alternate_rw = tmp_path / "alternate-rw-target"
+    alternate_rw.mkdir()
+    log_dir = home / ".var/app/io.github.wivrn.wivrn/.local/state/wivrn/wivrn-dashboard"
+    log_dir.mkdir(parents=True)
+    (log_dir / "server_logs_2026-01-01T00:00:00.txt").write_text(
+        "[2026-01-01T00:00:00.000] WiVRn 1.0 starting\n"
+        "[2026-01-01T00:00:00.100] For Steam games, set command to "
+        f"PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 "
+        f"PRESSURE_VESSEL_FILESYSTEMS_RW={alternate_rw} %command%\n"
+    )
+
+    environment = launch_environment(
+        paths, paths.games / "sample", False, runtime=manifest
+    )
+
+    assert environment["PRESSURE_VESSEL_FILESYSTEMS_RW"] == str(alternate_rw)
+
+
+def test_launch_environment_falls_back_when_the_wivrn_log_has_no_valid_line(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "rift-data",
+        tmp_path / "rift-cache",
+        tmp_path / "rift-config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    app_root = tmp_path / "var/lib/flatpak/app/io.github.wivrn.wivrn"
+    manifest = (
+        app_root / "x86_64/stable/deadbeef/files/share/openxr/1/openxr_wivrn.json"
+    )
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
+    monkeypatch.setattr("riftlift.runtime.proton_environment", lambda *_args: {})
+    monkeypatch.setattr("riftlift.runtime.install_openxr_layer", lambda _paths: None)
+    home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    log_dir = home / ".var/app/io.github.wivrn.wivrn/.local/state/wivrn/wivrn-dashboard"
+    log_dir.mkdir(parents=True)
+    (log_dir / "server_logs_2026-01-01T00:00:00.txt").write_text(
+        "[2026-01-01T00:00:00.000] WiVRn 1.0 starting\n"
+    )
+
+    environment = launch_environment(
+        paths, paths.games / "sample", False, runtime=manifest
+    )
+
+    assert environment["PRESSURE_VESSEL_FILESYSTEMS_RW"] == str(app_root)
+
+
+def test_parse_pressure_vessel_command_line_accepts_the_documented_shape(
+    tmp_path: Path,
+) -> None:
+    rw = tmp_path / "flatpak-app"
+    rw.mkdir()
+    line = (
+        "[t] For Steam games, set command to "
+        "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 "
+        f"PRESSURE_VESSEL_FILESYSTEMS_RW={rw} %command%"
+    )
+
+    assert _parse_pressure_vessel_command_line(line) == {
+        "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
+        "PRESSURE_VESSEL_FILESYSTEMS_RW": str(rw),
+    }
+
+
+def test_parse_pressure_vessel_command_line_accepts_an_unknown_flag(
+    tmp_path: Path,
+) -> None:
+    """A future WiVRn release adding a new flag should work without a code change."""
+    rw = tmp_path / "flatpak-app"
+    rw.mkdir()
+    line = f"set command to PRESSURE_VESSEL_SOME_FUTURE_FLAG={rw} %command%"
+
+    assert _parse_pressure_vessel_command_line(line) == {
+        "PRESSURE_VESSEL_SOME_FUTURE_FLAG": str(rw)
+    }
+
+
+def test_parse_pressure_vessel_command_line_accepts_colon_separated_paths(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    line = f"set command to PRESSURE_VESSEL_FILESYSTEMS_RW={first}:{second} %command%"
+
+    assert _parse_pressure_vessel_command_line(line) == {
+        "PRESSURE_VESSEL_FILESYSTEMS_RW": f"{first}:{second}"
+    }
+
+
+def test_parse_pressure_vessel_command_line_rejects_unrelated_variables() -> None:
+    line = "set command to LD_PRELOAD=/tmp/evil.so %command%"
+
+    assert _parse_pressure_vessel_command_line(line) is None
+
+
+def test_parse_pressure_vessel_command_line_rejects_shell_metacharacters() -> None:
+    line = (
+        "set command to "
+        "PRESSURE_VESSEL_FILESYSTEMS_RW=/tmp;rm${IFS}-rf${IFS}~ %command%"
+    )
+
+    assert _parse_pressure_vessel_command_line(line) is None
+
+
+def test_parse_pressure_vessel_command_line_rejects_a_nonexistent_path() -> None:
+    line = "set command to PRESSURE_VESSEL_FILESYSTEMS_RW=/no/such/directory %command%"
+
+    assert _parse_pressure_vessel_command_line(line) is None
+
+
+def test_parse_pressure_vessel_command_line_requires_the_marker() -> None:
+    assert _parse_pressure_vessel_command_line("nothing interesting here") is None
+
+
+def test_wivrn_recommended_pressure_vessel_env_picks_the_newest_log(
+    tmp_path: Path, monkeypatch
+) -> None:
+    older_rw = tmp_path / "older"
+    newer_rw = tmp_path / "newer"
+    older_rw.mkdir()
+    newer_rw.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    log_dir = (
+        tmp_path / ".var/app/io.github.wivrn.wivrn/.local/state/wivrn/wivrn-dashboard"
+    )
+    log_dir.mkdir(parents=True)
+    older = log_dir / "server_logs_2026-01-01T00:00:00.txt"
+    newer = log_dir / "server_logs_2026-02-01T00:00:00.txt"
+    older.write_text(
+        f"set command to PRESSURE_VESSEL_FILESYSTEMS_RW={older_rw} %command%\n"
+    )
+    newer.write_text(
+        f"set command to PRESSURE_VESSEL_FILESYSTEMS_RW={newer_rw} %command%\n"
+    )
+    os.utime(older, (1000, 1000))
+    os.utime(newer, (2000, 2000))
+
+    result = _wivrn_recommended_pressure_vessel_env("io.github.wivrn.wivrn")
+
+    assert result == {"PRESSURE_VESSEL_FILESYSTEMS_RW": str(newer_rw)}
 
 
 def test_explicit_runtime_selection_does_not_duplicate_loader_validation(
@@ -1199,3 +1462,341 @@ def test_local_game_does_not_inherit_verified_rift_offline_mode(
 
     assert launch(paths, game, []) == 0
     assert captured["environment_args"][-1] is False
+
+
+def test_unity_oculus_plugin_game_keeps_the_meta_oculus_service_alive(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "sample/Game.exe"
+    plugin = executable.parent / "Game_Data/Plugins/x86_64/OculusXRPlugin.dll"
+    plugin.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    plugin.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    proton.mkdir()
+    (proton / "proton").write_bytes(b"")
+    rift_runtime = tmp_path / "rift_runtime"
+    (rift_runtime / "Input").mkdir(parents=True)
+    (rift_runtime / "Input/action_manifest.json").write_text("{}")
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr(
+        "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
+    )
+    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
+    openvr = tmp_path / "xrizer"
+    (openvr / "bin/linux64").mkdir(parents=True)
+    (openvr / "bin/linux64/vrclient.so").write_bytes(b"ELF")
+    monkeypatch.setenv("VR_OVERRIDE", str(openvr))
+
+    service = (
+        paths.prefix
+        / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime/OVRServer_x64.exe"
+    )
+    service.parent.mkdir(parents=True)
+    service.write_bytes(b"MZ")
+
+    class FakeProcess:
+        pid = 4242
+
+        def __init__(self) -> None:
+            self.stopped = False
+
+        def poll(self):
+            return None if not self.stopped else 0
+
+        def wait(self, timeout=None):
+            self.stopped = True
+            return 0
+
+    real_popen = subprocess.Popen
+    popen_calls: list[list[str]] = []
+    fake_process = FakeProcess()
+    expected_command = [str(proton / "proton"), "run", str(service)]
+
+    def fake_popen(command, **kwargs):
+        if command == expected_command:
+            popen_calls.append(command)
+            return fake_process
+        return real_popen(command, **kwargs)
+
+    monkeypatch.setattr("riftlift.launch.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("riftlift.launch.time.sleep", lambda _seconds: None)
+    killed: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "riftlift.launch.os.killpg", lambda pid, value: killed.append((pid, value))
+    )
+    game_run_order: list[str] = []
+    monkeypatch.setattr(
+        "riftlift.launch._run_game_process",
+        lambda *_args, **_kwargs: game_run_order.append("game") or 0,
+    )
+
+    game = Game(
+        "sample", "Sample", "1", "sample-key", str(executable.parent), "Game.exe", []
+    )
+
+    assert launch(paths, game, []) == 0
+    assert popen_calls == [[str(proton / "proton"), "run", str(service)]]
+    assert game_run_order == ["game"]
+    assert killed == [(4242, 15)]
+
+
+def test_openvr_only_game_does_not_start_the_meta_oculus_service(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "sample/Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    proton.mkdir()
+    (proton / "proton").write_bytes(b"")
+    rift_runtime = tmp_path / "rift_runtime"
+    (rift_runtime / "Input").mkdir(parents=True)
+    (rift_runtime / "Input/action_manifest.json").write_text("{}")
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr(
+        "riftlift.launch.install_rift_runtime", lambda _paths: rift_runtime
+    )
+    monkeypatch.setattr(
+        "riftlift.launch._select_runtime_backend", lambda _game, _capabilities: "openvr"
+    )
+    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
+    openvr = tmp_path / "xrizer"
+    (openvr / "bin/linux64").mkdir(parents=True)
+    (openvr / "bin/linux64/vrclient.so").write_bytes(b"ELF")
+    monkeypatch.setenv("VR_OVERRIDE", str(openvr))
+
+    service = (
+        paths.prefix
+        / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime/OVRServer_x64.exe"
+    )
+    service.parent.mkdir(parents=True)
+    service.write_bytes(b"MZ")
+
+    real_popen = subprocess.Popen
+    popen_calls: list[list[str]] = []
+    expected_command = [str(proton / "proton"), "run", str(service)]
+
+    def fake_popen(command, **kwargs):
+        if command == expected_command:
+            popen_calls.append(command)
+            raise AssertionError("the Oculus service should not have been started")
+        return real_popen(command, **kwargs)
+
+    monkeypatch.setattr("riftlift.launch.subprocess.Popen", fake_popen)
+    monkeypatch.setattr(
+        "riftlift.launch._run_game_process", lambda *_args, **_kwargs: 0
+    )
+
+    game = Game(
+        "sample", "Sample", "1", "sample-key", str(executable.parent), "Game.exe", []
+    )
+
+    assert launch(paths, game, []) == 0
+    assert popen_calls == []
+
+
+def test_launch_prints_a_quick_diagnosis_after_a_failed_launch(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "sample/Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    runtime = tmp_path / "runtime"
+    proton.mkdir()
+    runtime.mkdir()
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr("riftlift.launch.install_rift_runtime", lambda _paths: runtime)
+    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
+    monkeypatch.setattr("riftlift.launch._run_game_process", lambda *_a, **_k: 5)
+    monkeypatch.setattr(
+        "riftlift.doctor.quick_launch_diagnosis",
+        lambda _paths: "High confidence: something specific broke.",
+    )
+    game = Game(
+        "sample", "Sample", "1", "sample-key", str(executable.parent), "Game.exe", []
+    )
+
+    assert launch(paths, game, []) == 5
+
+    assert "[Diagnostic] High confidence: something specific broke." in (
+        capsys.readouterr().out
+    )
+
+
+def test_launch_stays_quiet_after_a_clean_exit(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    executable = paths.games / "sample/Game.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"MZ")
+    proton = tmp_path / "proton"
+    runtime = tmp_path / "runtime"
+    proton.mkdir()
+    runtime.mkdir()
+    monkeypatch.setattr("riftlift.launch.install_proton", lambda _paths: proton)
+    monkeypatch.setattr("riftlift.launch.install_rift_runtime", lambda _paths: runtime)
+    monkeypatch.setattr("riftlift.launch.launch_environment", lambda *_args: {})
+    monkeypatch.setattr("riftlift.launch._run_game_process", lambda *_a, **_k: 0)
+    called = []
+    monkeypatch.setattr(
+        "riftlift.doctor.quick_launch_diagnosis",
+        lambda _paths: called.append(1) or "should never be reached",
+    )
+    game = Game(
+        "sample", "Sample", "1", "sample-key", str(executable.parent), "Game.exe", []
+    )
+
+    assert launch(paths, game, []) == 0
+
+    assert called == []
+    assert "[Diagnostic]" not in capsys.readouterr().out
+
+
+def _paths(tmp_path: Path) -> Paths:
+    return Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+
+
+def test_running_launch_id_is_none_when_the_game_was_never_launched(
+    tmp_path: Path,
+) -> None:
+    assert running_launch_id(_paths(tmp_path), "sample") is None
+
+
+def test_running_launch_id_is_none_once_the_launch_has_finished(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _paths(tmp_path)
+    game = Game("sample", "Sample", "1", "sample-key", str(tmp_path), "Game.exe", [])
+    launch_id, started = launch_started(
+        paths, game, "openxr", wrapper=False, capabilities=[]
+    )
+    launch_finished(paths, launch_id, started, exit_code=0)
+    monkeypatch.setattr("riftlift.launch._marked_launch_processes", lambda _id: [12345])
+
+    assert running_launch_id(paths, "sample") is None
+
+
+def test_running_launch_id_returns_the_id_while_the_process_is_alive(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _paths(tmp_path)
+    game = Game("sample", "Sample", "1", "sample-key", str(tmp_path), "Game.exe", [])
+    launch_id, _started = launch_started(
+        paths, game, "openxr", wrapper=False, capabilities=[]
+    )
+    monkeypatch.setattr("riftlift.launch._marked_launch_processes", lambda _id: [12345])
+
+    assert running_launch_id(paths, "sample") == launch_id
+
+
+def test_running_launch_id_is_none_without_a_live_marked_process(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # A "started" record with no matching "finished" one and no live marked
+    # process (e.g. a crash, or a force-kill outside RiftLift) must not be
+    # mistaken for a game that's genuinely still running.
+    paths = _paths(tmp_path)
+    game = Game("sample", "Sample", "1", "sample-key", str(tmp_path), "Game.exe", [])
+    launch_started(paths, game, "openxr", wrapper=False, capabilities=[])
+    monkeypatch.setattr("riftlift.launch._marked_launch_processes", lambda _id: [])
+
+    assert running_launch_id(paths, "sample") is None
+
+
+def test_running_launch_id_ignores_a_different_games_launch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _paths(tmp_path)
+    other = Game("other", "Other", "1", "other-key", str(tmp_path), "Other.exe", [])
+    launch_started(paths, other, "openxr", wrapper=False, capabilities=[])
+    monkeypatch.setattr("riftlift.launch._marked_launch_processes", lambda _id: [12345])
+
+    assert running_launch_id(paths, "sample") is None
+
+
+def test_running_launch_is_none_when_nothing_was_ever_launched(
+    tmp_path: Path,
+) -> None:
+    assert running_launch(_paths(tmp_path)) is None
+
+
+def test_running_launch_returns_the_slug_and_id_while_alive(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _paths(tmp_path)
+    game = Game("sample", "Sample", "1", "sample-key", str(tmp_path), "Game.exe", [])
+    launch_id, _started = launch_started(
+        paths, game, "openxr", wrapper=False, capabilities=[]
+    )
+    monkeypatch.setattr("riftlift.launch._marked_launch_processes", lambda _id: [12345])
+
+    assert running_launch(paths) == ("sample", launch_id)
+
+
+def test_running_launch_is_none_once_the_launch_has_finished(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _paths(tmp_path)
+    game = Game("sample", "Sample", "1", "sample-key", str(tmp_path), "Game.exe", [])
+    launch_id, started = launch_started(
+        paths, game, "openxr", wrapper=False, capabilities=[]
+    )
+    launch_finished(paths, launch_id, started, exit_code=0)
+    monkeypatch.setattr("riftlift.launch._marked_launch_processes", lambda _id: [12345])
+
+    assert running_launch(paths) is None
+
+
+def test_stop_launch_terminates_every_process_marked_with_that_launch_id(
+    monkeypatch,
+) -> None:
+    calls = []
+    monkeypatch.setattr(
+        "riftlift.launch._terminate_marked_launch_processes",
+        lambda launch_id: calls.append(launch_id),
+    )
+
+    stop_launch("abc123")
+
+    assert calls == ["abc123"]
