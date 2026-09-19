@@ -69,6 +69,7 @@ _DEBUG_ENVIRONMENT_KEYS = (
     "RIFTLIFT_XRIZER",
     "DXVK_NO_VR",
     "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES",
+    "PRESSURE_VESSEL_FILESYSTEMS_RW",
     "OXR_ZERO_TIME_IS_NOW",
     "WINEDLLOVERRIDES",
     "SteamAppId",
@@ -144,6 +145,57 @@ def _run_game_process(
         # makes their ownership explicit, so no game-specific process names or
         # shared-prefix shutdown are needed.
         _terminate_marked_launch_processes(launch_id)
+
+
+def _meta_oculus_service_executable(paths: Paths) -> Path:
+    return (
+        paths.prefix
+        / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime/OVRServer_x64.exe"
+    )
+
+
+@contextmanager
+def _meta_oculus_service(paths: Paths, plan: _LaunchPlan) -> Iterator[None]:
+    """Keep Meta's real Oculus runtime service alive for the native plugin.
+
+    Unity's OculusXRPlugin (``-vrmode Oculus``) links directly against
+    ``LibOVRRT64_1.dll`` instead of going through RiftLift's OpenVR shim, so
+    it fails to initialize unless an Oculus runtime service is actually
+    running for it to connect to. ``OVRServiceLauncher.exe`` only probes the
+    runtime and exits within milliseconds under Wine instead of keeping a
+    service resident, so start the real server directly and tear it down
+    with the game.
+    """
+    if "unity-oculus-plugin" not in plan.capabilities:
+        yield
+        return
+    executable = _meta_oculus_service_executable(paths)
+    if not executable.is_file():
+        yield
+        return
+    process = subprocess.Popen(
+        [str(plan.proton_root / "proton"), "run", str(executable)],
+        cwd=executable.parent,
+        env=plan.environment,
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        time.sleep(1.5)
+        yield
+    finally:
+        if process.poll() is None:
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+        else:
+            process.wait()
 
 
 @contextmanager
@@ -410,13 +462,24 @@ def _clear_proton_openvr_cache(paths: Paths, proton_root: Path) -> None:
 def _disable_openxr_for_direct_openvr(
     environment: dict[str, str], openvr_kind: str
 ) -> None:
-    """Prevent two conflicting native compositor clients in one Wine process."""
+    """Prevent a standalone OpenVR runtime from fighting wineopenxr for the compositor.
+
+    A genuinely separate OpenVR runtime (SteamVR, or an explicit external
+    one) has its own complete native stack and doesn't expect Wine's OpenXR
+    passthrough involved at all, so wineopenxr is disabled for those. XRizer
+    is different: it's the OpenVR-to-OpenXR bridge itself, and its vrclient
+    already tries wineopenxr and falls back gracefully when it's missing -
+    it doesn't need it disabled. Leaving wineopenxr enabled there also
+    matters for any other Windows-side OpenXR client sharing the process:
+    Unity's OculusXRPlugin (OVRPlugin.dll) calls its own bundled OpenXR
+    loader directly, independent of vrclient, and that loader can only
+    reach the runtime through wineopenxr.dll.
+    """
     if openvr_kind == "xrizer":
-        # Unity providers can also call OpenXR directly, independently of the
-        # LibOVR bridge. XRizer uses the same OpenXR compositor.
         return
     environment.pop("XR_RUNTIME_JSON", None)
     environment.pop("PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES", None)
+    environment.pop("PRESSURE_VESSEL_FILESYSTEMS_RW", None)
     environment.pop("OXR_ZERO_TIME_IS_NOW", None)
     overrides = environment.get("WINEDLLOVERRIDES", "").strip(";")
     environment["WINEDLLOVERRIDES"] = (
@@ -641,7 +704,10 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
                 )
                 maintenance.start()
             try:
-                with _steam_appid_marker(game):
+                with (
+                    _steam_appid_marker(game),
+                    _meta_oculus_service(paths, plan),
+                ):
                     exit_code = _run_game_process(
                         [*plan.wrapper, *plan.arguments],
                         launch_id=launch_id,
@@ -679,4 +745,17 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
             except OSError as error:
                 print(f"warning: local playtime could not be saved: {error}")
     launch_finished(paths, launch_id, started, exit_code=exit_code)
+    _print_quick_diagnosis(paths, exit_code)
     return exit_code
+
+
+def _print_quick_diagnosis(paths: Paths, exit_code: int) -> None:
+    if exit_code == 0:
+        return
+    # Deferred import: doctor.py imports runtime_backend from this module,
+    # so importing it at module load time would be circular.
+    from .doctor import quick_launch_diagnosis
+
+    cause = quick_launch_diagnosis(paths)
+    if cause is not None:
+        print(f"\n[Diagnostic] {cause}")

@@ -271,6 +271,14 @@ _CAUSE_RULES = (
         "component.",
     ),
     (
+        ("non-oculus openxr runtime is not supported",),
+        "High confidence: Unity's OculusXRPlugin (Meta's own runtime) refuses to "
+        "run against a non-Meta OpenXR runtime like WiVRn or Monado, even though "
+        "the runtime itself is working correctly. Switch this game to the OpenXR "
+        "plugin instead of Oculus (the game's own detail page) to use Unity's "
+        "generic, non-Meta-locked OpenXR support.",
+    ),
+    (
         (
             "xr_error_runtime_unavailable",
             "openxr result -51",
@@ -367,6 +375,42 @@ def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> lis
     else:
         cause = "No correlated failure signature was found in the retained sources."
     return [cause]
+
+
+_UNINFORMATIVE_CAUSES = (
+    "No single signature is decisive; the most relevant correlated errors "
+    "are listed below.",
+    "No correlated failure signature was found in the retained sources.",
+)
+
+
+def quick_launch_diagnosis(paths: Paths) -> str | None:
+    """A lightweight, single-launch version of doctor's own likely-cause check.
+
+    Meant to run right after a game exits with a nonzero code, so a known
+    failure signature shows up in the Activity view immediately instead of
+    only appearing in a manually requested `riftlift doctor` report. Skips
+    the system-wide journal/kernel/coredump/Steam/Envision scans doctor's
+    own report does - those stay exclusive to the on-demand report so this
+    stays cheap enough to run after every failed launch.
+    """
+    launches = recent_launches(paths, limit=1)
+    if not launches:
+        return None
+    evidence = [
+        *_recent_launch_log_errors(paths, launches),
+        *_recent_proton_log_errors(paths, launches),
+        *_recent_debug_file_errors(paths, launches, "graphics"),
+        *_recent_debug_file_errors(paths, launches, "game"),
+        *_recent_debug_file_errors(paths, launches, "crashes", include_tail=True),
+        *_recent_game_log_errors(paths, launches),
+    ]
+    if not evidence:
+        return None
+    cause = _likely_cause(evidence, launches)[0]
+    if cause in _UNINFORMATIVE_CAUSES or cause.startswith("Launch state is incomplete"):
+        return None
+    return cause
 
 
 Check = tuple[str, bool, str]
