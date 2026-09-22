@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 
 from meta_pcvr_downloader.api import MetaApiError
 from meta_pcvr_downloader.auth import AuthenticationError
@@ -176,6 +177,16 @@ def _run_steam_launch(paths: Paths, arguments: argparse.Namespace) -> int:
     if arguments.steam_command in (["-h"], ["--help"]):
         parser().parse_args(["launch-steam", "--help"])
     discovered = steam_oculus_game(arguments.app_id)
+    saved = next(
+        (game for game in games(paths) if game.app_key == discovered.app_key), None
+    )
+    if saved is not None:
+        discovered = replace(
+            discovered,
+            launch_options=saved.launch_options,
+            dll_overrides=saved.dll_overrides,
+            environment=saved.environment,
+        )
     return launch(
         paths, game_from_steam_command(discovered, arguments.steam_command), []
     )

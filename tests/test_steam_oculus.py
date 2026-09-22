@@ -159,9 +159,16 @@ def test_adds_steam_game_without_overwriting_same_named_rift_game(
     rift.save(paths)
 
     added = add_steam_game(paths, steam)
+    added.launch_options = ["--mods"]
+    added.dll_overrides = "version=n,b"
+    added.environment = {"PROTON_LOG": "1"}
+    added.save(paths)
     refreshed = add_steam_game(paths, steam)
 
     assert added.slug == "canvas-steam"
     assert refreshed.slug == added.slug
+    assert refreshed.launch_options == ["--mods"]
+    assert refreshed.dll_overrides == "version=n,b"
+    assert refreshed.environment == {"PROTON_LOG": "1"}
     assert Game.load(paths, "canvas").app_key == "rift.canvas"
     assert Game.load(paths, "canvas-steam").app_key == "steam.app.456"

@@ -20,7 +20,7 @@ from .config import (
 )
 from .doctor import doctor
 from .doctor_components import needs_setup
-from .game_ui import LocalGameDialog, StoreGameDialog
+from .game_ui import LaunchOptionsDialog, LocalGameDialog, StoreGameDialog
 from .launch import launch
 from .library import add, add_local
 from .metadata import populate_game_metadata
@@ -235,6 +235,7 @@ class Window(QtWidgets.QMainWindow):
         self.launch = self.button("Launch in VR", self.launch_game, True)
         actions.addWidget(self.launch)
         actions.addWidget(self.button("Files", self.open_folder))
+        actions.addWidget(self.button("Launch options", self.launch_options))
         self.store_link = self.button("Open in Rift Store ↗", self.open_store)
         self.store_link.setObjectName("link")
         self.store_link.setCursor(QtCore.Qt.PointingHandCursor)
@@ -393,6 +394,22 @@ class Window(QtWidgets.QMainWindow):
                 f"{g.name} closed",
                 refresh=True,
             )
+
+    def launch_options(self):
+        game = self.game()
+        if game is None:
+            return
+        dialog = LaunchOptionsDialog(game, self)
+        if dialog.exec() != QtWidgets.QDialog.Accepted or dialog.updated_game is None:
+            return
+        try:
+            dialog.updated_game.save(self.paths)
+        except OSError as error:
+            QtWidgets.QMessageBox.warning(
+                self, "Could not save launch options", str(error)
+            )
+            return
+        self.refresh(game.slug)
 
     def refresh_library(self):
         installed = games(self.paths)

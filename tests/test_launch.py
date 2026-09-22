@@ -124,7 +124,7 @@ def test_native_xr_bridge_rejects_missing_or_non_native_halves(tmp_path: Path) -
         native_xr_bridge(proton, "openvr")
 
 
-@pytest.mark.parametrize("modded", [False, True])
+@pytest.mark.parametrize("modded", [False, True, "custom"])
 def test_launcher_uses_existing_prefix_and_windows_game_path(
     tmp_path: Path, monkeypatch, modded
 ) -> None:
@@ -169,6 +169,14 @@ def test_launcher_uses_existing_prefix_and_windows_game_path(
         "Binaries/Game.exe",
         ["-vr"],
     )
+    if modded == "custom":
+        game.launch_options = ["--mods", "folder with spaces"]
+        game.environment = {
+            "PROTON_USE_WINED3D": "1",
+            "DXVK_NO_VR": "0",
+            "WINEDLLOVERRIDES": "version=n,b;winhttp=n,b",
+        }
+        game.dll_overrides = "version=b"
     assert launch(paths, game, []) == 0
     assert captured["command"][1] == "run"
     assert "/wait" in captured["command"]
@@ -178,10 +186,18 @@ def test_launcher_uses_existing_prefix_and_windows_game_path(
     assert game_path.startswith("Z:\\")
     assert game_path.endswith("\\Binaries\\Game.exe")
     assert captured["environment_args"][-1] is True
-    assert captured["env"]["DXVK_NO_VR"] == "1"
+    assert captured["env"]["DXVK_NO_VR"] == ("0" if modded == "custom" else "1")
     assert captured["env"].get("WINEDLLOVERRIDES") == (
-        "version=n,b" if modded else None
+        "winhttp=n,b;version=b"
+        if modded == "custom"
+        else "version=n,b"
+        if modded
+        else None
     )
+    if modded == "custom":
+        assert captured["command"][-2:] == ["--mods", "folder with spaces"]
+        assert captured["env"]["PROTON_USE_WINED3D"] == "1"
+        assert "PROTON_USE_WINED3D" not in os.environ
     assert captured["env"]["UMU_ID"] == "umu-default"
     assert captured["env"]["UMU_USE_STEAM"] == "0"
     launch_logs = list((paths.data / "diagnostics/logs").glob("launch-*.log"))

@@ -3,16 +3,100 @@
 from __future__ import annotations
 
 import re
+import shlex
 import threading
 from collections.abc import Callable
+from dataclasses import replace
 from urllib.parse import urlparse
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from .config import Game
 from .metadata import fetch_catalog_metadata
 from .theme import STYLE
 
 LINK_VALIDATION_DELAY_MS = 350
+
+
+class LaunchOptionsDialog(QtWidgets.QDialog):
+    def __init__(self, game: Game, parent=None):
+        super().__init__(parent)
+        self.game = game
+        self.updated_game: Game | None = None
+        self.setWindowTitle(f"Launch options — {game.name}")
+        self.setMinimumWidth(560)
+        self.setStyleSheet(STYLE)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(_label("Additional launch arguments", "section"))
+        self.arguments_entry = QtWidgets.QLineEdit(shlex.join(game.launch_options))
+        self.arguments_entry.setPlaceholderText('--example "value with spaces"')
+        layout.addWidget(self.arguments_entry)
+        hint = _label(
+            "Added to the game's default arguments. Quote values containing spaces. "
+            "Enter game arguments here, not a shell command or %command%.",
+            "muted",
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        layout.addWidget(_label("DLL overrides", "section"))
+        self.overrides_entry = QtWidgets.QLineEdit(game.dll_overrides)
+        self.overrides_entry.setPlaceholderText("version=n,b;winhttp=n,b")
+        layout.addWidget(self.overrides_entry)
+        hint = _label(
+            "Separate rules with semicolons. n = native, b = built-in; "
+            "version= disables that DLL. Blank uses inherited settings and automatic "
+            "mod-loader detection. These choices apply only to this game.",
+            "muted",
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        layout.addWidget(_label("Environment variables", "section"))
+        self.environment_entry = QtWidgets.QPlainTextEdit(
+            "\n".join(f"{key}={value}" for key, value in game.environment.items())
+        )
+        self.environment_entry.setPlaceholderText("PROTON_LOG=1\nPROTON_USE_WINED3D=1")
+        self.environment_entry.setMaximumHeight(130)
+        layout.addWidget(self.environment_entry)
+        hint = _label(
+            "One NAME=value per line. Values are literal: do not add shell quotes or export. "
+            "Saved values override inherited settings for this game. DLL rules above take "
+            "precedence over WINEDLLOVERRIDES entered here.",
+            "muted",
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        self.error = _label("")
+        self.error.setWordWrap(True)
+        layout.addWidget(self.error)
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Cancel
+        )
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _save(self) -> None:
+        try:
+            environment = {}
+            for line in self.environment_entry.toPlainText().splitlines():
+                if not line.strip():
+                    continue
+                key, separator, value = line.partition("=")
+                if not separator:
+                    raise ValueError(
+                        "Enter environment variables as NAME=value, one per line"
+                    )
+                environment[key.strip()] = value
+            self.updated_game = replace(
+                self.game,
+                launch_options=shlex.split(self.arguments_entry.text()),
+                dll_overrides=self.overrides_entry.text().strip(),
+                environment=environment,
+            )
+        except ValueError as error:
+            self.error.setText(str(error))
+            return
+        self.accept()
 
 
 def rift_store_app_id(value: str) -> str | None:

@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from .mods import validate_dll_overrides
 from .util import atomic_write_text
 
 _GAME_SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -102,6 +103,9 @@ class Game:
     artwork: dict[str, str] = field(default_factory=dict)
     steam_app_id: int = 0
     source: str = "meta"
+    launch_options: list[str] = field(default_factory=list)
+    dll_overrides: str = ""
+    environment: dict[str, str] = field(default_factory=dict)
 
     def _validate_strings(self) -> None:
         for field_name in (
@@ -121,6 +125,25 @@ class Game:
                 raise ValueError(f"game {field_name} must be a string")
 
     def _validate_collections(self) -> None:
+        if not isinstance(self.launch_options, list) or not all(
+            isinstance(value, str) and "\0" not in value
+            for value in self.launch_options
+        ):
+            raise ValueError(
+                "game launch options must be a list of strings without NUL"
+            )
+        validate_dll_overrides(self.dll_overrides)
+        if not isinstance(self.environment, dict) or not all(
+            isinstance(key, str)
+            and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key)
+            and isinstance(value, str)
+            and not any(character in value for character in "\0\r\n")
+            for key, value in self.environment.items()
+        ):
+            raise ValueError(
+                "Environment variables must use NAME=value with single-line values"
+            )
+        validate_dll_overrides(self.environment.get("WINEDLLOVERRIDES", ""))
         if not isinstance(self.arguments, list) or not all(
             isinstance(value, str) for value in self.arguments
         ):

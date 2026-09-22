@@ -22,10 +22,36 @@ def test_game_roundtrip(tmp_path: Path) -> None:
         tmp_path / "tools",
     )
     game = Game(
-        "example", "Example", "123", "example-key", str(tmp_path), "game.exe", ["-vr"]
+        "example",
+        "Example",
+        "123",
+        "example-key",
+        str(tmp_path),
+        "game.exe",
+        ["-vr"],
+        launch_options=["--mods", "path with spaces"],
+        dll_overrides="version=n,b",
+        environment={"PROTON_LOG": "1", "CUSTOM": "a=b c"},
     )
     game.save(paths)
     assert Game.load(paths, "example") == game
+
+
+@pytest.mark.parametrize(
+    "environment", [{"BAD=NAME": "1"}, {"VAR": 1}, {"VAR": "a\0b"}, {"VAR": "a\nb"}, []]
+)
+def test_game_rejects_invalid_environment(tmp_path, environment):
+    with pytest.raises(ValueError, match="Environment variables"):
+        Game(
+            "test",
+            "Test",
+            "1",
+            "key",
+            str(tmp_path),
+            "Game.exe",
+            [],
+            environment=environment,
+        )
 
 
 def test_default_paths_treat_empty_xdg_values_as_unset(

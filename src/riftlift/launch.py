@@ -34,7 +34,7 @@ from .diagnostics import (
     system_build_components,
     trim_runtime_traces,
 )
-from .mods import configure_mod_loaders
+from .mods import apply_dll_overrides, configure_mod_loaders
 from .playtime import PlaytimeSession
 from .runtime import (
     DXVK_VERSION,
@@ -327,7 +327,7 @@ def runtime_backend(game: Game) -> str:
 
 def oculus_launch_arguments(game: Game, extra_arguments: list[str]) -> list[str]:
     """Select the installed engine's Oculus mode without title-specific rules."""
-    arguments = [*game.arguments, *extra_arguments]
+    arguments = [*game.arguments, *game.launch_options, *extra_arguments]
     lowered = [argument.casefold() for argument in arguments]
     if is_unreal_shipping(game.executable_path):
         # Unreal needs both stereo rendering and an explicit Oculus plugin selection.
@@ -537,12 +537,8 @@ def _prepare_launch(
         game.platform_shim,
         game.platform_offline or game.source == "meta",
     )
-    configure_mod_loaders(environment, game.executable_path)
     if backend == "openvr":
         _disable_openxr_for_direct_openvr(environment, openvr_kind)
-    if environment.get("PROTON_LOG") == "1":
-        environment["RIFTLIFT_RUNTIME_TRACE"] = "1"
-        clear_runtime_traces(paths)
     _configure_proton_identity(environment, game)
     if backend == "openxr":
         environment["DXVK_NO_VR"] = "1"
@@ -561,6 +557,19 @@ def _prepare_launch(
         )
     else:
         raise RiftLiftError("OpenVR launch has no selected path registry")
+    environment.update(
+        {
+            key: value
+            for key, value in game.environment.items()
+            if key != "WINEDLLOVERRIDES"
+        }
+    )
+    apply_dll_overrides(environment, game.environment.get("WINEDLLOVERRIDES", ""))
+    apply_dll_overrides(environment, game.dll_overrides)
+    configure_mod_loaders(environment, game.executable_path)
+    if environment.get("PROTON_LOG") == "1":
+        environment["RIFTLIFT_RUNTIME_TRACE"] = "1"
+        clear_runtime_traces(paths)
     return _LaunchPlan(
         arguments=arguments,
         environment=environment,
