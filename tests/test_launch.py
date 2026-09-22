@@ -124,8 +124,9 @@ def test_native_xr_bridge_rejects_missing_or_non_native_halves(tmp_path: Path) -
         native_xr_bridge(proton, "openvr")
 
 
+@pytest.mark.parametrize("modded", [False, True])
 def test_launcher_uses_existing_prefix_and_windows_game_path(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, modded
 ) -> None:
     paths = Paths(
         tmp_path / "data",
@@ -138,6 +139,9 @@ def test_launcher_uses_existing_prefix_and_windows_game_path(
     executable = paths.games / "sample/Binaries/Game.exe"
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"MZ")
+    if modded:
+        (executable.parent / "MelonLoader").mkdir()
+        (executable.parent / "version.dll").touch()
     proton = tmp_path / "proton"
     rift_runtime = tmp_path / "rift_runtime"
     proton.mkdir()
@@ -175,6 +179,9 @@ def test_launcher_uses_existing_prefix_and_windows_game_path(
     assert game_path.endswith("\\Binaries\\Game.exe")
     assert captured["environment_args"][-1] is True
     assert captured["env"]["DXVK_NO_VR"] == "1"
+    assert captured["env"].get("WINEDLLOVERRIDES") == (
+        "version=n,b" if modded else None
+    )
     assert captured["env"]["UMU_ID"] == "umu-default"
     assert captured["env"]["UMU_USE_STEAM"] == "0"
     launch_logs = list((paths.data / "diagnostics/logs").glob("launch-*.log"))

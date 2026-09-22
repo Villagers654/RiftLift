@@ -34,6 +34,7 @@ from .diagnostics import (
     system_build_components,
     trim_runtime_traces,
 )
+from .mods import configure_mod_loaders
 from .playtime import PlaytimeSession
 from .runtime import (
     DXVK_VERSION,
@@ -536,6 +537,7 @@ def _prepare_launch(
         game.platform_shim,
         game.platform_offline or game.source == "meta",
     )
+    configure_mod_loaders(environment, game.executable_path)
     if backend == "openvr":
         _disable_openxr_for_direct_openvr(environment, openvr_kind)
     if environment.get("PROTON_LOG") == "1":
