@@ -282,6 +282,12 @@ jobs:
           restore-keys: |
             runtime-vcpkg-v1-${{ runner.os }}
             runtime-vcpkg-${{ runner.os }}-
+      - name: Test OpenVR pose conversion
+        shell: pwsh
+        run: |
+          cmake -S windows-openvr/tests -B windows-openvr/tests/build -A x64 -DOVR_INCLUDE_DIR="$pwd/Externals/LibOVR/Include"
+          cmake --build windows-openvr/tests/build --config Release
+          ctest --test-dir windows-openvr/tests/build -C Release --output-on-failure
       - name: Install native dependencies
         shell: pwsh
         run: |

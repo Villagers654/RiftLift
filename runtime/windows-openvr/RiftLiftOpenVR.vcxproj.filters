@@ -60,6 +60,9 @@
     <ClInclude Include="REV_Math.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="PoseState.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="CompositorVk.h">
       <Filter>Header Files\RiftLiftOpenVR</Filter>
     </ClInclude>

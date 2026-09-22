@@ -3,6 +3,7 @@
 #include "CompositorBase.h"
 #include "OVR_CAPI.h"
 #include "REV_Math.h"
+#include "PoseState.h"
 
 #include <openvr.h>
 #include <algorithm>
@@ -267,29 +268,7 @@ unsigned int InputManager::TrackedDevicePoseToOVRStatusFlags(vr::TrackedDevicePo
 
 ovrPoseStatef InputManager::TrackedDevicePoseToOVRPose(vr::TrackedDevicePose_t pose, ovrPoseStatef& lastPose, double time)
 {
-	ovrPoseStatef result = { OVR::Posef::Identity() };
-	if (!pose.bPoseIsValid)
-		return result;
-
-	OVR::Matrix4f matrix = REV::Matrix4f(pose.mDeviceToAbsoluteTracking);
-
-	// Make sure the orientation stays in the same hemisphere as the previous orientation, this prevents
-	// linear interpolations from suddenly flipping the long way around in Oculus Medium.
-	OVR::Quatf q(matrix);
-	q.EnsureSameHemisphere(lastPose.ThePose.Orientation);
-
-	result.ThePose.Orientation = q;
-	result.ThePose.Position = matrix.GetTranslation();
-	result.AngularVelocity = (REV::Vector3f)pose.vAngularVelocity;
-	result.LinearVelocity = (REV::Vector3f)pose.vVelocity;
-	result.AngularAcceleration = ((REV::Vector3f)pose.vAngularVelocity - lastPose.AngularVelocity) / float(time - lastPose.TimeInSeconds);
-	result.LinearAcceleration = ((REV::Vector3f)pose.vVelocity - lastPose.LinearVelocity) / float(time - lastPose.TimeInSeconds);
-	result.TimeInSeconds = time;
-
-	// Store the last pose
-	lastPose = result;
-
-	return result;
+	return REV::TrackedDevicePoseToOVRPose(pose, lastPose, time);
 }
 
 void InputManager::GetTrackingState(ovrSession session, ovrTrackingState* outState, double absTime)
@@ -309,6 +288,8 @@ void InputManager::GetTrackingState(ovrSession session, ovrTrackingState* outSta
 	{
 		vr::VRSystem()->GetDeviceToAbsoluteTrackingPose(origin, 0.0f, poses, vr::k_unMaxTrackedDeviceCount);
 	}
+	if (absTime <= 0.0)
+		absTime = ovr_GetTimeInSeconds();
 
 	// Convert the head pose
 	outState->HeadPose = TrackedDevicePoseToOVRPose(poses[vr::k_unTrackedDeviceIndex_Hmd], m_LastPoses[vr::k_unTrackedDeviceIndex_Hmd], absTime);
@@ -343,6 +324,8 @@ void InputManager::GetTrackingState(ovrSession session, ovrTrackingState* outSta
 
 ovrResult InputManager::GetDevicePoses(ovrSession session, ovrTrackedDeviceType* deviceTypes, int deviceCount, double absTime, ovrPoseStatef* outDevicePoses)
 {
+	if (absTime <= 0.0)
+		absTime = ovr_GetTimeInSeconds();
 	// Get the device poses
 	vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount];
 	uint32_t predictionID = (uint32_t)floor(absTime * session->HmdDesc.DisplayRefreshRate);
