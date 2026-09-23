@@ -7,7 +7,7 @@ import re
 import textwrap
 import urllib.request
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -16,12 +16,14 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 from . import __version__
 from .config import Game, Paths
+from .i18n import current_language
 from .util import RiftLiftError, read_limited
 
 STORE_URL = "https://www.meta.com/experiences/pcvr/{app_id}/"
 STEAM_API_URL = (
-    "https://store.steampowered.com/api/appdetails?appids={app_id}&l=english"
+    "https://store.steampowered.com/api/appdetails?appids={app_id}&l={language}"
 )
+_STEAM_LANGUAGES = {"en": "english", "fr": "french"}
 STEAM_STORE_URL = "https://store.steampowered.com/app/{app_id}/"
 STEAM_CDN_URL = "https://cdn.cloudflare.steamstatic.com/steam/apps/{app_id}/{asset}"
 USER_AGENT = f"RiftLift/{__version__} (+https://github.com/Villagers654/RiftLift)"
@@ -153,7 +155,8 @@ def parse_catalog_html(payload: str, app_id: str) -> CatalogMetadata:
 
 def fetch_catalog_metadata(app_id: str) -> CatalogMetadata:
     request = urllib.request.Request(
-        STORE_URL.format(app_id=app_id), headers={"User-Agent": USER_AGENT}
+        STORE_URL.format(app_id=app_id),
+        headers={"User-Agent": USER_AGENT, "Accept-Language": current_language()},
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -211,8 +214,10 @@ def parse_steam_catalog(payload: dict[str, Any], app_id: str) -> CatalogMetadata
 
 
 def fetch_steam_catalog_metadata(app_id: str) -> CatalogMetadata:
+    language = _STEAM_LANGUAGES.get(current_language(), "english")
     request = urllib.request.Request(
-        STEAM_API_URL.format(app_id=app_id), headers={"User-Agent": USER_AGENT}
+        STEAM_API_URL.format(app_id=app_id, language=language),
+        headers={"User-Agent": USER_AGENT},
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -244,7 +249,9 @@ def _optional_request_bytes(url: str) -> bytes | None:
         return None
 
 
-def _portrait(source: Image.Image, size: tuple[int, int]) -> Image.Image:
+def _composite(source: Image.Image, size: tuple[int, int]) -> Image.Image:
+    """Fit `source` into `size` without cropping it: a blurred, zoomed copy of
+    the same image fills the frame behind it, so there's no letterboxing."""
     background = ImageOps.fit(
         source.convert("RGB"), size, method=Image.Resampling.LANCZOS
     )
@@ -318,7 +325,7 @@ def generate_artwork(
         except RiftLiftError:
             continue
     portrait_source = sources.get("portrait")
-    hero_source = sources.get("hero", source)
+    hero_source = sources.get("hero")
     logo_source = sources.get("logo")
     images = {
         "grid": ImageOps.fit(
@@ -331,10 +338,14 @@ def generate_artwork(
                 method=Image.Resampling.LANCZOS,
             )
             if portrait_source
-            else _portrait(source, (600, 900))
+            else _composite(source, (600, 900))
         ),
-        "hero": ImageOps.fit(
-            hero_source.convert("RGB"), (1920, 620), method=Image.Resampling.LANCZOS
+        "hero": (
+            ImageOps.fit(
+                hero_source.convert("RGB"), (1920, 620), method=Image.Resampling.LANCZOS
+            )
+            if hero_source
+            else _composite(source, (1920, 620))
         ),
         "icon": ImageOps.fit(
             source.convert("RGB"), (256, 256), method=Image.Resampling.LANCZOS
@@ -357,6 +368,82 @@ def generate_artwork(
     return result
 
 
+def owned_icon_path(paths: Paths, app_id: str) -> Path:
+    return paths.cache / "owned-icons" / f"{app_id}.png"
+
+
+def owned_hero_path(paths: Paths, app_id: str) -> Path:
+    return paths.cache / "owned-heroes" / f"{app_id}.png"
+
+
+def owned_metadata_path(paths: Paths, app_id: str, lang: str = "en") -> Path:
+    return paths.cache / "owned-metadata" / f"{app_id}.{lang}.json"
+
+
+def fetch_owned_metadata(
+    paths: Paths, app_id: str, *, refresh: bool = False
+) -> CatalogMetadata | None:
+    """Return catalog metadata for an owned app, cached per language until refreshed."""
+    destination = owned_metadata_path(paths, app_id, current_language())
+    if destination.is_file() and not refresh:
+        try:
+            return CatalogMetadata(**json.loads(destination.read_text()))
+        except (OSError, TypeError, json.JSONDecodeError):
+            pass
+    try:
+        metadata = fetch_catalog_metadata(app_id)
+    except RiftLiftError:
+        return None
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(asdict(metadata)))
+    return metadata
+
+
+def _fetch_owned_image(
+    paths: Paths,
+    app_id: str,
+    destination: Path,
+    size: tuple[int, int],
+    *,
+    refresh: bool = False,
+    composite: bool = False,
+) -> str | None:
+    if destination.is_file() and not refresh:
+        return str(destination)
+    metadata = fetch_owned_metadata(paths, app_id, refresh=refresh)
+    if metadata is None or not metadata.image_url:
+        return None
+    try:
+        image = _decode_image(_request_bytes(metadata.image_url))
+    except RiftLiftError:
+        return None
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fitted = (
+        _composite(image, size)
+        if composite
+        else ImageOps.fit(image.convert("RGB"), size, method=Image.Resampling.LANCZOS)
+    )
+    fitted.save(destination, format="PNG", optimize=True)
+    return str(destination)
+
+
+def fetch_owned_icon(paths: Paths, app_id: str) -> str | None:
+    """Return a small cached icon for an owned (not necessarily installed) app."""
+    return _fetch_owned_image(paths, app_id, owned_icon_path(paths, app_id), (64, 64))
+
+
+def fetch_owned_hero(paths: Paths, app_id: str, *, refresh: bool = False) -> str | None:
+    """Return a cached hero banner for an owned (not necessarily installed) app."""
+    return _fetch_owned_image(
+        paths,
+        app_id,
+        owned_hero_path(paths, app_id),
+        (1920, 620),
+        refresh=refresh,
+        composite=True,
+    )
+
+
 def populate_game_metadata(paths: Paths, game: Game, *, refresh: bool = False) -> Game:
     if game.source == "local":
         return game
@@ -364,7 +451,7 @@ def populate_game_metadata(paths: Paths, game: Game, *, refresh: bool = False) -
     if complete and not refresh:
         return game
     is_steam = game.source == "steam"
-    app_id = str(game.steam_app_id or game.app_id)
+    app_id = str(game.steam_app_id or game.app_id) if is_steam else game.app_id
     metadata = (
         fetch_steam_catalog_metadata(app_id)
         if is_steam
@@ -374,6 +461,7 @@ def populate_game_metadata(paths: Paths, game: Game, *, refresh: bool = False) -
         game.name = metadata.name
     game.store_url = metadata.store_url
     game.description = metadata.description
+    game.description_lang = current_language()
     game.developer = metadata.developer
     game.publisher = metadata.publisher
     game.genres = metadata.genres
