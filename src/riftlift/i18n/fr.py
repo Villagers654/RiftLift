@@ -59,6 +59,7 @@ STRINGS = {
         "launch": "Lancer en VR",
         "install": "Installer",
         "files": "Fichiers",
+        "launch_options": "Options de lancement",
         "add_to_steam": "Ajouter à Steam",
         "uninstall": "Désinstaller",
         "remove_from_riftlift": "Retirer de RiftLift",
@@ -214,5 +215,36 @@ STRINGS = {
         "yes": "Oui",
         "no": "Non",
         "ok": "OK",
+    },
+    "launch_options": {
+        "title": "Options de lancement — {name}",
+        "arguments_label": "Arguments de lancement supplémentaires",
+        "arguments_placeholder": '--exemple "valeur avec espaces"',
+        "arguments_hint": (
+            "Ajoutés aux arguments par défaut du jeu. Mets des guillemets "
+            "autour des valeurs contenant des espaces. Entre des arguments "
+            "du jeu ici, pas une commande shell ni %command%."
+        ),
+        "overrides_label": "Redéfinitions de DLL",
+        "overrides_placeholder": "version=n,b;winhttp=n,b",
+        "overrides_hint": (
+            "Sépare les règles par des points-virgules. n = natif, b = "
+            "intégré ; version= désactive cette DLL. Laisse vide pour "
+            "utiliser les réglages hérités et la détection automatique des "
+            "mod loaders. Ces choix ne s'appliquent qu'à ce jeu."
+        ),
+        "environment_label": "Variables d'environnement",
+        "environment_placeholder": "PROTON_LOG=1\nPROTON_USE_WINED3D=1",
+        "environment_hint": (
+            "Une variable NOM=valeur par ligne. Les valeurs sont littérales : "
+            "n'ajoute pas de guillemets shell ni de export. Les valeurs "
+            "enregistrées remplacent les réglages hérités pour ce jeu. Les "
+            "règles de DLL ci-dessus sont prioritaires sur WINEDLLOVERRIDES "
+            "saisi ici."
+        ),
+        "save_error_title": "Impossible d'enregistrer les options de lancement",
+        "environment_format_error": (
+            "Entre les variables d'environnement au format NOM=valeur, une par ligne"
+        ),
     },
 }

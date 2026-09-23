@@ -50,6 +50,7 @@ STATUS = namespace("status")
 ACTIVITY = namespace("activity")
 CONFIRM = namespace("confirm")
 TASK = namespace("task")
+LAUNCH_OPTIONS = namespace("launch_options")
 
 
 def _playtime_text(value) -> str:
@@ -546,7 +547,7 @@ class Window(QtWidgets.QMainWindow):
         actions.addWidget(self.install_here)
         self.files_button = self.button(GAME("files"), self.open_folder)
         actions.addWidget(self.files_button)
-        actions.addWidget(self.button("Launch options", self.launch_options))
+        actions.addWidget(self.button(GAME("launch_options"), self.launch_options))
         self.add_steam_button = self.button(
             GAME("add_to_steam"), self.add_selected_to_steam
         )
@@ -1031,7 +1032,7 @@ class Window(QtWidgets.QMainWindow):
             dialog.updated_game.save(self.paths)
         except OSError as error:
             QtWidgets.QMessageBox.warning(
-                self, "Could not save launch options", str(error)
+                self, LAUNCH_OPTIONS("save_error_title"), str(error)
             )
             return
         self.refresh(game.slug)

@@ -57,6 +57,7 @@ STRINGS = {
         "launch": "Launch in VR",
         "install": "Install",
         "files": "Files",
+        "launch_options": "Launch options",
         "add_to_steam": "Add to Steam",
         "uninstall": "Uninstall",
         "remove_from_riftlift": "Remove from RiftLift",
@@ -209,5 +210,35 @@ STRINGS = {
         "yes": "Yes",
         "no": "No",
         "ok": "OK",
+    },
+    "launch_options": {
+        "title": "Launch options — {name}",
+        "arguments_label": "Additional launch arguments",
+        "arguments_placeholder": '--example "value with spaces"',
+        "arguments_hint": (
+            "Added to the game's default arguments. Quote values containing "
+            "spaces. Enter game arguments here, not a shell command or "
+            "%command%."
+        ),
+        "overrides_label": "DLL overrides",
+        "overrides_placeholder": "version=n,b;winhttp=n,b",
+        "overrides_hint": (
+            "Separate rules with semicolons. n = native, b = built-in; "
+            "version= disables that DLL. Blank uses inherited settings and "
+            "automatic mod-loader detection. These choices apply only to "
+            "this game."
+        ),
+        "environment_label": "Environment variables",
+        "environment_placeholder": "PROTON_LOG=1\nPROTON_USE_WINED3D=1",
+        "environment_hint": (
+            "One NAME=value per line. Values are literal: do not add shell "
+            "quotes or export. Saved values override inherited settings for "
+            "this game. DLL rules above take precedence over "
+            "WINEDLLOVERRIDES entered here."
+        ),
+        "save_error_title": "Could not save launch options",
+        "environment_format_error": (
+            "Enter environment variables as NAME=value, one per line"
+        ),
     },
 }

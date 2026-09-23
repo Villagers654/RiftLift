@@ -27,6 +27,7 @@ ADD_GAME = namespace("add_game")
 LOCAL_GAME = namespace("local_game")
 GAME = namespace("game")
 ACTION = namespace("action")
+LAUNCH_OPTIONS = namespace("launch_options")
 
 _PHASE_KEYS = {
     "Preparing segments": "phase_preparing_segments",
@@ -40,46 +41,34 @@ class LaunchOptionsDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.game = game
         self.updated_game: Game | None = None
-        self.setWindowTitle(f"Launch options — {game.name}")
+        self.setWindowTitle(LAUNCH_OPTIONS("title").format(name=game.name))
         self.setMinimumWidth(560)
         self.setStyleSheet(STYLE)
         layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(_label("Additional launch arguments", "section"))
+        layout.addWidget(_label(LAUNCH_OPTIONS("arguments_label"), "section"))
         self.arguments_entry = QtWidgets.QLineEdit(shlex.join(game.launch_options))
-        self.arguments_entry.setPlaceholderText('--example "value with spaces"')
+        self.arguments_entry.setPlaceholderText(LAUNCH_OPTIONS("arguments_placeholder"))
         layout.addWidget(self.arguments_entry)
-        hint = _label(
-            "Added to the game's default arguments. Quote values containing spaces. "
-            "Enter game arguments here, not a shell command or %command%.",
-            "muted",
-        )
+        hint = _label(LAUNCH_OPTIONS("arguments_hint"), "muted")
         hint.setWordWrap(True)
         layout.addWidget(hint)
-        layout.addWidget(_label("DLL overrides", "section"))
+        layout.addWidget(_label(LAUNCH_OPTIONS("overrides_label"), "section"))
         self.overrides_entry = QtWidgets.QLineEdit(game.dll_overrides)
-        self.overrides_entry.setPlaceholderText("version=n,b;winhttp=n,b")
+        self.overrides_entry.setPlaceholderText(LAUNCH_OPTIONS("overrides_placeholder"))
         layout.addWidget(self.overrides_entry)
-        hint = _label(
-            "Separate rules with semicolons. n = native, b = built-in; "
-            "version= disables that DLL. Blank uses inherited settings and automatic "
-            "mod-loader detection. These choices apply only to this game.",
-            "muted",
-        )
+        hint = _label(LAUNCH_OPTIONS("overrides_hint"), "muted")
         hint.setWordWrap(True)
         layout.addWidget(hint)
-        layout.addWidget(_label("Environment variables", "section"))
+        layout.addWidget(_label(LAUNCH_OPTIONS("environment_label"), "section"))
         self.environment_entry = QtWidgets.QPlainTextEdit(
             "\n".join(f"{key}={value}" for key, value in game.environment.items())
         )
-        self.environment_entry.setPlaceholderText("PROTON_LOG=1\nPROTON_USE_WINED3D=1")
+        self.environment_entry.setPlaceholderText(
+            LAUNCH_OPTIONS("environment_placeholder")
+        )
         self.environment_entry.setMaximumHeight(130)
         layout.addWidget(self.environment_entry)
-        hint = _label(
-            "One NAME=value per line. Values are literal: do not add shell quotes or export. "
-            "Saved values override inherited settings for this game. DLL rules above take "
-            "precedence over WINEDLLOVERRIDES entered here.",
-            "muted",
-        )
+        hint = _label(LAUNCH_OPTIONS("environment_hint"), "muted")
         hint.setWordWrap(True)
         layout.addWidget(hint)
         self.error = _label("")
@@ -100,9 +89,7 @@ class LaunchOptionsDialog(QtWidgets.QDialog):
                     continue
                 key, separator, value = line.partition("=")
                 if not separator:
-                    raise ValueError(
-                        "Enter environment variables as NAME=value, one per line"
-                    )
+                    raise ValueError(LAUNCH_OPTIONS("environment_format_error"))
                 environment[key.strip()] = value
             self.updated_game = replace(
                 self.game,
