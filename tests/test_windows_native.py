@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -250,6 +251,7 @@ def test_windows_browser_uses_os_default_without_owning_process(paths, monkeypat
     from riftlift import auth_browser
 
     opened = []
+    monkeypatch.setattr(auth_browser, "_windows_default_browser", lambda: None)
     monkeypatch.setattr(
         auth_browser.webbrowser, "open", lambda url: opened.append(url) or True
     )
@@ -259,6 +261,32 @@ def test_windows_browser_uses_os_default_without_owning_process(paths, monkeypat
         is None
     )
     assert opened == ["https://auth.meta.com/"]
+
+
+def test_windows_edge_login_uses_an_owned_profile(paths, monkeypatch):
+    from riftlift import auth_browser
+
+    edge = auth_browser.Browser("edge", "Microsoft Edge", "chromium", ("msedge",))
+    launched = []
+    monkeypatch.setattr(auth_browser, "_windows_default_browser", lambda: edge)
+    monkeypatch.setattr(
+        auth_browser.subprocess,
+        "Popen",
+        lambda command, **_options: launched.append(command) or object(),
+    )
+
+    assert auth_browser.default_browser() == edge
+    auth_browser.launch_browser_login(paths, edge, "https://auth.meta.com/")
+
+    assert any(argument.startswith("--user-data-dir=") for argument in launched[0])
+    preferences = json.loads(
+        (
+            auth_browser.browser_home(paths, edge) / "profile/Default/Preferences"
+        ).read_text()
+    )
+    assert preferences["protocol_handler"]["allowed_origin_protocol_pairs"][
+        "https://auth.meta.com"
+    ] == {"oculus": True, "oculus-client": True}
 
 
 def test_download_error_is_concise_and_does_not_register_game(

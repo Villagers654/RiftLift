@@ -62,6 +62,9 @@ Open **RiftLift** and click **System** to verify the setup.
 
 Click **Sign In** and complete Meta's hosted sign-in page. Passwords and
 security codes go only to Meta.
+On Windows, Edge or Chrome uses a RiftLift browser profile. The first sign-in
+there may ask for your Meta credentials again; later retries reuse that session
+until you choose **Sign out and reset**.
 
 ![RiftLift Meta account screen after browser sign-in](docs/images/riftlift-account.png)
 

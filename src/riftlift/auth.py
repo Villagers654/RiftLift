@@ -33,7 +33,7 @@ def complete_login(paths: Paths, callback_url: str) -> int:
 def login(paths: Paths) -> int:
     """Run the browser-backed sign-in flow for command-line users."""
     browser = default_browser()
-    sign_out(paths)
+    clear_login(paths)
     session = MetaAuthSession.begin(paths)
     process = launch_browser_login(paths, browser, session.login_url)
     print(f"Finish signing in to Meta in {browser.name}.")
@@ -52,9 +52,14 @@ def login(paths: Paths) -> int:
 
 def sign_out(paths: Paths) -> None:
     """Forget RiftLift's token and its isolated browser login profiles."""
+    clear_login(paths)
+    cleanup_browser_profiles(paths)
+
+
+def clear_login(paths: Paths) -> None:
+    """Start a new login without discarding the browser's Meta session."""
     (paths.config / "meta-access-token").unlink(missing_ok=True)
     clear_callback(paths)
-    cleanup_browser_profiles(paths)
 
 
 def is_signed_in(paths: Paths) -> bool:

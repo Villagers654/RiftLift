@@ -7,7 +7,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 
 from PySide6 import QtCore, QtWidgets
 
-from .auth import is_signed_in, save_access_token, sign_out
+from .auth import clear_login, is_signed_in, save_access_token, sign_out
 from .auth_browser import default_browser, launch_browser_login, stop_browser
 from .config import Paths
 from .meta_auth import MetaAuthSession
@@ -85,7 +85,7 @@ class AuthDialog(QtWidgets.QDialog):
         self.stop_browser()
         try:
             browser = default_browser()
-            sign_out(self.paths)
+            clear_login(self.paths)
         except Exception as error:
             self.show_error(error)
             return

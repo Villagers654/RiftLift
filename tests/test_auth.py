@@ -4,7 +4,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from riftlift.auth import complete_browser_login, login, runtime_access_token, sign_out
+from riftlift.auth import (
+    clear_login,
+    complete_browser_login,
+    login,
+    runtime_access_token,
+    sign_out,
+)
 from riftlift.auth_browser import (
     META_LOGIN_URL,
     Browser,
@@ -251,6 +257,21 @@ def test_browser_login_imports_and_protects_the_token(
     target = paths.config / "meta-access-token"
     assert target.read_text().strip() == token
     assert target.stat().st_mode & 0o777 == 0o600
+
+
+def test_new_login_keeps_browser_session_until_explicit_sign_out(tmp_path: Path) -> None:
+    paths = paths_in(tmp_path)
+    profile = paths.config / "auth/edge/profile"
+    profile.mkdir(parents=True)
+    (profile / "Preferences").write_text("{}")
+    (paths.config / "meta-access-token").write_text("FRL" + "a" * 176)
+
+    clear_login(paths)
+
+    assert not (paths.config / "meta-access-token").exists()
+    assert (profile / "Preferences").exists()
+    sign_out(paths)
+    assert not profile.exists()
 
 
 def test_runtime_access_token_returns_the_persisted_login(tmp_path: Path) -> None:

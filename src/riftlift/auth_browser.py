@@ -185,6 +185,9 @@ def _desktop_browser(desktop_id: str) -> Browser:
 
 def default_browser() -> Browser:
     if os.name == "nt":
+        browser = _windows_default_browser()
+        if browser is not None:
+            return browser
         return Browser("windows", "your default browser", "native", ())
     override = os.environ.get("RIFTLIFT_AUTH_BROWSER", "").strip().lower()
     if override:
@@ -212,6 +215,47 @@ def default_browser() -> Browser:
     if not desktop_id:
         raise RiftLiftError("no system default browser is configured")
     return _desktop_browser(desktop_id)
+
+
+def _windows_default_browser() -> Browser | None:
+    """Use an owned profile when the Windows default is a Chromium browser.
+
+    Chromium can silently discard Meta's custom-scheme redirect in a normal
+    profile. An owned profile lets us allow that redirect for auth.meta.com.
+    """
+    import winreg
+
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice",
+        ) as key:
+            prog_id = winreg.QueryValueEx(key, "ProgId")[0].lower()
+    except OSError:
+        return None
+    browsers = {
+        "msedgehtm": (
+            "edge", "Microsoft Edge", "msedge.exe", "Microsoft/Edge/Application"
+        ),
+        "chromehtml": (
+            "chrome", "Google Chrome", "chrome.exe", "Google/Chrome/Application"
+        ),
+    }
+    match = browsers.get(prog_id)
+    if match is None:
+        return None
+    key, name, executable, suffix = match
+    roots = (
+        os.environ.get("PROGRAMFILES(X86)"),
+        os.environ.get("PROGRAMFILES"),
+        os.environ.get("LOCALAPPDATA"),
+    )
+    for root in roots:
+        if root and (candidate := Path(root) / suffix / executable).is_file():
+            return Browser(key, name, "chromium", (str(candidate),))
+    if command := shutil.which(executable):
+        return Browser(key, name, "chromium", (command,))
+    return None
 
 
 def browser_home(paths: Paths, browser: Browser) -> Path:
