@@ -1,3 +1,4 @@
+import shutil
 import struct
 from pathlib import Path
 
@@ -88,6 +89,53 @@ def test_remove_deletes_meta_game_files_but_not_local_game_files(
     assert local_dir.is_dir()
     assert (local_dir / "game.exe").is_file()
     assert not (paths.data / "games/mygame.json").exists()
+
+
+def _meta_game(tmp_path: Path) -> tuple[Paths, Game]:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    game_dir = tmp_path / "games/aircar"
+    game_dir.mkdir(parents=True)
+    (game_dir / "Aircar.exe").touch()
+    game = Game("aircar", "Aircar", "1", "meta.aircar", str(game_dir), "Aircar.exe", [])
+    game.save(paths)
+    return paths, game
+
+
+def test_remove_keeps_the_record_when_game_files_cannot_be_deleted(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths, game = _meta_game(tmp_path)
+    real_rmtree = shutil.rmtree
+
+    def failing_rmtree(path, *args, **kwargs):
+        if Path(path) == game.game_dir:
+            raise PermissionError("file in use")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr("riftlift.library.shutil.rmtree", failing_rmtree)
+
+    with pytest.raises(PermissionError):
+        remove(paths, game)
+
+    assert (paths.data / "games/aircar.json").exists()
+    assert game.game_dir.is_dir()
+
+
+def test_remove_succeeds_when_game_files_are_already_gone(tmp_path: Path) -> None:
+    paths, game = _meta_game(tmp_path)
+    (game.game_dir / "Aircar.exe").unlink()
+    game.game_dir.rmdir()
+
+    remove(paths, game)
+
+    assert not (paths.data / "games/aircar.json").exists()
 
 
 def _pe64(path: Path, payload: bytes = b"") -> None:

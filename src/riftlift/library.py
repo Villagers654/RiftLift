@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shlex
@@ -138,7 +139,9 @@ def add(
 def remove(paths: Paths, game: Game) -> None:
     """Remove a game from RiftLift, deleting its downloaded files if RiftLift owns them."""
     if game.source == "meta":
-        shutil.rmtree(game.game_dir, ignore_errors=True)
+        # A failure here must keep the record, so the removal can be retried.
+        with contextlib.suppress(FileNotFoundError):
+            shutil.rmtree(game.game_dir)
     shutil.rmtree(paths.data / "artwork" / game.slug, ignore_errors=True)
     game.delete(paths)
 
