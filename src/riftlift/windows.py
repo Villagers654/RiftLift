@@ -56,7 +56,7 @@ def install_sdk_runtime(paths: Paths) -> Path:
     if target.is_file() and sha256(target) == SDK_RUNTIME_SHA256:
         return directory
     package = download(
-        "https://securecdn-atl3-3.oculus.com/binaries/download/?id=3766757683456363",
+        "https://securecdn.oculus.com/binaries/download/?id=3766757683456363",
         paths.cache / "oculus-runtime.zip",
         "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009",
     )

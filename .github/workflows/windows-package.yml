@@ -41,7 +41,7 @@ jobs:
           Invoke-WebRequest 'https://securecdn.oculus.com/binaries/download/?id=4377593722298679' -OutFile build/sdk.zip
           if ((Get-FileHash build/sdk.zip).Hash -ne '3c8aeb66c822af731a8d1f1cb1cf97ab706100bf0bd003ef126f4bb9812906b3') { throw 'SDK checksum mismatch' }
           Expand-Archive build/sdk.zip runtime/Externals -Force
-          Invoke-WebRequest 'https://securecdn-atl3-3.oculus.com/binaries/download/?id=3766757683456363' -OutFile build/platform.zip
+          Invoke-WebRequest 'https://securecdn.oculus.com/binaries/download/?id=3766757683456363' -OutFile build/platform.zip
           if ((Get-FileHash build/platform.zip).Hash -ne 'adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009') { throw 'Platform checksum mismatch' }
           Expand-Archive build/platform.zip build/meta-runtime -Force
       - name: Build complete Windows native runtime
