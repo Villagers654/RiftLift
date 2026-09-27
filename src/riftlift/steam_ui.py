@@ -5,8 +5,13 @@ import threading
 from PySide6 import QtCore, QtWidgets
 
 from .config import Game, Paths, games
+from .i18n import namespace
 from .steam_oculus import steam_oculus_games
 from .theme import STYLE
+from .titlebar import wrap_dialog
+
+STEAM_GAMES = namespace("steam_games")
+ACTION = namespace("action")
 
 
 class SteamScanEvents(QtCore.QObject):
@@ -22,43 +27,39 @@ class SteamGamesDialog(QtWidgets.QDialog):
         self.selected_game: Game | None = None
         self.events = SteamScanEvents(self)
         self.events.complete.connect(self.finish_scan)
-        self.setWindowTitle("Steam games with Oculus mode")
+        self.setWindowTitle(STEAM_GAMES("title"))
         self.setMinimumSize(640, 500)
         self.setStyleSheet(STYLE)
 
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(26, 24, 26, 24)
+        layout = wrap_dialog(self, STEAM_GAMES("title"))
         layout.setSpacing(12)
-        title = QtWidgets.QLabel("Add an installed Steam VR game")
+        title = QtWidgets.QLabel(STEAM_GAMES("heading"))
         title.setObjectName("game")
         layout.addWidget(title)
-        explanation = QtWidgets.QLabel(
-            "RiftLift scans your installed Steam games for a compatible Oculus "
-            "mode. Adding one does not download or duplicate the game."
-        )
+        explanation = QtWidgets.QLabel(STEAM_GAMES("explanation"))
         explanation.setObjectName("muted")
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
 
         self.list = QtWidgets.QListWidget()
-        self.list.setAccessibleName("Compatible Steam games")
+        self.list.setAccessibleName(STEAM_GAMES("accessible_name"))
         self.list.itemSelectionChanged.connect(self.select_game)
         layout.addWidget(self.list, 1)
 
-        self.status = QtWidgets.QLabel("Scanning installed Steam games…")
+        self.status = QtWidgets.QLabel(STEAM_GAMES("scanning"))
         self.status.setObjectName("muted")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
 
         buttons = QtWidgets.QHBoxLayout()
-        self.scan_button = QtWidgets.QPushButton("Scan again")
+        self.scan_button = QtWidgets.QPushButton(STEAM_GAMES("scan_again"))
         self.scan_button.clicked.connect(self.scan)
         buttons.addWidget(self.scan_button)
         buttons.addStretch()
-        cancel = QtWidgets.QPushButton("Cancel")
+        cancel = QtWidgets.QPushButton(ACTION("cancel"))
         cancel.clicked.connect(self.reject)
         buttons.addWidget(cancel)
-        self.add_button = QtWidgets.QPushButton("Add to RiftLift")
+        self.add_button = QtWidgets.QPushButton(STEAM_GAMES("add_to_riftlift"))
         self.add_button.setObjectName("primary")
         self.add_button.setEnabled(False)
         self.add_button.clicked.connect(self.accept_selected)
@@ -74,7 +75,7 @@ class SteamGamesDialog(QtWidgets.QDialog):
         self.list.setEnabled(False)
         self.scan_button.setEnabled(False)
         self.add_button.setEnabled(False)
-        self.status.setText("Scanning installed Steam games…")
+        self.status.setText(STEAM_GAMES("scanning"))
 
         def worker():
             try:
@@ -94,22 +95,19 @@ class SteamGamesDialog(QtWidgets.QDialog):
         self.existing_keys = {game.app_key for game in games(self.paths)}
         for game in self.discovered:
             suffix = (
-                " (already in RiftLift)" if game.app_key in self.existing_keys else ""
+                STEAM_GAMES("already_in_riftlift")
+                if game.app_key in self.existing_keys
+                else ""
             )
             item = QtWidgets.QListWidgetItem(f"{game.name}{suffix}")
             item.setData(QtCore.Qt.UserRole, game.app_id)
             self.list.addItem(item)
         if not self.discovered:
-            self.status.setText(
-                "No compatible games were found. Install a Steam game with an "
-                "Oculus mode, then choose Scan again."
-            )
+            self.status.setText(STEAM_GAMES("none_found"))
             return
         count = len(self.discovered)
-        self.status.setText(
-            f"Found {count} compatible Steam game{'s' if count != 1 else ''}. "
-            "Select one to add it to your RiftLift library."
-        )
+        key = "found_one" if count == 1 else "found_other"
+        self.status.setText(STEAM_GAMES(key).format(count=count))
         self.list.setCurrentRow(0)
 
     def select_game(self):
@@ -121,9 +119,9 @@ class SteamGamesDialog(QtWidgets.QDialog):
             return
         self.selected_game = self.discovered[row]
         self.add_button.setText(
-            "Refresh in RiftLift"
+            STEAM_GAMES("refresh_in_riftlift")
             if self.selected_game.app_key in self.existing_keys
-            else "Add to RiftLift"
+            else STEAM_GAMES("add_to_riftlift")
         )
         self.add_button.setEnabled(True)
 

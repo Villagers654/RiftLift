@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 import shutil
 import subprocess
@@ -8,7 +9,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from . import __version__
@@ -16,6 +17,24 @@ from . import __version__
 
 class RiftLiftError(RuntimeError):
     """A concise, user-actionable RiftLift failure."""
+
+
+class LineWriter(io.TextIOBase):
+    """A writable stream that calls back once per completed line."""
+
+    def __init__(self, emit: Callable[[str], None]):
+        self.emit = emit
+        self._buffer = ""
+
+    def write(self, value: str) -> int:
+        self._buffer += value
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            self.emit(line)
+        return len(value)
+
+    def flush(self) -> None:
+        pass
 
 
 def read_limited(stream: object, maximum: int, label: str) -> bytes:
@@ -64,7 +83,17 @@ def command(name: str) -> str:
 
 
 def installed_command(name: str) -> Path:
-    """Find a RiftLift entry point installed on PATH or in the XDG bin directory."""
+    """Find a RiftLift entry point installed on PATH, in the XDG bin directory,
+    or as the AppImage currently running this process.
+
+    A standalone AppImage has no separately installed CLI for Steam shortcuts
+    or the Meta login callback to call back into - it is the only RiftLift
+    binary on the machine, so it must be able to point at itself.
+    """
+    if name == "riftlift" and (appimage := os.environ.get("APPIMAGE")):
+        appimage_path = Path(appimage)
+        if appimage_path.is_file():
+            return appimage_path
     if value := shutil.which(name):
         return Path(value)
     configured_bin_home = os.environ.get("XDG_BIN_HOME")

@@ -13,9 +13,14 @@ from .runtime import (
     DXVK_VERSION,
     META_PACKAGES,
     META_VERSION,
+    OPENVR_RUNTIME_FILES,
     OPENVR_RUNTIME_VERSION,
     PROTON_VERSION,
+    RIFT_RUNTIME_FILES,
     RUNTIME_VERSION,
+    installed_payload_current,
+    meta_package_current,
+    platform_compat_current,
     proton_dir,
     steamvr_runtime_for_openxr,
 )
@@ -101,20 +106,28 @@ def current_components(paths: Paths) -> dict[str, str]:
         dxvk_ok, dxvk_detail = installed_dxvk(proton)
         dxvk_build = dxvk_detail if dxvk_ok else f"invalid ({dxvk_detail})"
     runtime_build = installed_marker(paths.tools / "rift-runtime")
+    if not installed_payload_current(
+        paths.tools / "rift-runtime", RUNTIME_VERSION, RIFT_RUNTIME_FILES
+    ):
+        runtime_build = f"invalid ({runtime_build})"
     support = paths.prefix / "pfx/drive_c/Program Files/Oculus/Support"
     meta_builds: dict[str, str] = {}
     for package in META_PACKAGES:
-        marker = support / package.name / ".riftlift-package.json"
-        try:
-            package_sha256 = str(json.loads(marker.read_text()).get("sha256", ""))
-        except (OSError, json.JSONDecodeError):
-            package_sha256 = ""
+        package_sha256 = (
+            package.sha256
+            if meta_package_current(support / package.name, package)
+            else ""
+        )
         meta_builds[f"meta_{package.name.replace('-', '_')}"] = (
             f"{META_VERSION} sha256:{package_sha256[:12]}"
             if package_sha256
             else "missing/unknown"
         )
     bundled_xrizer = installed_marker(paths.tools / "openvr-runtime")
+    if not installed_payload_current(
+        paths.tools / "openvr-runtime", OPENVR_RUNTIME_VERSION, OPENVR_RUNTIME_FILES
+    ):
+        bundled_xrizer = f"invalid ({bundled_xrizer})"
     selected_openvr = bundled_xrizer
     openvr_transport = f"XRizer {bundled_xrizer} -> active OpenXR runtime"
     try:
@@ -137,7 +150,11 @@ def current_components(paths: Paths) -> dict[str, str]:
         "proton": proton_build,
         "dxvk": dxvk_build,
         **meta_builds,
-        "platform_bridge": f"compat-runtime:{runtime_build}",
+        "platform_bridge": (
+            f"compat-runtime:{runtime_build}"
+            if platform_compat_current(paths)
+            else "missing/invalid"
+        ),
         **system_build_components(probe_vulkan=False),
         **xr_build_components(),
     }
@@ -158,6 +175,15 @@ def expected_components() -> dict[str, str]:
         },
         "platform_bridge": f"compat-runtime:{RUNTIME_VERSION}",
     }
+
+
+def needs_setup(paths: Paths) -> bool:
+    """Whether any compatibility component doesn't match what this build expects."""
+    installed = current_components(paths)
+    return any(
+        not component_matches(key, installed.get(key, "unknown"), value)
+        for key, value in expected_components().items()
+    )
 
 
 def component_matches(name: str, installed: str, expected: str) -> bool:

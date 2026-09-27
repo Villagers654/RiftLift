@@ -145,9 +145,9 @@ def test_gui_constructs_without_linux_imports(paths, monkeypatch):
     assert window.windowTitle() == "RiftLift"
     assert Window.__module__ == "riftlift.main_window"
     assert window.signin.isEnabled()
-    assert window.debug_logging.isEnabled()
+    assert window.settings_page.debug_logging.isEnabled()
     assert not window.steam_games.isEnabled()
-    assert window.library.count() == 0
+    assert window._installed_category.childCount() == 0
     window.close()
     app.processEvents()
 

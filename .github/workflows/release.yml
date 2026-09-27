@@ -27,6 +27,16 @@ jobs:
           name: riftlift-python-release
           path: release/
 
+  appimage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: scripts/build-appimage.sh "$RUNNER_TEMP/riftlift-appimage"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: riftlift-appimage
+          path: ${{ runner.temp }}/riftlift-appimage/riftlift-*-x86_64.AppImage
+
   windows-bridge:
     runs-on: windows-2022
     defaults:
@@ -64,6 +74,17 @@ jobs:
           & C:\vcpkg\vcpkg.exe install --triplet x86-windows-static detours openxr-loader glfw3
           & C:\vcpkg\vcpkg.exe install --triplet x64-windows-static detours openxr-loader glfw3
           & C:\vcpkg\vcpkg.exe integrate install
+      - name: Test platform messages and native forwarding
+        run: |
+          cmake -S ../compat -B ../compat/build -A x64
+          cmake --build ../compat/build --config Release
+          ctest --test-dir ../compat/build -C Release --output-on-failure
+      - name: Build and test the Windows OpenXR layer
+        shell: pwsh
+        run: |
+          cmake -S openxr-layer -B openxr-layer/build -A x64 -DOPENXR_INCLUDE_DIR=C:/vcpkg/installed/x64-windows-static/include
+          cmake --build openxr-layer/build --config Release
+          ctest --test-dir openxr-layer/build -C Release --output-on-failure
       - uses: microsoft/setup-msbuild@v2
       - name: Build Windows ABI bridges
         shell: pwsh
@@ -80,6 +101,7 @@ jobs:
         run: |
           $out = New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\riftlift-windows-bridge"
           Copy-Item Release\RiftLiftLauncher.exe $out
+          Copy-Item openxr-layer\build\Release\RiftLiftOpenXRLayer.dll $out
           Copy-Item Release\openvr_api64.dll $out
           Copy-Item Release\RiftLiftOpenVR64.dll $out
           Copy-Item Release\RiftLiftOpenXR32.dll $out
@@ -93,7 +115,7 @@ jobs:
           path: ${{ runner.temp }}\riftlift-windows-bridge.zip
 
   xrizer:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       CARGO_INCREMENTAL: "0"
     defaults:
@@ -104,14 +126,24 @@ jobs:
         with:
           submodules: true
       - name: Install native build dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang cmake glslc libopenxr-dev libvulkan-dev libx11-xcb-dev ninja-build
+        run: sudo apt-get update && sudo apt-get install -y clang cmake libopenxr-dev libvulkan-dev libx11-xcb-dev ninja-build
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/glslc
+          key: glslc-ubuntu22-3cd72062f297df05e6a042f2616c42bc8956c326
+      - name: Prepare the baseline shader compiler
+        run: |
+          test -x "$RUNNER_TEMP/glslc/bin/glslc" || ../../scripts/build-glslc.sh "$RUNNER_TEMP/glslc/bin/glslc"
+          echo "$RUNNER_TEMP/glslc/bin" >> "$GITHUB_PATH"
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: xrizer-release-v2-${{ runner.os }}-${{ hashFiles('components/xrizer/Cargo.lock') }}
-      - run: cargo build --release
+          key: xrizer-release-v3-ubuntu22-${{ hashFiles('components/xrizer/Cargo.lock') }}
+      - run: cargo build --locked --release
+      - name: Verify XRizer loads on the supported baseline
+        run: PYTHONPATH=../../src python3 -c 'from pathlib import Path; from riftlift.runtime import validate_openvr_library; validate_openvr_library(Path("target/release/libxrizer.so"))'
       - name: Collect xrizer payload
         run: |
           mkdir -p ../../out/xrizer
@@ -175,7 +207,7 @@ jobs:
       - name: Download pinned Meta Platform implementation
         run: |
           curl --fail --location --output platform.pkg \
-            "https://securecdn-atl3-3.oculus.com/binaries/download/?id=3766757683456363"
+            "https://securecdn.oculus.com/binaries/download/?id=3766757683456363"
           echo "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009  platform.pkg" | sha256sum -c -
       - name: Build complete compatibility payload
         run: |
@@ -200,7 +232,7 @@ jobs:
             riftlift-compat.zip.sha256
 
   release-bundle:
-    needs: [python-release, compatibility, xrizer, dxvk, windows-app]
+    needs: [python-release, compatibility, xrizer, dxvk, windows-app, appimage]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -211,6 +243,10 @@ jobs:
       - uses: actions/download-artifact@v5
         with:
           name: riftlift-python-release
+          path: release
+      - uses: actions/download-artifact@v5
+        with:
+          name: riftlift-appimage
           path: release
       - uses: actions/download-artifact@v5
         with:

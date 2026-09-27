@@ -1,4 +1,5 @@
 import hashlib
+import subprocess
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -116,6 +117,66 @@ def test_protocol_handler_uses_url_scheme_registration(tmp_path, monkeypatch) ->
             {"timeout": 10},
         ),
     ]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        subprocess.CalledProcessError(2, "xdg-settings"),
+        subprocess.TimeoutExpired("xdg-settings", 10),
+        OSError("could not execute xdg-settings"),
+    ],
+)
+def test_protocol_handler_falls_back_to_mime_registration(
+    tmp_path, monkeypatch, failure
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))
+    monkeypatch.setattr(
+        "riftlift.meta_auth.installed_command",
+        lambda _name: tmp_path / "path with spaces/riftlift",
+    )
+    monkeypatch.setattr(
+        "riftlift.meta_auth.shutil.which",
+        lambda name: (
+            f"/usr/bin/{name}" if name in {"xdg-settings", "xdg-mime"} else None
+        ),
+    )
+    calls = []
+
+    def register(arguments, **_kwargs):
+        calls.append(arguments)
+        if arguments[0].endswith("xdg-settings"):
+            raise failure
+
+    monkeypatch.setattr("riftlift.meta_auth.run", register)
+    desktop = install_protocol_handler()
+
+    assert (
+        f'Exec="{tmp_path}/path with spaces/riftlift" callback %u'
+        in desktop.read_text()
+    )
+    assert [call for call in calls if call[0].endswith("xdg-mime")] == [
+        ("/usr/bin/xdg-mime", "default", desktop.name, f"x-scheme-handler/{scheme}")
+        for scheme in ("oculus", "oculus-client")
+    ]
+
+
+def test_protocol_handler_reports_failed_mime_fallback(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))
+    monkeypatch.setattr(
+        "riftlift.meta_auth.installed_command", lambda _name: tmp_path / "riftlift"
+    )
+    monkeypatch.setattr(
+        "riftlift.meta_auth.shutil.which", lambda name: f"/usr/bin/{name}"
+    )
+
+    def fail(arguments, **_kwargs):
+        if arguments[0].endswith(("xdg-settings", "xdg-mime")):
+            raise subprocess.CalledProcessError(2, arguments)
+
+    monkeypatch.setattr("riftlift.meta_auth.run", fail)
+    with pytest.raises(RiftLiftError, match="could not register"):
+        install_protocol_handler()
 
 
 def test_verified_callback_is_exchanged_for_oculus_token(tmp_path, monkeypatch) -> None:

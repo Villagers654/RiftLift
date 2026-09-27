@@ -19,6 +19,8 @@
 #define RIFTLIFT_USER_ID UINT64_C(1)
 #define MSG_ENTITLEMENT UINT32_C(0x186B58B1)
 #define MSG_LOGGED_IN_USER UINT32_C(0x436F345D)
+#define MSG_USER UINT32_C(0x6BCF9E47)
+#define MSG_ASSET_LIST UINT32_C(0x4AFC6F74)
 #define MSG_ACCESS_TOKEN UINT32_C(0x06A85ABE)
 #define MSG_ORG_SCOPED_ID UINT32_C(0x18F0B01B)
 #define MSG_USER_PROOF UINT32_C(0x22810483)
@@ -125,6 +127,39 @@ static uint64_t enqueue(uint32_t type)
     return request_id;
 }
 
+__declspec(dllexport) uint64_t __cdecl ovr_AssetFile_GetList(void)
+{
+    typedef uint64_t(__cdecl *user_type)(void);
+    typedef uint64_t(__cdecl *request_type)(void);
+    union { FARPROC source; user_type target; } user = {real_proc("ovr_GetLoggedInUserID")};
+    if (user.target && user.target()) {
+        union { FARPROC source; request_type target; } request = {real_proc("ovr_AssetFile_GetList")};
+        return request.target ? request.target() : 0;
+    }
+    /* The local compatibility session has no service-managed asset downloads.
+     * Complete enumeration so applications can load their bundled content. */
+    log_call("asset enumeration: no authenticated service, empty local list");
+    return enqueue(MSG_ASSET_LIST);
+}
+
+__declspec(dllexport) void *__cdecl ovr_Message_GetAssetDetailsArray(const void *object)
+{
+    typedef void *(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return (void *)object;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_Message_GetAssetDetailsArray")};
+    return convert.target ? convert.target(object) : NULL;
+}
+
+__declspec(dllexport) size_t __cdecl ovr_AssetDetailsArray_GetSize(const void *object)
+{
+    typedef size_t(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return 0;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_AssetDetailsArray_GetSize")};
+    return convert.target ? convert.target(object) : 0;
+}
+
 __declspec(dllexport) int __cdecl ovr_PlatformInitializeUnrealWindows(const char *app_id)
 {
     (void)app_id;
@@ -158,6 +193,16 @@ __declspec(dllexport) uint64_t __cdecl ovr_User_GetLoggedInUser(void)
 {
     log_call("login request: success queued");
     return enqueue(MSG_LOGGED_IN_USER);
+}
+
+__declspec(dllexport) uint64_t __cdecl ovr_User_Get(uint64_t user_id)
+{
+    typedef uint64_t(__cdecl *function_type)(uint64_t);
+    if (user_id == configured_user_id()) {
+        return enqueue(MSG_USER);
+    }
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_User_Get")};
+    return convert.target ? convert.target(user_id) : 0;
 }
 
 __declspec(dllexport) uint64_t __cdecl ovr_User_GetAccessToken(void)
@@ -384,6 +429,17 @@ __declspec(dllexport) void *__cdecl ovr_PopMessage(void)
     return convert.target ? convert.target() : NULL;
 }
 
+__declspec(dllexport) void *__cdecl ovr_Message_GetNativeMessage(const void *object)
+{
+    typedef void *(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) {
+        return (void *)object;
+    }
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_Message_GetNativeMessage")};
+    return convert.target ? convert.target(object) : NULL;
+}
+
 __declspec(dllexport) uint64_t __cdecl ovr_Message_GetRequestID(const void *object)
 {
     typedef uint64_t(__cdecl *function_type)(const void *);
@@ -440,6 +496,9 @@ __declspec(dllexport) const char *__cdecl ovr_Message_GetString(const void *obje
     const FakeMessage *message = (const FakeMessage *)object;
     if (message && message->magic == FAKE_MAGIC && message->type == MSG_ACCESS_TOKEN) {
         return configured_value("RIFTLIFT_ACCESS_TOKEN", "riftlift-local-access-token");
+    }
+    if (message && message->magic == FAKE_MAGIC) {
+        return NULL;
     }
     union { FARPROC source; function_type target; } convert = {real_proc("ovr_Message_GetString")};
     return convert.target ? convert.target(object) : NULL;
@@ -510,6 +569,38 @@ __declspec(dllexport) const char *__cdecl ovr_User_GetOculusID(const void *objec
     }
     union { FARPROC source; function_type target; } convert = {real_proc("ovr_User_GetOculusID")};
     return convert.target ? convert.target(object) : (name && *name ? name : "RiftLift User");
+}
+
+/* Newer Unity SDKs read every User field while constructing the managed
+ * response. Never pass a local identity object into Meta's native model ABI. */
+#define USER_STRING_GETTER(name, fallback) \
+__declspec(dllexport) const char *__cdecl name(const void *object) \
+{ \
+    typedef const char *(__cdecl *function_type)(const void *); \
+    const FakeMessage *message = (const FakeMessage *)object; \
+    if (message && message->magic == FAKE_MAGIC) { return fallback; } \
+    union { FARPROC source; function_type target; } convert = {real_proc(#name)}; \
+    return convert.target ? convert.target(object) : NULL; \
+}
+
+USER_STRING_GETTER(ovr_User_GetDisplayName, configured_value("RIFTLIFT_USER_NAME", "RiftLift User"))
+USER_STRING_GETTER(ovr_User_GetImageUrl, "")
+USER_STRING_GETTER(ovr_User_GetSmallImageUrl, "")
+USER_STRING_GETTER(ovr_User_GetPresence, "")
+USER_STRING_GETTER(ovr_User_GetPresenceDeeplinkMessage, "")
+USER_STRING_GETTER(ovr_User_GetPresenceDestinationApiName, "")
+USER_STRING_GETTER(ovr_User_GetPresenceLobbySessionId, "")
+USER_STRING_GETTER(ovr_User_GetPresenceMatchSessionId, "")
+
+__declspec(dllexport) int __cdecl ovr_User_GetPresenceStatus(const void *object)
+{
+    typedef int(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) {
+        return 0;
+    }
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_User_GetPresenceStatus")};
+    return convert.target ? convert.target(object) : 0;
 }
 
 __declspec(dllexport) void __cdecl ovr_FreeMessage(void *object)

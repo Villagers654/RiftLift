@@ -17,8 +17,8 @@ from .util import RiftLiftError
 
 _ERROR_LINE = re.compile(
     r"(?i)\b(error|failed?|failure|fatal|panic|crash|exception|timed? out|"
-    r"timeout|unsupported|not found|device lost|segfault|denied|gpu reset|"
-    r"vm fault|page fault|hung|oom|xid)\b"
+    r"timeout|unsupported|not supported|not found|device lost|segfault|denied|"
+    r"gpu reset|vm fault|page fault|hung|oom|xid)\b"
 )
 _LOG_NAMES = {
     "player.log",

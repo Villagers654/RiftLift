@@ -21,8 +21,8 @@ from .detection import (
     is_unity_player,
     is_unreal_shipping,
     uses_d3d12_runtime,
-    uses_oculus_xr_plugin,
     uses_openvr_runtime,
+    uses_unity_oculus_plugin,
 )
 from .diagnostics import (
     recent_launches,
@@ -54,6 +54,7 @@ from .runtime import (
     native_xr_bridge,
     proton_dir,
     steamvr_runtime_for_openxr,
+    validate_openvr_library,
 )
 from .steam import steam_root
 from .util import RiftLiftError
@@ -270,6 +271,14 @@ _CAUSE_RULES = (
         "component.",
     ),
     (
+        ("non-oculus openxr runtime is not supported",),
+        "High confidence: Unity's OculusXRPlugin (Meta's own runtime) refuses to "
+        "run against a non-Meta OpenXR runtime like WiVRn or Monado, even though "
+        "the runtime itself is working correctly. Switch this game to the OpenXR "
+        "plugin instead of Oculus (the game's own detail page) to use Unity's "
+        "generic, non-Meta-locked OpenXR support.",
+    ),
+    (
         (
             "xr_error_runtime_unavailable",
             "openxr result -51",
@@ -366,6 +375,42 @@ def _likely_cause(evidence: list[str], launches: list[dict[str, object]]) -> lis
     else:
         cause = "No correlated failure signature was found in the retained sources."
     return [cause]
+
+
+_UNINFORMATIVE_CAUSES = (
+    "No single signature is decisive; the most relevant correlated errors "
+    "are listed below.",
+    "No correlated failure signature was found in the retained sources.",
+)
+
+
+def quick_launch_diagnosis(paths: Paths) -> str | None:
+    """A lightweight, single-launch version of doctor's own likely-cause check.
+
+    Meant to run right after a game exits with a nonzero code, so a known
+    failure signature shows up in the Activity view immediately instead of
+    only appearing in a manually requested `riftlift doctor` report. Skips
+    the system-wide journal/kernel/coredump/Steam/Envision scans doctor's
+    own report does - those stay exclusive to the on-demand report so this
+    stays cheap enough to run after every failed launch.
+    """
+    launches = recent_launches(paths, limit=1)
+    if not launches:
+        return None
+    evidence = [
+        *_recent_launch_log_errors(paths, launches),
+        *_recent_proton_log_errors(paths, launches),
+        *_recent_debug_file_errors(paths, launches, "graphics"),
+        *_recent_debug_file_errors(paths, launches, "game"),
+        *_recent_debug_file_errors(paths, launches, "crashes", include_tail=True),
+        *_recent_game_log_errors(paths, launches),
+    ]
+    if not evidence:
+        return None
+    cause = _likely_cause(evidence, launches)[0]
+    if cause in _UNINFORMATIVE_CAUSES or cause.startswith("Launch state is incomplete"):
+        return None
+    return cause
 
 
 Check = tuple[str, bool, str]
@@ -502,7 +547,15 @@ def _openvr_checks(paths: Paths) -> list[Check]:
         label = "SteamVR OpenVR client (direct; no XRizer)"
         expected_path = steamvr_runtime
 
-    checks: list[Check] = [(label, runtime.is_file(), _file_identity(runtime))]
+    usable = runtime.is_file()
+    detail = _file_identity(runtime)
+    if usable and steamvr_runtime is None:
+        try:
+            validate_openvr_library(runtime)
+        except RiftLiftError as error:
+            usable = False
+            detail = redact(str(error))
+    checks: list[Check] = [(label, usable, detail)]
     registry_path = paths.config / "openvr/openvrpaths.vrpath"
     try:
         registry = json.loads(registry_path.read_text())
@@ -579,7 +632,7 @@ def _game_checks(installed: list[Game]) -> tuple[list[Check], list[str]]:
             name
             for name, value in (
                 ("OpenVR", uses_openvr_runtime(game.game_dir)),
-                ("OculusXR", uses_oculus_xr_plugin(game.game_dir)),
+                ("UnityOculus", uses_unity_oculus_plugin(game.game_dir)),
                 ("D3D12", uses_d3d12_runtime(game.executable_path)),
                 ("Unity", is_unity_player(game.executable_path)),
                 ("Unreal", is_unreal_shipping(game.executable_path)),

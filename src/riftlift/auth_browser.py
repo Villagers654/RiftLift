@@ -313,7 +313,14 @@ def _prepare_chromium_profile(profile: Path) -> None:
 def launch_browser_login(
     paths: Paths, browser: Browser, url: str = META_LOGIN_URL
 ) -> subprocess.Popen[bytes] | None:
-    """Open Meta's hosted login in a RiftLift-owned, isolated browser profile."""
+    """Open Meta's hosted login in the platform's browser."""
+    if os.name != "nt":
+        return subprocess.Popen(
+            [*browser.command, url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
     if browser.family == "native":
         if not webbrowser.open(url):
             raise RiftLiftError("Could not open the Windows default browser")
@@ -370,6 +377,8 @@ def launch_browser_login(
 
 def stop_browser(paths: Paths, browser: Browser, process) -> None:
     """Stop only browser processes using RiftLift's isolated auth profile."""
+    if os.name != "nt":
+        return
     if process is not None and process.poll() is None:
         process.terminate()
     home = browser_home(paths, browser)

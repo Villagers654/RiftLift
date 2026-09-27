@@ -70,6 +70,10 @@ jobs:
                   compat/*|scripts/build-platform-shim.sh)
                     compatibility=true
                     ;;
+                  scripts/build-glslc.sh|src/riftlift/runtime.py)
+                    app=true
+                    xrizer=true
+                    ;;
                   src/*|tests/*|scripts/*|assets/*|install.sh|pyproject.toml)
                     app=true
                     ;;
@@ -169,7 +173,7 @@ jobs:
   xrizer:
     needs: changes
     if: needs.changes.outputs.xrizer == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_DEV_DEBUG: "0"
@@ -182,17 +186,28 @@ jobs:
         with:
           submodules: true
       - name: Install native build dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang cmake glslc libopenxr-dev libvulkan-dev libx11-xcb-dev ninja-build
+        run: sudo apt-get update && sudo apt-get install -y clang cmake libopenxr-dev libvulkan-dev libx11-xcb-dev ninja-build
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/glslc
+          key: glslc-ubuntu22-3cd72062f297df05e6a042f2616c42bc8956c326
+      - name: Prepare the baseline shader compiler
+        run: |
+          test -x "$RUNNER_TEMP/glslc/bin/glslc" || ../../scripts/build-glslc.sh "$RUNNER_TEMP/glslc/bin/glslc"
+          echo "$RUNNER_TEMP/glslc/bin" >> "$GITHUB_PATH"
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             components/xrizer/target
-          key: xrizer-ci-v2-${{ runner.os }}-${{ hashFiles('components/xrizer/Cargo.lock') }}
+          key: xrizer-ci-v3-ubuntu22-${{ hashFiles('components/xrizer/Cargo.lock') }}
       - run: cargo fmt --check
       - run: cargo test
       - run: cargo clippy --workspace --all-targets
+      - run: cargo build --locked
+      - name: Verify XRizer loads on the supported baseline
+        run: PYTHONPATH=../../src python3 -c 'from pathlib import Path; from riftlift.runtime import validate_openvr_library; validate_openvr_library(Path("target/debug/libxrizer.so"))'
 
   dxvk-patch:
     needs: changes
@@ -207,6 +222,18 @@ jobs:
           git -C "$RUNNER_TEMP/dxvk-source" checkout 3a4c6fa3cb1548d56a90a38dd8f526b6c13e63fd
           git -C "$RUNNER_TEMP/dxvk-source" apply --check "$GITHUB_WORKSPACE/components/dxvk/monotonic-fence-signals.patch"
 
+  platform-shim-tests:
+    needs: changes
+    if: needs.changes.outputs.compatibility == 'true'
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+      - name: Test platform messages and native forwarding
+        run: |
+          cmake -S compat -B compat/build -A x64
+          cmake --build compat/build --config Release
+          ctest --test-dir compat/build -C Release --output-on-failure
+
   platform-shim:
     needs: changes
     if: needs.changes.outputs.compatibility == 'true'
@@ -219,7 +246,7 @@ jobs:
         shell: bash
         run: |
           curl --fail --location --output platform.pkg \
-            "https://securecdn-atl3-3.oculus.com/binaries/download/?id=3766757683456363"
+            "https://securecdn.oculus.com/binaries/download/?id=3766757683456363"
           echo "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009  platform.pkg" | sha256sum -c -
           unzip -q platform.pkg LibOVRPlatformImpl64_1.dll
           scripts/build-platform-shim.sh LibOVRPlatformImpl64_1.dll RiftLiftPlatformShim.dll
@@ -255,6 +282,12 @@ jobs:
           restore-keys: |
             runtime-vcpkg-v1-${{ runner.os }}
             runtime-vcpkg-${{ runner.os }}-
+      - name: Test OpenVR pose conversion
+        shell: pwsh
+        run: |
+          cmake -S windows-openvr/tests -B windows-openvr/tests/build -A x64 -DOVR_INCLUDE_DIR="$pwd/Externals/LibOVR/Include"
+          cmake --build windows-openvr/tests/build --config Release
+          ctest --test-dir windows-openvr/tests/build -C Release --output-on-failure
       - name: Install native dependencies
         shell: pwsh
         run: |
@@ -263,6 +296,12 @@ jobs:
           & C:\vcpkg\vcpkg.exe install --triplet x86-windows-static detours openxr-loader glfw3
           & C:\vcpkg\vcpkg.exe install --triplet x64-windows-static detours openxr-loader glfw3
           & C:\vcpkg\vcpkg.exe integrate install
+      - name: Build and test the Windows OpenXR layer
+        shell: pwsh
+        run: |
+          cmake -S openxr-layer -B openxr-layer/build -A x64 -DOPENXR_INCLUDE_DIR=C:/vcpkg/installed/x64-windows-static/include
+          cmake --build openxr-layer/build --config Release
+          ctest --test-dir openxr-layer/build -C Release --output-on-failure
       - uses: microsoft/setup-msbuild@v2
       - name: Build RiftLift translation backends
         shell: pwsh

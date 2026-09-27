@@ -342,6 +342,7 @@
     <ClInclude Include="OVR_CAPI.h" />
     <ClInclude Include="ProfileManager.h" />
     <ClInclude Include="REV_Math.h" />
+    <ClInclude Include="PoseState.h" />
     <ClInclude Include="InputManager.h" />
     <ClInclude Include="Session.h" />
     <ClInclude Include="Common.h" />

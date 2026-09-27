@@ -260,3 +260,25 @@ def test_installed_command_treats_relative_bin_home_as_unset(
     monkeypatch.setattr("riftlift.util.shutil.which", lambda _name: None)
 
     assert installed_command("riftlift") == executable
+
+
+def test_installed_command_prefers_the_running_appimage(tmp_path, monkeypatch) -> None:
+    appimage = tmp_path / "riftlift-x86_64.AppImage"
+    appimage.touch()
+    monkeypatch.setenv("APPIMAGE", str(appimage))
+    monkeypatch.setattr(
+        "riftlift.util.shutil.which", lambda _name: str(tmp_path / "other/riftlift")
+    )
+
+    assert installed_command("riftlift") == appimage
+
+
+def test_installed_command_ignores_a_stale_appimage_path(tmp_path, monkeypatch) -> None:
+    executable = tmp_path / "custom-bin/riftlift"
+    executable.parent.mkdir()
+    executable.touch()
+    monkeypatch.setenv("APPIMAGE", str(tmp_path / "no-longer-mounted.AppImage"))
+    monkeypatch.setenv("XDG_BIN_HOME", str(executable.parent))
+    monkeypatch.setattr("riftlift.util.shutil.which", lambda _name: None)
+
+    assert installed_command("riftlift") == executable

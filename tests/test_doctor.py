@@ -21,7 +21,9 @@ from riftlift.diagnostics import (
 )
 from riftlift.doctor import (
     _likely_cause,
+    _openvr_checks,
     build_report,
+    quick_launch_diagnosis,
     upload_report,
 )
 from riftlift.doctor_evidence import (
@@ -44,6 +46,28 @@ def isolate_host_diagnostic_sources(monkeypatch) -> None:
     ):
         monkeypatch.setattr(f"riftlift.doctor.{name}", lambda *_args: [])
     monkeypatch.setattr("riftlift.doctor._relevant_processes", list)
+
+
+def test_doctor_rejects_an_unloadable_xrizer(tmp_path, monkeypatch):
+    paths = Paths(
+        *(
+            tmp_path / name
+            for name in ("data", "cache", "config", "games", "prefix", "tools")
+        )
+    )
+    library = paths.tools / "openvr-runtime/libxrizer.so"
+    library.parent.mkdir(parents=True)
+    library.write_bytes(b"not a shared library")
+    monkeypatch.setattr(
+        "riftlift.doctor.active_runtime_json", lambda: tmp_path / "xr.json"
+    )
+    monkeypatch.setattr("riftlift.doctor.steamvr_runtime_for_openxr", lambda _: None)
+
+    label, usable, detail = _openvr_checks(paths)[0]
+
+    assert "XRizer" in label
+    assert not usable
+    assert "XRizer cannot load" in detail
 
 
 def test_doctor_component_snapshot_skips_active_vulkan_probe(
@@ -82,6 +106,55 @@ def test_doctor_component_snapshot_skips_active_vulkan_probe(
     assert calls == {"vulkan": False, "xr": True}
 
 
+def test_needs_setup_reflects_a_component_mismatch(tmp_path: Path, monkeypatch) -> None:
+    from riftlift.doctor_components import needs_setup
+
+    test_paths = paths(tmp_path)
+    monkeypatch.setattr(
+        "riftlift.doctor_components.current_components",
+        lambda _paths: {"riftlift": "1.0", "compat_runtime": "missing"},
+    )
+    monkeypatch.setattr(
+        "riftlift.doctor_components.expected_components",
+        lambda: {"riftlift": "1.0", "compat_runtime": "riftlift-1.0"},
+    )
+    assert needs_setup(test_paths) is True
+
+    monkeypatch.setattr(
+        "riftlift.doctor_components.current_components",
+        lambda _paths: {"riftlift": "1.0", "compat_runtime": "riftlift-1.0"},
+    )
+    assert needs_setup(test_paths) is False
+
+
+def test_needs_setup_accepts_proton_and_dxvks_decorated_installed_strings(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Unlike the other components, proton/dxvk report extra info (a Steam
+    # depot id, a sha256) alongside the bare version doctor compares
+    # against - needs_setup must use the same component_matches logic the
+    # doctor report itself uses, not a strict equality check, or it would
+    # always claim setup is needed even on a perfectly matching install.
+    from riftlift.doctor_components import needs_setup
+
+    test_paths = paths(tmp_path)
+    monkeypatch.setattr(
+        "riftlift.doctor_components.current_components",
+        lambda _paths: {
+            "proton": "1784963766 GE-Proton11-3",
+            "dxvk": "3.0.2-riftlift.1 sha256:15d2625b9a7f",
+        },
+    )
+    monkeypatch.setattr(
+        "riftlift.doctor_components.expected_components",
+        lambda: {
+            "proton": "GE-Proton11-3",
+            "dxvk": "3.0.2-riftlift.1",
+        },
+    )
+    assert needs_setup(test_paths) is False
+
+
 def test_doctor_reports_selected_steamvr_and_bundled_xrizer_separately(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -104,7 +177,7 @@ def test_doctor_reports_selected_steamvr_and_bundled_xrizer_separately(
 
     current = _current_components(test_paths)
 
-    assert current["bundled_xrizer"] == "xrizer-test"
+    assert current["bundled_xrizer"] == "invalid (xrizer-test)"
     assert current["openvr_runtime"] == "SteamVR 1781734990"
     assert current["openvr_transport"] == "SteamVR direct (no XRizer)"
     assert _expected_components()["bundled_xrizer"] != "xrizer-test"
@@ -189,6 +262,69 @@ def test_likely_cause_decodes_openxr_api_version_failure() -> None:
 
     assert "rejected the API version" in cause[0]
     assert "build comparison" in cause[0]
+
+
+def test_likely_cause_identifies_the_meta_vendor_lock() -> None:
+    cause = _likely_cause(
+        [
+            "[OVRPlugin][ERROR] Non-Oculus OpenXR runtime is not supported. "
+            "(CompositorOpenXR.cpp:1934)"
+        ],
+        [],
+    )
+
+    assert "refuses to run against a non-Meta OpenXR runtime" in cause[0]
+    assert "OpenXR plugin instead of Oculus" in cause[0]
+
+
+def test_quick_launch_diagnosis_surfaces_the_meta_vendor_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    test_paths = paths(tmp_path)
+    log = (
+        test_paths.prefix
+        / "pfx/drive_c/users/steamuser/AppData/LocalLow/Some Game/Player.log"
+    )
+    log.parent.mkdir(parents=True)
+    log.write_text(
+        "[OVRPlugin][ERROR] \n"
+        "Non-Oculus OpenXR runtime is not supported. "
+        "(CompositorOpenXR.cpp:1934)\n"
+    )
+    monkeypatch.setattr("riftlift.doctor_evidence._launch_epoch", lambda _launches: 0)
+    monkeypatch.setattr(
+        "riftlift.doctor_evidence._launch_end_epoch", lambda _launches: 10**12
+    )
+    monkeypatch.setattr(
+        "riftlift.doctor.recent_launches",
+        lambda _paths, limit=1: [{"event": "finished", "exit_code": 5}],
+    )
+
+    result = quick_launch_diagnosis(test_paths)
+
+    assert result is not None
+    assert "refuses to run against a non-Meta OpenXR runtime" in result
+
+
+def test_quick_launch_diagnosis_is_quiet_without_evidence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    test_paths = paths(tmp_path)
+    monkeypatch.setattr(
+        "riftlift.doctor.recent_launches",
+        lambda _paths, limit=1: [{"event": "finished", "exit_code": 0}],
+    )
+
+    assert quick_launch_diagnosis(test_paths) is None
+
+
+def test_quick_launch_diagnosis_is_quiet_without_launch_history(
+    tmp_path: Path, monkeypatch
+) -> None:
+    test_paths = paths(tmp_path)
+    monkeypatch.setattr("riftlift.doctor.recent_launches", lambda _paths, limit=1: [])
+
+    assert quick_launch_diagnosis(test_paths) is None
 
 
 def test_successful_launcher_tail_is_not_reported_as_error_evidence(

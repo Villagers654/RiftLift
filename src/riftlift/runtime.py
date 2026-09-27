@@ -4,9 +4,11 @@ import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
+import sys
 import tarfile
 import tempfile
 import zipfile
@@ -22,6 +24,7 @@ from .util import (
     atomic_write_bytes,
     atomic_write_text,
     download,
+    linux_to_windows,
     run,
     sha256,
 )
@@ -81,7 +84,7 @@ class MetaPackage:
 
     @property
     def url(self) -> str:
-        return f"https://securecdn-atl3-3.oculus.com/binaries/download/?id={self.binary_id}"
+        return f"https://securecdn.oculus.com/binaries/download/?id={self.binary_id}"
 
 
 META_RUNTIME_SIGNED_FILES = {
@@ -383,6 +386,11 @@ _DXVK_FILES = {
     "x32/dxgi.dll": "i386-windows/dxgi.dll",
 }
 
+_PROTON_OPENVR_FILES = (
+    "i386-windows/openvr_api_dxvk.dll",
+    "x86_64-windows/openvr_api_dxvk.dll",
+)
+
 
 def _dxvk_current(marker: Path, destination: Path, artifact_sha256: str) -> bool:
     try:
@@ -391,6 +399,7 @@ def _dxvk_current(marker: Path, destination: Path, artifact_sha256: str) -> bool
         return (
             installed.get("version") == DXVK_VERSION
             and installed.get("artifact_sha256") == artifact_sha256
+            and all((destination / name).is_file() for name in _PROTON_OPENVR_FILES)
             and all(
                 installed_files.get(relative) == sha256(destination / relative)
                 for relative in _DXVK_FILES.values()
@@ -444,8 +453,30 @@ def install_dxvk_compat(paths: Paths, proton: Path) -> Path:
     try:
         _safe_tar(archive, staging)
         source = staging / "dxvk"
+        patched = staging / "patched"
+        file_hashes = _install_dxvk_files(source, patched)
         staged_destination = staging / "installed"
-        file_hashes = _install_dxvk_files(source, staged_destination)
+        if not all((destination / name).is_file() for name in _PROTON_OPENVR_FILES):
+            # Older installs replaced the whole directory, losing Proton's DLLs.
+            proton_archive = download(
+                PROTON_URL, paths.cache / f"{PROTON_VERSION}.tar.gz", PROTON_SHA256
+            )
+            restored = staging / "proton"
+            _safe_tar(proton_archive, restored, allow_internal_links=True)
+            stock = restored / PROTON_VERSION / "files/lib/wine/dxvk"
+            if not all((stock / name).is_file() for name in _PROTON_OPENVR_FILES):
+                raise RiftLiftError("GE-Proton archive is missing OpenVR DXVK DLLs")
+            shutil.copytree(stock, staged_destination, symlinks=True)
+        if destination.exists():
+            shutil.copytree(
+                destination, staged_destination, symlinks=True, dirs_exist_ok=True
+            )
+        for relative in _DXVK_FILES.values():
+            atomic_write_bytes(
+                staged_destination / relative,
+                (patched / relative).read_bytes(),
+                mode=0o644,
+            )
         atomic_write_text(
             staged_destination / ".riftlift-dxvk.json",
             json.dumps(
@@ -613,22 +644,8 @@ def _install_meta_packages(paths: Paths, support: Path) -> None:
             package.url, paths.cache / "meta" / f"{package.name}.pkg", package.sha256
         )
         destination = support / package.name
-        marker = destination / ".riftlift-package.json"
-        if marker.is_file():
-            try:
-                current_package = json.loads(marker.read_text()).get(
-                    "sha256"
-                ) == package.sha256 and all(
-                    (destination / name).is_file() for name in package.required_files
-                )
-                if package.verify_signed_runtime:
-                    current_package = current_package and _signed_meta_runtime_current(
-                        destination
-                    )
-                if current_package:
-                    continue
-            except (OSError, json.JSONDecodeError):
-                pass
+        if meta_package_current(destination, package):
+            continue
         staging = Path(tempfile.mkdtemp(prefix=f".{package.name}-unpack-", dir=support))
         try:
             _safe_zip(archive, staging)
@@ -637,7 +654,14 @@ def _install_meta_packages(paths: Paths, support: Path) -> None:
             atomic_write_text(
                 staging / ".riftlift-package.json",
                 json.dumps(
-                    {"binary_id": package.binary_id, "sha256": package.sha256},
+                    {
+                        "binary_id": package.binary_id,
+                        "sha256": package.sha256,
+                        "files": {
+                            name: sha256(staging / name)
+                            for name in package.required_files
+                        },
+                    },
                     indent=2,
                 )
                 + "\n",
@@ -724,28 +748,77 @@ def install_meta_runtime(paths: Paths) -> Path:
     return support
 
 
+RIFT_RUNTIME_FILES = (
+    "RiftLiftLauncher.exe",
+    "RiftLiftOpenXRLayer.dll",
+    "RiftLiftOpenXR64.dll",
+    "RiftLiftOpenVR64.dll",
+    "openvr_api64.dll",
+    "LibOVRPlatformImpl64_1.dll",
+    "Input/action_manifest.json",
+    "Input/gamepad_default.json",
+    "Input/holographic_controller_default.json",
+    "Input/knuckles_default.json",
+    "Input/oculus_touch_default.json",
+    "Input/vive_controller_default.json",
+    "Input/vive_cosmos_default.json",
+)
+
+
+OPENVR_RUNTIME_FILES = ("libxrizer.so", "bin/linux64/vrclient.so", "bin/version.txt")
+
+
+def _file_hashes_match(
+    directory: Path, expected: object, required: tuple[str, ...]
+) -> bool:
+    if not isinstance(expected, dict) or not required:
+        return False
+    try:
+        return all(
+            isinstance(expected.get(name), str)
+            and sha256(directory / name) == expected[name]
+            for name in required
+        )
+    except OSError:
+        return False
+
+
+def installed_payload_current(
+    directory: Path, version: str, required: tuple[str, ...]
+) -> bool:
+    try:
+        marker = (directory / ".riftlift-version").read_text().strip()
+        hashes = json.loads((directory / ".riftlift-files.json").read_text())
+        return marker == version and _file_hashes_match(directory, hashes, required)
+    except (OSError, ValueError):
+        return False
+
+
+def _record_payload_files(directory: Path, required: tuple[str, ...]) -> None:
+    atomic_write_text(
+        directory / ".riftlift-files.json",
+        json.dumps({name: sha256(directory / name) for name in required}, indent=2)
+        + "\n",
+    )
+
+
+def meta_package_current(destination: Path, package: MetaPackage) -> bool:
+    try:
+        marker = json.loads((destination / ".riftlift-package.json").read_text())
+        if not isinstance(marker, dict) or marker.get("sha256") != package.sha256:
+            return False
+        if package.verify_signed_runtime:
+            return _signed_meta_runtime_current(destination)
+        return _file_hashes_match(
+            destination, marker.get("files"), package.required_files
+        )
+    except (OSError, ValueError):
+        return False
+
+
 def install_rift_runtime(paths: Paths) -> Path:
     destination = paths.tools / "rift-runtime"
-    version_marker = destination / ".riftlift-version"
-    required = (
-        "RiftLiftLauncher.exe",
-        "RiftLiftOpenXR64.dll",
-        "RiftLiftOpenVR64.dll",
-        "openvr_api64.dll",
-        "LibOVRPlatformImpl64_1.dll",
-        "Input/action_manifest.json",
-        "Input/gamepad_default.json",
-        "Input/holographic_controller_default.json",
-        "Input/knuckles_default.json",
-        "Input/oculus_touch_default.json",
-        "Input/vive_controller_default.json",
-        "Input/vive_cosmos_default.json",
-    )
-    if (
-        all((destination / name).is_file() for name in required)
-        and version_marker.is_file()
-        and version_marker.read_text().strip() == RUNTIME_VERSION
-    ):
+    if installed_payload_current(destination, RUNTIME_VERSION, RIFT_RUNTIME_FILES):
         return destination
     override = os.environ.get("RIFTLIFT_RUNTIME_ARCHIVE")
     archive = (
@@ -766,8 +839,9 @@ def install_rift_runtime(paths: Paths) -> Path:
             if nested.is_dir() and not (staging / "RiftLiftLauncher.exe").is_file()
             else staging
         )
-        if not all((source / name).is_file() for name in required):
+        if not all((source / name).is_file() for name in RIFT_RUNTIME_FILES):
             raise RiftLiftError("RiftLift runtime payload is incomplete")
+        _record_payload_files(source, RIFT_RUNTIME_FILES)
         (source / ".riftlift-version").write_text(f"{RUNTIME_VERSION}\n")
         _replace_directory(source, destination)
     finally:
@@ -776,18 +850,48 @@ def install_rift_runtime(paths: Paths) -> Path:
     return destination
 
 
+def validate_openvr_library(library: Path) -> None:
+    try:
+        # python-appimage rewrites sys.executable to RiftLift's launcher,
+        # which parses -c as application arguments. Resolve the running Linux
+        # interpreter instead, while its AppImage mount is still alive. Keep
+        # the probe in a child process so a broken native loader cannot take
+        # down the GUI.
+        executable = (
+            str(Path("/proc/self/exe").resolve(strict=True))
+            if os.environ.get("APPDIR")
+            else sys.executable
+        )
+        result = subprocess.run(
+            [
+                executable,
+                "-c",
+                "import ctypes, sys; lib = ctypes.CDLL(sys.argv[1]); "
+                "lib.HmdSystemFactory; lib.VRClientCoreFactory",
+                str(library.resolve()),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RiftLiftError(
+            f"Could not validate the XRizer library: {error}"
+        ) from error
+    if result.returncode:
+        detail = result.stderr.strip()[-2000:] or f"loader exited {result.returncode}"
+        raise RiftLiftError(f"XRizer cannot load on this system: {detail}")
+
+
 def install_openvr_runtime(paths: Paths) -> Path:
     """Install RiftLift's native OpenVR-to-OpenXR implementation."""
     destination = paths.tools / "openvr-runtime"
     library = destination / "libxrizer.so"
-    proton_library = destination / "bin/linux64/vrclient.so"
-    version_marker = destination / ".riftlift-version"
-    if (
-        library.is_file()
-        and proton_library.is_file()
-        and version_marker.is_file()
-        and version_marker.read_text().strip() == OPENVR_RUNTIME_VERSION
+    if installed_payload_current(
+        destination, OPENVR_RUNTIME_VERSION, OPENVR_RUNTIME_FILES
     ):
+        validate_openvr_library(library)
         _write_openvr_path_registry(paths, destination)
         return destination
     override = os.environ.get("RIFTLIFT_OPENVR_RUNTIME_ARCHIVE")
@@ -807,6 +911,7 @@ def install_openvr_runtime(paths: Paths) -> Path:
         staged_library = source / "libxrizer.so"
         if not staged_library.is_file():
             raise RiftLiftError("RiftLift OpenVR runtime payload is incomplete")
+        validate_openvr_library(staged_library)
         staged_proton_library = source / "bin/linux64/vrclient.so"
         staged_proton_library.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -814,6 +919,7 @@ def install_openvr_runtime(paths: Paths) -> Path:
         except OSError:
             shutil.copy2(staged_library, staged_proton_library)
         (source / "bin/version.txt").write_text(f"{OPENVR_RUNTIME_VERSION}\n")
+        _record_payload_files(source, OPENVR_RUNTIME_FILES)
         (source / ".riftlift-version").write_text(f"{OPENVR_RUNTIME_VERSION}\n")
         _replace_directory(source, destination)
     finally:
@@ -944,6 +1050,27 @@ def _private_openvr_path_registry(paths: Paths, source: Path) -> Path:
     return target
 
 
+def platform_compat_current(paths: Paths) -> bool:
+    override = os.environ.get("RIFTLIFT_PLATFORM_SHIM")
+    source = (
+        Path(override).expanduser()
+        if override
+        else paths.tools / "rift-runtime/LibOVRPlatformImpl64_1.dll"
+    )
+    try:
+        expected = sha256(source)
+        return all(
+            sha256(target) == expected
+            for target in (
+                paths.tools / "platform-compat/LibOVRPlatformImpl64_1.dll",
+                paths.prefix
+                / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime/LibOVRPlatformImpl64_1.dll",
+            )
+        )
+    except OSError:
+        return False
+
+
 def install_platform_compat(paths: Paths) -> Path:
     source = install_meta_runtime(paths) / "oculus-runtime"
     destination = paths.tools / "platform-compat"
@@ -1019,9 +1146,164 @@ def setup(paths: Paths) -> None:
     proton_root = install_proton(paths)
     install_meta_runtime(paths)
     install_rift_runtime(paths)
+    install_openxr_layer(paths)
     install_openvr_runtime(paths)
     install_platform_compat(paths)
     shutdown_compat_prefix(paths, proton_root)
+
+
+def install_openxr_layer(paths: Paths) -> None:
+    """Register the Windows layer only in RiftLift's private Wine prefix."""
+    directory = paths.tools / "rift-runtime"
+    library = directory / "RiftLiftOpenXRLayer.dll"
+    if not library.is_file():
+        raise RiftLiftError("RiftLift OpenXR compatibility layer is missing")
+    manifest = directory / "openxr-layer.json"
+    payload = (
+        json.dumps(
+            {
+                "file_format_version": "1.0.0",
+                "api_layer": {
+                    "name": "XR_APILAYER_RIFTLIFT_ovr_compat",
+                    "library_path": linux_to_windows(library),
+                    "api_version": "1.0",
+                    "implementation_version": "1",
+                    "description": "RiftLift OVRPlugin compatibility",
+                    "enable_environment": "RIFTLIFT_OVR_COMPAT",
+                    "disable_environment": "RIFTLIFT_DISABLE_OVR_COMPAT",
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    if not manifest.is_file() or manifest.read_text() != payload:
+        atomic_write_text(manifest, payload)
+    key = r"Software\Khronos\OpenXR\1\ApiLayers\Implicit"
+    name = linux_to_windows(manifest)
+    registry = paths.prefix / "pfx/system.reg"
+    contents = registry.read_text(errors="replace") if registry.is_file() else ""
+    section = "[" + key.replace("\\", "\\\\") + "]"
+    value = '"' + name.replace("\\", "\\\\") + '"=dword:00000000'
+    registered = any(
+        block.startswith(section) and value in block.splitlines()
+        for block in contents.split("\n\n")
+    )
+    if not registered:
+        _registry_add(paths, "HKLM\\" + key, name, "REG_DWORD", "0")
+
+
+def _flatpak_app_parts(runtime: Path) -> tuple[str, str] | None:
+    """The (app directory, app id) owning `runtime`, if it lives in a Flatpak."""
+    parts = runtime.parts
+    for index, part in enumerate(parts):
+        if part == "flatpak" and parts[index + 1 : index + 2] == ("app",):
+            if index + 2 >= len(parts):
+                return None
+            return str(Path(*parts[: index + 3])), parts[index + 2]
+    return None
+
+
+def _flatpak_runtime_root(runtime: Path) -> str | None:
+    """The Flatpak app directory owning `runtime`, if it lives in one.
+
+    A Flatpak-packaged OpenXR runtime (WiVRn's own Flathub build prints this
+    exact requirement) sits inside its own sandbox, which Steam's Linux
+    Runtime container does not expose by default even when
+    PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 tells it to look for a host
+    runtime manifest - the container still can't read the library file the
+    manifest points to unless that Flatpak's directory is bind-mounted in.
+    """
+    found = _flatpak_app_parts(runtime)
+    return found[0] if found else None
+
+
+_PRESSURE_VESSEL_KEY_PATTERN = re.compile(r"\APRESSURE_VESSEL_[A-Z0-9_]+\Z")
+_PRESSURE_VESSEL_PATH_TOKEN = re.compile(r"\A/[\w./-]+\Z")
+_MAX_WIVRN_LOG_BYTES = 2 * 1024 * 1024
+
+
+def _valid_pressure_vessel_value(value: str) -> bool:
+    """A plain boolean flag, or one or more existing absolute paths.
+
+    Pressure-vessel's own filesystem flags accept a colon-separated path
+    list, so a single value is checked the same way a lone path would be.
+    """
+    if value in ("0", "1"):
+        return True
+    tokens = value.split(":")
+    return bool(tokens) and all(
+        _PRESSURE_VESSEL_PATH_TOKEN.match(token) and Path(token).is_dir()
+        for token in tokens
+    )
+
+
+def _parse_pressure_vessel_command_line(line: str) -> dict[str, str] | None:
+    """Validate and extract KEY=VALUE pairs from one "set command to" line.
+
+    Deliberately not a fixed allow-list of specific variable names - a future
+    WiVRn release adding a new PRESSURE_VESSEL_* flag should still work
+    without a RiftLift update. Instead, each assignment is checked by shape:
+    the key must look like a genuine PRESSURE_VESSEL_* variable and the value
+    must be a plain boolean or an existing absolute path (or colon-separated
+    paths) - nothing resembling a shell metacharacter, unrelated variable, or
+    dangling path survives. Anything that doesn't fit is treated the same as
+    no match at all, never partially trusted.
+    """
+    marker = "set command to "
+    if marker not in line:
+        return None
+    _prefix, _, remainder = line.partition(marker)
+    tokens = remainder.replace("%command%", "").split()
+    if not tokens:
+        return None
+    pairs: dict[str, str] = {}
+    for token in tokens:
+        key, sep, value = token.partition("=")
+        if (
+            not sep
+            or not _PRESSURE_VESSEL_KEY_PATTERN.match(key)
+            or not _valid_pressure_vessel_value(value)
+        ):
+            return None
+        pairs[key] = value
+    return pairs or None
+
+
+def _wivrn_recommended_pressure_vessel_env(app_id: str) -> dict[str, str] | None:
+    """Read the Flatpak WiVRn server's own Steam launch-option recommendation.
+
+    Its startup log prints the exact PRESSURE_VESSEL_* variables its sandbox
+    needs (e.g. "For Steam games, set command to
+    PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1
+    PRESSURE_VESSEL_FILESYSTEMS_RW=/var/lib/flatpak/app/io.github.wivrn.wivrn
+    %command%"), which can change (including adding flags this code has never
+    seen) across WiVRn versions - trust that over a value this code guesses
+    itself, whenever a recent log has one. Only assignments shaped like a
+    genuine PRESSURE_VESSEL_* flag are ever accepted; anything else in the
+    line, or any error reading it, falls through to the caller's own static
+    fallback instead of raising.
+    """
+    log_dir = Path.home() / ".var/app" / app_id / ".local/state/wivrn/wivrn-dashboard"
+    try:
+        logs = sorted(
+            log_dir.glob("server_logs_*.txt"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return None
+    for log in logs[:3]:
+        try:
+            if log.stat().st_size > _MAX_WIVRN_LOG_BYTES:
+                continue
+            text = log.read_text(errors="replace")
+        except OSError:
+            continue
+        for line in reversed(text.splitlines()):
+            if pairs := _parse_pressure_vessel_command_line(line):
+                return pairs
+    return None
 
 
 def launch_environment(
@@ -1033,6 +1315,7 @@ def launch_environment(
     runtime: Path | None = None,
 ) -> dict[str, str]:
     runtime = runtime or active_runtime_json()
+    install_openxr_layer(paths)
     environment = proton_environment(paths, game_dir)
     existing_overrides = environment.get("WINEDLLOVERRIDES", "").strip(";")
     environment.update(
@@ -1040,9 +1323,17 @@ def launch_environment(
             "XR_RUNTIME_JSON": str(runtime),
             "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES": "1",
             "OXR_ZERO_TIME_IS_NOW": "1",
+            "RIFTLIFT_OVR_COMPAT": "1",
             "WINEDLLOVERRIDES": f"d3d11=n;dxgi=n{';' + existing_overrides if existing_overrides else ''}",
         }
     )
+    if flatpak_app := _flatpak_app_parts(runtime):
+        flatpak_root, app_id = flatpak_app
+        dynamic = _wivrn_recommended_pressure_vessel_env(app_id)
+        if dynamic:
+            environment.update(dynamic)
+        else:
+            environment["PRESSURE_VESSEL_FILESYSTEMS_RW"] = flatpak_root
     if platform_shim:
         install_platform_compat(paths)
         meta_runtime_win = r"C:\Program Files\Oculus\Support\oculus-runtime"

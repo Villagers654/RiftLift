@@ -125,7 +125,13 @@ def add_steam_game(paths: Paths, game: Game) -> Game:
         None,
     )
     if existing is not None:
-        game = replace(game, slug=existing.slug)
+        game = replace(
+            game,
+            slug=existing.slug,
+            launch_options=existing.launch_options,
+            dll_overrides=existing.dll_overrides,
+            environment=existing.environment,
+        )
     elif (paths.data / "games" / f"{game.slug}.json").exists():
         base = f"{game.slug}-steam"
         slug = base

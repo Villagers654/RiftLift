@@ -1,0 +1,52 @@
+#include "../riftlift-platform-shim.c"
+#define CHECK(x) do { if (!(x)) { fprintf(stderr, "Failed line %d: %s\n", __LINE__, #x); exit(1); } } while (0)
+int main(void) {
+    _putenv("RIFTLIFT_USER_ID=1234");
+    _putenv("RIFTLIFT_USER_NAME=Test User");
+    uint64_t request = ovr_User_GetLoggedInUser();
+    void *message = ovr_PopMessage();
+    CHECK(message && ovr_Message_GetNativeMessage(message) == message);
+    CHECK(ovr_Message_GetRequestID(message) == request);
+    CHECK(ovr_Message_GetType(message) == MSG_LOGGED_IN_USER);
+    CHECK(!ovr_Message_IsError(message));
+    const void *user = ovr_Message_GetUser(message);
+    ovr_FreeMessage(message);
+    CHECK(ovr_User_GetID(user) == 1234);
+    CHECK(!strcmp(ovr_User_GetOculusID(user), "Test User"));
+    CHECK(!strcmp(ovr_User_GetDisplayName(user), "Test User"));
+    CHECK(!strcmp(ovr_User_GetImageUrl(user), ""));
+    CHECK(!strcmp(ovr_User_GetSmallImageUrl(user), ""));
+    CHECK(!strcmp(ovr_User_GetPresence(user), ""));
+    CHECK(!strcmp(ovr_User_GetPresenceDeeplinkMessage(user), ""));
+    CHECK(!strcmp(ovr_User_GetPresenceDestinationApiName(user), ""));
+    CHECK(!strcmp(ovr_User_GetPresenceLobbySessionId(user), ""));
+    CHECK(!strcmp(ovr_User_GetPresenceMatchSessionId(user), ""));
+    CHECK(ovr_User_GetPresenceStatus(user) == 0);
+    request = ovr_User_Get(1234);
+    message = ovr_PopMessage();
+    CHECK(ovr_Message_GetType(message) == MSG_USER);
+    CHECK(ovr_Message_GetRequestID(message) == request);
+    CHECK(ovr_Message_GetUser(message) == user);
+    CHECK(ovr_Message_GetString(message) == NULL);
+    ovr_FreeMessage(message);
+    CHECK(ovr_User_Get(4321) == 4421);
+    request = ovr_AssetFile_GetList();
+    message = ovr_PopMessage();
+    CHECK(ovr_Message_GetRequestID(message) == request);
+    CHECK(ovr_Message_GetType(message) == MSG_ASSET_LIST);
+    CHECK(ovr_AssetDetailsArray_GetSize(ovr_Message_GetAssetDetailsArray(message)) == 0);
+    ovr_FreeMessage(message);
+    typedef void (*setter)(uint64_t);
+    union { FARPROC source; setter target; } set = {real_proc("test_set_user")};
+    CHECK(set.target);
+    set.target(5678);
+    CHECK(ovr_AssetFile_GetList() == 71);
+    CHECK(ovr_PopMessage() == NULL);
+    uint64_t real_object = 0;
+    CHECK(ovr_Message_GetNativeMessage(&real_object) == &real_object);
+    CHECK(ovr_AssetDetailsArray_GetSize(&real_object) == 3);
+    CHECK(!strcmp(ovr_User_GetDisplayName(&real_object), "Real user"));
+    CHECK(ovr_User_GetPresenceStatus(&real_object) == 2);
+    puts("Platform profile lifetime, local asset enumeration and native forwarding tests passed");
+    return 0;
+}

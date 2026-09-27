@@ -18,6 +18,7 @@ Compatibility results are listed separately for Windows and Linux. Results can v
 | [StereoPaint](https://store.steampowered.com/app/1920760/StereoPaint/) | Steam | Untested | ✅ | Yes | — |
 | [Stormland](https://www.meta.com/experiences/pcvr/stormland/1360938750683878/) | Meta Rift Store; Windows: Stormland_008 | ✅ | ✅ | Yes | Windows: stereo island scene. |
 | [SUPERHOT VR](https://store.steampowered.com/app/617830/SUPERHOT_VR/) | Steam Oculus mode | Untested | ✅ | No | — |
+| [The Thrill of the Fight](https://store.steampowered.com/app/494150/The_Thrill_of_the_Fight__VR_Boxing/) | Meta Rift Store | Untested | ✅ | No | Requires RiftLift 0.10.2.3 or newer for automatic legacy Unity runtime selection. |
 | [Vader Immortal: Episode I](https://www.playstation.com/en-us/games/vader-immortal-a-star-wars-vr-series/) | Meta Rift Store; Windows: 1.1.0 | ✅ | ✅ | Yes | Windows: VR settings menu and hands; simulated button input advances setup. |
 
 Windows results use the local `windows-native` development build with a simulated headset. Images were inspected from game render textures while the desktop was locked; headset presentation and full interactive gameplay remain unverified. These results do not establish compatibility for the pinned release.

@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.20)
+project(RiftLiftPoseTests LANGUAGES CXX)
+find_path(OVR_INCLUDE_DIR Extras/OVR_Math.h REQUIRED)
+add_executable(PoseStateTests PoseStateTests.cpp)
+target_include_directories(PoseStateTests PRIVATE "${OVR_INCLUDE_DIR}" .. ../../Externals/openvr/headers)
+target_compile_features(PoseStateTests PRIVATE cxx_std_17)
+include(CTest)
+add_test(NAME OpenVRPoseState COMMAND PoseStateTests)

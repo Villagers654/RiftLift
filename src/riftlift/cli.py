@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from dataclasses import replace
 
 if os.name != "nt":
     from meta_pcvr_downloader.api import MetaApiError
@@ -10,11 +11,12 @@ if os.name != "nt":
     from meta_pcvr_downloader.download import DownloadError
 
     from . import __version__
-    from .auth import complete_login, login
+    from .auth import complete_login, login, runtime_access_token
     from .config import Game, Paths, games
     from .doctor import doctor
+    from .entitlements import list_owned_pcvr_apps
     from .launch import launch
-    from .library import add, add_local
+    from .library import add, add_local, remove
     from .metadata import populate_game_metadata
     from .playtime import playtime, playtime_label
     from .runtime import setup
@@ -43,9 +45,7 @@ def parser() -> argparse.ArgumentParser:
     setup_command.add_argument(
         "--login", action="store_true", help="start browser-backed Meta sign-in"
     )
-    commands.add_parser(
-        "login", help="sign in to Meta through an isolated default-browser window"
-    )
+    commands.add_parser("login", help="sign in to Meta through your default browser")
     callback = commands.add_parser("callback", help=argparse.SUPPRESS)
     callback.add_argument("url", nargs="?", help=argparse.SUPPRESS)
 
@@ -91,6 +91,12 @@ def parser() -> argparse.ArgumentParser:
         "--no-steam", action="store_true", help="register without updating Steam"
     )
 
+    remove_command = commands.add_parser("remove", help="uninstall a RiftLift game")
+    remove_command.add_argument("slug")
+    remove_command.add_argument(
+        "--no-steam", action="store_true", help="remove without updating Steam"
+    )
+
     launch_command = commands.add_parser("launch", help="launch an installed game")
     launch_command.add_argument("slug")
     launch_command.add_argument("arguments", nargs=argparse.REMAINDER)
@@ -103,6 +109,9 @@ def parser() -> argparse.ArgumentParser:
         "steam-oculus-ids", help="list installed Steam games needing RiftLift"
     )
     commands.add_parser("list", help="list installed RiftLift games")
+    commands.add_parser(
+        "owned", help="list owned Rift/PC VR games from your Meta account"
+    )
     commands.add_parser(
         "steam-sync", help="safely synchronize all RiftLift games into Steam"
     )
@@ -178,12 +187,31 @@ def _run_add_local(paths: Paths, arguments: argparse.Namespace) -> int:
     return 0
 
 
+def _run_remove(paths: Paths, arguments: argparse.Namespace) -> int:
+    game = Game.load(paths, arguments.slug)
+    remove(paths, game)
+    print(f"Removed {game.name}.")
+    if not arguments.no_steam:
+        print(f"Updated Steam ({sync_with_restart(paths)}).")
+    return 0
+
+
 def _run_steam_launch(paths: Paths, arguments: argparse.Namespace) -> int:
     from .steam_oculus import game_from_steam_command
 
     if arguments.steam_command in (["-h"], ["--help"]):
         parser().parse_args(["launch-steam", "--help"])
     discovered = steam_oculus_game(arguments.app_id)
+    saved = next(
+        (game for game in games(paths) if game.app_key == discovered.app_key), None
+    )
+    if saved is not None:
+        discovered = replace(
+            discovered,
+            launch_options=saved.launch_options,
+            dll_overrides=saved.dll_overrides,
+            environment=saved.environment,
+        )
     return launch(
         paths, game_from_steam_command(discovered, arguments.steam_command), []
     )
@@ -214,6 +242,16 @@ def _run_list(paths: Paths, _arguments: argparse.Namespace) -> int:
     return 0
 
 
+def _run_owned(paths: Paths, _arguments: argparse.Namespace) -> int:
+    token = runtime_access_token(paths)
+    owned = list_owned_pcvr_apps(token)
+    if not owned:
+        print("No owned Rift/PC VR games found on this Meta account.")
+    for app in owned:
+        print(f"{app.name} ({app.app_id})")
+    return 0
+
+
 def _run_metadata(paths: Paths, arguments: argparse.Namespace) -> int:
     installed = [Game.load(paths, arguments.slug)] if arguments.slug else games(paths)
     for game in installed:
@@ -239,10 +277,12 @@ def run(arguments: argparse.Namespace) -> int:
         "callback": _run_callback,
         "add": _run_add,
         "add-local": _run_add_local,
+        "remove": _run_remove,
         "launch": _run_launch,
         "launch-steam": _run_steam_launch,
         "steam-oculus-ids": _run_steam_oculus_ids,
         "list": _run_list,
+        "owned": _run_owned,
         "steam-sync": _run_steam_sync,
         "metadata": _run_metadata,
         "doctor": _run_doctor,

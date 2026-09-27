@@ -28,6 +28,7 @@ from riftlift.runtime import (
     install_dxvk_compat,
     install_meta_runtime,
     install_openvr_runtime,
+    install_openxr_layer,
     install_proton,
     install_rift_runtime,
     meta_signing_root_installed,
@@ -35,11 +36,47 @@ from riftlift.runtime import (
     select_openvr_runtime,
     shutdown_compat_prefix,
     steamvr_runtime_for_openxr,
+    validate_openvr_library,
 )
 from riftlift.util import RiftLiftError
 
+
+def test_openxr_layer_registration_is_private_and_idempotent(tmp_path, monkeypatch):
+    paths = Paths(
+        *(
+            tmp_path / name
+            for name in ("data", "cache", "config", "games", "prefix", "tools")
+        )
+    )
+    directory = paths.tools / "rift-runtime"
+    directory.mkdir(parents=True)
+    (directory / "RiftLiftOpenXRLayer.dll").write_bytes(b"test")
+    registry = paths.prefix / "pfx/system.reg"
+    registry.parent.mkdir(parents=True)
+    calls = []
+
+    def register(actual_paths, key, name, kind, value):
+        assert actual_paths == paths
+        calls.append((key, name, kind, value))
+        section = key.removeprefix("HKLM\\").replace("\\", "\\\\")
+        escaped = name.replace("\\", "\\\\")
+        registry.write_text(f'[{section}]\n"{escaped}"=dword:00000000\n\n')
+
+    monkeypatch.setattr("riftlift.runtime._registry_add", register)
+    install_openxr_layer(paths)
+    install_openxr_layer(paths)
+    assert len(calls) == 1
+    assert calls[0][0] == r"HKLM\Software\Khronos\OpenXR\1\ApiLayers\Implicit"
+    assert calls[0][2:] == ("REG_DWORD", "0")
+    layer = json.loads((directory / "openxr-layer.json").read_text())["api_layer"]
+    assert layer["library_path"].endswith(r"\rift-runtime\RiftLiftOpenXRLayer.dll")
+    assert layer["enable_environment"] == "RIFTLIFT_OVR_COMPAT"
+    assert layer["disable_environment"] == "RIFTLIFT_DISABLE_OVR_COMPAT"
+
+
 REQUIRED_RUNTIME_FILES = (
     "RiftLiftLauncher.exe",
+    "RiftLiftOpenXRLayer.dll",
     "RiftLiftOpenXR64.dll",
     "RiftLiftOpenVR64.dll",
     "openvr_api64.dll",
@@ -131,6 +168,11 @@ def test_dxvk_compat_installs_both_architectures_and_repairs_changes(
         tmp_path / "tools",
     )
     proton = tmp_path / "GE-Proton"
+    original = proton / "files/lib/wine/dxvk"
+    for arch in ("i386-windows", "x86_64-windows"):
+        (original / arch).mkdir(parents=True)
+        (original / arch / "openvr_api_dxvk.dll").write_bytes(b"MZopenvr")
+        (original / arch / "d3d9.dll").write_bytes(b"MZd3d9")
     archive = _dxvk_archive(tmp_path, b"patched")
     monkeypatch.setenv("RIFTLIFT_DXVK_ARCHIVE", str(archive))
 
@@ -139,6 +181,7 @@ def test_dxvk_compat_installs_both_architectures_and_repairs_changes(
     x64 = destination / "x86_64-windows/d3d11.dll"
     x32 = destination / "i386-windows/d3d11.dll"
     assert x64.read_bytes() == b"MZpatched-x64-d3d11"
+
     assert x32.read_bytes() == b"MZpatched-x32-d3d11"
     marker = json.loads((destination / ".riftlift-dxvk.json").read_text())
     assert marker["version"] == DXVK_VERSION
@@ -152,6 +195,78 @@ def test_dxvk_compat_installs_both_architectures_and_repairs_changes(
     x64.write_bytes(b"corrupt")
     install_dxvk_compat(paths, proton)
     assert x64.read_bytes() == b"MZpatched-x64-d3d11"
+
+    for arch in ("i386-windows", "x86_64-windows"):
+        assert (destination / arch / "openvr_api_dxvk.dll").read_bytes() == b"MZopenvr"
+        assert (destination / arch / "d3d9.dll").read_bytes() == b"MZd3d9"
+
+
+@pytest.mark.parametrize("incomplete", [False, True])
+def test_dxvk_repairs_missing_proton_files_with_current_marker(
+    tmp_path, monkeypatch, incomplete
+):
+    paths = Paths(
+        *(
+            tmp_path / name
+            for name in ("data", "cache", "config", "games", "prefix", "tools")
+        )
+    )
+    proton = tmp_path / "GE-Proton"
+    destination = proton / "files/lib/wine/dxvk"
+    for arch in ("i386-windows", "x86_64-windows"):
+        (destination / arch).mkdir(parents=True)
+        (destination / arch / "openvr_api_dxvk.dll").write_bytes(b"MZopenvr")
+    monkeypatch.setenv(
+        "RIFTLIFT_DXVK_ARCHIVE", str(_dxvk_archive(tmp_path, b"patched"))
+    )
+    install_dxvk_compat(paths, proton)
+    for arch in ("i386-windows", "x86_64-windows"):
+        (destination / arch / "openvr_api_dxvk.dll").unlink()
+    (destination / "custom.dll").write_bytes(b"keep")
+    before = {
+        p.relative_to(destination): p.read_bytes()
+        for p in destination.rglob("*")
+        if p.is_file()
+    }
+    archive = tmp_path / "proton.tar.gz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        for arch in ("i386-windows", "x86_64-windows"):
+            for name in ("openvr_api_dxvk.dll", "d3d9.dll", "d3d11.dll"):
+                if incomplete and arch == "i386-windows":
+                    continue
+                info = tarfile.TarInfo(
+                    f"{PROTON_VERSION}/files/lib/wine/dxvk/{arch}/{name}"
+                )
+                info.size = len(b"MZstock")
+                bundle.addfile(info, io.BytesIO(b"MZstock"))
+    downloads = []
+
+    def download(*args):
+        downloads.append(args)
+        return archive
+
+    monkeypatch.setattr("riftlift.runtime.download", download)
+    if incomplete:
+        with pytest.raises(RiftLiftError, match="missing OpenVR"):
+            install_dxvk_compat(paths, proton)
+        assert {
+            p.relative_to(destination): p.read_bytes()
+            for p in destination.rglob("*")
+            if p.is_file()
+        } == before
+    else:
+        install_dxvk_compat(paths, proton)
+        for arch in ("i386-windows", "x86_64-windows"):
+            assert (
+                destination / arch / "openvr_api_dxvk.dll"
+            ).read_bytes() == b"MZstock"
+            assert (destination / arch / "d3d9.dll").read_bytes() == b"MZstock"
+        assert (
+            destination / "i386-windows/d3d11.dll"
+        ).read_bytes() == b"MZpatched-x32-d3d11"
+        assert (destination / "custom.dll").read_bytes() == b"keep"
+        install_dxvk_compat(paths, proton)
+    assert len(downloads) == 1
 
 
 def test_incomplete_dxvk_archive_preserves_installed_payload(
@@ -522,6 +637,8 @@ def test_meta_signing_root_check_reads_actual_wine_store(tmp_path: Path) -> None
 
 
 def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):
+    validated = []
+    monkeypatch.setattr("riftlift.runtime.validate_openvr_library", validated.append)
     paths = Paths(
         tmp_path / "data",
         tmp_path / "cache",
@@ -555,6 +672,62 @@ def test_openvr_runtime_is_installed_and_versioned(tmp_path, monkeypatch):
     assert registry["log"] == [str(paths.data / "diagnostics/openvr")]
     archive.unlink()
     assert install_openvr_runtime(paths) == destination
+    assert len(validated) == 2
+    assert validated[-1] == destination / "libxrizer.so"
+
+
+def test_openvr_library_rejects_an_invalid_binary(tmp_path):
+    library = tmp_path / "libxrizer.so"
+    library.write_bytes(b"not a shared library")
+    with pytest.raises(RiftLiftError, match="XRizer cannot load"):
+        validate_openvr_library(library)
+
+
+def test_version_marker_does_not_hide_an_unloadable_openvr_runtime(tmp_path):
+    paths = Paths(
+        *(
+            tmp_path / name
+            for name in ("data", "cache", "config", "games", "prefix", "tools")
+        )
+    )
+    destination = paths.tools / "openvr-runtime"
+    (destination / "bin/linux64").mkdir(parents=True)
+    (destination / "libxrizer.so").write_bytes(b"not a shared library")
+    (destination / "bin/linux64/vrclient.so").write_bytes(b"not a shared library")
+    (destination / ".riftlift-version").write_text(OPENVR_RUNTIME_VERSION)
+    (destination / "bin/version.txt").write_text(OPENVR_RUNTIME_VERSION)
+    from riftlift.runtime import OPENVR_RUNTIME_FILES, _record_payload_files
+
+    _record_payload_files(destination, OPENVR_RUNTIME_FILES)
+
+    with pytest.raises(RiftLiftError, match="XRizer cannot load"):
+        install_openvr_runtime(paths)
+    assert not (paths.config / "openvr/openvrpaths.vrpath").exists()
+
+
+def test_unloadable_openvr_archive_preserves_installed_payload(tmp_path, monkeypatch):
+    paths = Paths(
+        *(
+            tmp_path / name
+            for name in ("data", "cache", "config", "games", "prefix", "tools")
+        )
+    )
+    destination = paths.tools / "openvr-runtime"
+    destination.mkdir(parents=True)
+    (destination / "working.txt").write_text("keep")
+    archive = tmp_path / "unloadable.tar.gz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        payload = b"not a shared library"
+        info = tarfile.TarInfo("xrizer/libxrizer.so")
+        info.size = len(payload)
+        bundle.addfile(info, io.BytesIO(payload))
+    monkeypatch.setenv("RIFTLIFT_OPENVR_RUNTIME_ARCHIVE", str(archive))
+
+    with pytest.raises(RiftLiftError, match="XRizer cannot load"):
+        install_openvr_runtime(paths)
+
+    assert (destination / "working.txt").read_text() == "keep"
+    assert not (destination / ".riftlift-version").exists()
 
 
 def test_incomplete_openvr_archive_preserves_installed_payload(

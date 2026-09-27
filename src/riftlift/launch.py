@@ -19,8 +19,8 @@ from .detection import (
     is_unity_player,
     is_unreal_shipping,
     uses_d3d12_runtime,
-    uses_oculus_xr_plugin,
     uses_openvr_runtime,
+    uses_unity_oculus_plugin,
 )
 from .diagnostics import (
     clear_runtime_traces,
@@ -34,6 +34,7 @@ from .diagnostics import (
     system_build_components,
     trim_runtime_traces,
 )
+from .mods import apply_dll_overrides, configure_mod_loaders
 from .playtime import PlaytimeSession
 from .runtime import (
     DXVK_VERSION,
@@ -69,6 +70,7 @@ _DEBUG_ENVIRONMENT_KEYS = (
     "RIFTLIFT_XRIZER",
     "DXVK_NO_VR",
     "PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES",
+    "PRESSURE_VESSEL_FILESYSTEMS_RW",
     "OXR_ZERO_TIME_IS_NOW",
     "WINEDLLOVERRIDES",
     "SteamAppId",
@@ -144,6 +146,57 @@ def _run_game_process(
         # makes their ownership explicit, so no game-specific process names or
         # shared-prefix shutdown are needed.
         _terminate_marked_launch_processes(launch_id)
+
+
+def _meta_oculus_service_executable(paths: Paths) -> Path:
+    return (
+        paths.prefix
+        / "pfx/drive_c/Program Files/Oculus/Support/oculus-runtime/OVRServer_x64.exe"
+    )
+
+
+@contextmanager
+def _meta_oculus_service(paths: Paths, plan: _LaunchPlan) -> Iterator[None]:
+    """Keep Meta's real Oculus runtime service alive for the native plugin.
+
+    Unity's OculusXRPlugin (``-vrmode Oculus``) links directly against
+    ``LibOVRRT64_1.dll`` instead of going through RiftLift's OpenVR shim, so
+    it fails to initialize unless an Oculus runtime service is actually
+    running for it to connect to. ``OVRServiceLauncher.exe`` only probes the
+    runtime and exits within milliseconds under Wine instead of keeping a
+    service resident, so start the real server directly and tear it down
+    with the game.
+    """
+    if "unity-oculus-plugin" not in plan.capabilities:
+        yield
+        return
+    executable = _meta_oculus_service_executable(paths)
+    if not executable.is_file():
+        yield
+        return
+    process = subprocess.Popen(
+        [str(plan.proton_root / "proton"), "run", str(executable)],
+        cwd=executable.parent,
+        env=plan.environment,
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        time.sleep(1.5)
+        yield
+    finally:
+        if process.poll() is None:
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+        else:
+            process.wait()
 
 
 @contextmanager
@@ -313,7 +366,7 @@ def _select_runtime_backend(game: Game, capabilities: list[str]) -> str:
         for argument in game.arguments
     )
     needs_openvr = (
-        bool({"openvr", "oculus-xr-plugin", "d3d12"}.intersection(capabilities))
+        bool({"openvr", "unity-oculus-plugin", "d3d12"}.intersection(capabilities))
         or legacy_ovr_presentation
     )
     return "openvr" if needs_openvr else "openxr"
@@ -326,7 +379,7 @@ def runtime_backend(game: Game) -> str:
 
 def oculus_launch_arguments(game: Game, extra_arguments: list[str]) -> list[str]:
     """Select the installed engine's Oculus mode without title-specific rules."""
-    arguments = [*game.arguments, *extra_arguments]
+    arguments = [*game.arguments, *game.launch_options, *extra_arguments]
     lowered = [argument.casefold() for argument in arguments]
     if is_unreal_shipping(game.executable_path):
         # Unreal needs both stereo rendering and an explicit Oculus plugin selection.
@@ -410,11 +463,25 @@ def _clear_proton_openvr_cache(paths: Paths, proton_root: Path) -> None:
 def _disable_openxr_for_direct_openvr(
     environment: dict[str, str], openvr_kind: str
 ) -> None:
-    """Prevent two conflicting native compositor clients in one Wine process."""
-    if openvr_kind != "xrizer":
-        environment.pop("XR_RUNTIME_JSON", None)
-        environment.pop("PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES", None)
-        environment.pop("OXR_ZERO_TIME_IS_NOW", None)
+    """Prevent a standalone OpenVR runtime from fighting wineopenxr for the compositor.
+
+    A genuinely separate OpenVR runtime (SteamVR, or an explicit external
+    one) has its own complete native stack and doesn't expect Wine's OpenXR
+    passthrough involved at all, so wineopenxr is disabled for those. XRizer
+    is different: it's the OpenVR-to-OpenXR bridge itself, and its vrclient
+    already tries wineopenxr and falls back gracefully when it's missing -
+    it doesn't need it disabled. Leaving wineopenxr enabled there also
+    matters for any other Windows-side OpenXR client sharing the process:
+    Unity's OculusXRPlugin (OVRPlugin.dll) calls its own bundled OpenXR
+    loader directly, independent of vrclient, and that loader can only
+    reach the runtime through wineopenxr.dll.
+    """
+    if openvr_kind == "xrizer":
+        return
+    environment.pop("XR_RUNTIME_JSON", None)
+    environment.pop("PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES", None)
+    environment.pop("PRESSURE_VESSEL_FILESYSTEMS_RW", None)
+    environment.pop("OXR_ZERO_TIME_IS_NOW", None)
     overrides = environment.get("WINEDLLOVERRIDES", "").strip(";")
     environment["WINEDLLOVERRIDES"] = (
         f"wineopenxr=d{';' + overrides if overrides else ''}"
@@ -473,7 +540,7 @@ def _game_capabilities(game: Game) -> list[str]:
         name
         for name, detected in (
             ("openvr", uses_openvr_runtime(game.game_dir)),
-            ("oculus-xr-plugin", uses_oculus_xr_plugin(game.game_dir)),
+            ("unity-oculus-plugin", uses_unity_oculus_plugin(game.game_dir)),
             ("d3d12", uses_d3d12_runtime(game.executable_path)),
             ("unity", is_unity_player(game.executable_path)),
             ("unreal", is_unreal_shipping(game.executable_path)),
@@ -535,9 +602,6 @@ def _prepare_launch(
     )
     if backend == "openvr":
         _disable_openxr_for_direct_openvr(environment, openvr_kind)
-    if environment.get("PROTON_LOG") == "1":
-        environment["RIFTLIFT_RUNTIME_TRACE"] = "1"
-        clear_runtime_traces(paths)
     _configure_proton_identity(environment, game)
     if backend == "openxr":
         environment["DXVK_NO_VR"] = "1"
@@ -556,6 +620,19 @@ def _prepare_launch(
         )
     else:
         raise RiftLiftError("OpenVR launch has no selected path registry")
+    environment.update(
+        {
+            key: value
+            for key, value in game.environment.items()
+            if key != "WINEDLLOVERRIDES"
+        }
+    )
+    apply_dll_overrides(environment, game.environment.get("WINEDLLOVERRIDES", ""))
+    apply_dll_overrides(environment, game.dll_overrides)
+    configure_mod_loaders(environment, game.executable_path)
+    if environment.get("PROTON_LOG") == "1":
+        environment["RIFTLIFT_RUNTIME_TRACE"] = "1"
+        clear_runtime_traces(paths)
     return _LaunchPlan(
         arguments=arguments,
         environment=environment,
@@ -638,7 +715,10 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
                 )
                 maintenance.start()
             try:
-                with _steam_appid_marker(game):
+                with (
+                    _steam_appid_marker(game),
+                    _meta_oculus_service(paths, plan),
+                ):
                     exit_code = _run_game_process(
                         [*plan.wrapper, *plan.arguments],
                         launch_id=launch_id,
@@ -676,4 +756,17 @@ def launch(paths: Paths, game: Game, extra_arguments: list[str]) -> int:
             except OSError as error:
                 print(f"warning: local playtime could not be saved: {error}")
     launch_finished(paths, launch_id, started, exit_code=exit_code)
+    _print_quick_diagnosis(paths, exit_code)
     return exit_code
+
+
+def _print_quick_diagnosis(paths: Paths, exit_code: int) -> None:
+    if exit_code == 0:
+        return
+    # Deferred import: doctor.py imports runtime_backend from this module,
+    # so importing it at module load time would be circular.
+    from .doctor import quick_launch_diagnosis
+
+    cause = quick_launch_diagnosis(paths)
+    if cause is not None:
+        print(f"\n[Diagnostic] {cause}")
