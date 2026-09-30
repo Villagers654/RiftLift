@@ -57,7 +57,6 @@ STRINGS = {
     },
     "game": {
         "launch": "Lancer en VR",
-        "stop": "Arrêter",
         "install": "Installer",
         "files": "Fichiers",
         "launch_options": "Options de lancement",
@@ -86,7 +85,6 @@ STRINGS = {
         "added_from_steam": "{name} ajouté depuis Steam",
         "launching": "Lancement de {name}",
         "closed": "{name} fermé",
-        "stopping": "Arrêt de {name}",
         "adding_to_steam": "Ajout de {name} à Steam",
         "added_to_steam": "{name} ajouté à Steam",
         "removing": "Suppression de {name}",

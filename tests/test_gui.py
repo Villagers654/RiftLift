@@ -1,4 +1,5 @@
 import os
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -1121,9 +1122,7 @@ def test_selected_game_shows_local_playtime(tmp_path: Path) -> None:
     app.processEvents()
 
 
-def test_launch_button_shows_stop_while_the_game_is_running(
-    tmp_path: Path, monkeypatch
-) -> None:
+def _running_game_paths(tmp_path: Path) -> Paths:
     paths = Paths(
         tmp_path / "data",
         tmp_path / "cache",
@@ -1133,9 +1132,15 @@ def test_launch_button_shows_stop_while_the_game_is_running(
         tmp_path / "tools",
     )
     paths.create()
+    return paths
+
+
+def test_launch_button_is_greyed_out_while_the_game_is_running(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _running_game_paths(tmp_path)
     monkeypatch.setattr(
-        "riftlift.main_window.running_launch_id",
-        lambda _paths, slug: "abc123" if slug == "echo" else None,
+        "riftlift.main_window.running_launch", lambda _paths: ("echo", "abc123")
     )
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
@@ -1143,26 +1148,36 @@ def test_launch_button_shows_stop_while_the_game_is_running(
 
     window.show_game(game)
 
-    assert window.launch.text() == "Stop"
+    assert not window.launch.isEnabled()
+    assert window.launch.text() == "Launch in VR"
 
     window.close()
     app.processEvents()
 
 
-def test_launch_button_shows_launch_when_the_game_is_not_running(
+def test_launch_button_is_enabled_when_the_game_is_not_running(
     tmp_path: Path, monkeypatch
 ) -> None:
-    paths = Paths(
-        tmp_path / "data",
-        tmp_path / "cache",
-        tmp_path / "config",
-        tmp_path / "games",
-        tmp_path / "prefix",
-        tmp_path / "tools",
-    )
-    paths.create()
+    paths = _running_game_paths(tmp_path)
+    monkeypatch.setattr("riftlift.main_window.running_launch", lambda _paths: None)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
+
+    window.show_game(game)
+
+    assert window.launch.isEnabled()
+
+    window.close()
+    app.processEvents()
+
+
+def test_launch_button_stays_enabled_for_a_game_that_is_not_the_running_one(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _running_game_paths(tmp_path)
     monkeypatch.setattr(
-        "riftlift.main_window.running_launch_id", lambda _paths, _slug: None
+        "riftlift.main_window.running_launch", lambda _paths: ("other", "abc123")
     )
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
@@ -1170,7 +1185,7 @@ def test_launch_button_shows_launch_when_the_game_is_not_running(
 
     window.show_game(game)
 
-    assert window.launch.text() == "Launch in VR"
+    assert window.launch.isEnabled()
 
     window.close()
     app.processEvents()
@@ -1183,67 +1198,51 @@ def test_poll_running_game_detects_a_launch_started_outside_the_gui(
     # `riftlift launch` from a terminal all start the game in a separate
     # process the window shares no state with - window.launch_game() is
     # never called here, only the poll that should notice it regardless.
-    paths = Paths(
-        tmp_path / "data",
-        tmp_path / "cache",
-        tmp_path / "config",
-        tmp_path / "games",
-        tmp_path / "prefix",
-        tmp_path / "tools",
-    )
-    paths.create()
-    monkeypatch.setattr(
-        "riftlift.main_window.running_launch_id", lambda _paths, _slug: None
-    )
+    paths = _running_game_paths(tmp_path)
+    monkeypatch.setattr("riftlift.main_window.running_launch", lambda _paths: None)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
     game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
     window.show_game(game)
-    assert window.launch.text() == "Launch in VR"
+    assert window.launch.isEnabled()
 
     monkeypatch.setattr(
-        "riftlift.main_window.running_launch_id",
-        lambda _paths, slug: "external-launch-id" if slug == "echo" else None,
+        "riftlift.main_window.running_launch", lambda _paths: ("echo", "external")
     )
     window._poll_running_game()
 
-    assert window.launch.text() == "Stop"
-    assert window._running_launch_id == "external-launch-id"
+    assert not window.launch.isEnabled()
 
     window.close()
     app.processEvents()
 
 
-def test_clicking_stop_terminates_the_tracked_launch_id(
+def test_launch_button_is_greyed_out_as_soon_as_it_is_clicked(
     tmp_path: Path, monkeypatch
 ) -> None:
-    paths = Paths(
-        tmp_path / "data",
-        tmp_path / "cache",
-        tmp_path / "config",
-        tmp_path / "games",
-        tmp_path / "prefix",
-        tmp_path / "tools",
-    )
-    paths.create()
+    # The launch record the poll relies on only exists once the launch has
+    # been prepared, so the click itself must grey the button out.
+    paths = _running_game_paths(tmp_path)
+    monkeypatch.setattr("riftlift.main_window.running_launch", lambda _paths: None)
+    release = threading.Event()
     monkeypatch.setattr(
-        "riftlift.main_window.running_launch_id",
-        lambda _paths, slug: "abc123" if slug == "echo" else None,
-    )
-    stopped = []
-    monkeypatch.setattr(
-        "riftlift.main_window.stop_launch", lambda launch_id: stopped.append(launch_id)
+        "riftlift.main_window.launch",
+        lambda _paths, _game, _arguments: release.wait(2) and 0,
     )
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
     game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
     window.installed = [game]
     window.show_game(game)
-    assert window.launch.text() == "Stop"
 
     window.launch.click()
 
-    assert wait_until(app, lambda: stopped == ["abc123"])
+    assert not window.launch.isEnabled()
+
+    release.set()
+    assert wait_until(app, lambda: window._launching_slug is None)
+    window._update_launch_button()
+    assert window.launch.isEnabled()
 
     window.close()
     app.processEvents()
@@ -1255,15 +1254,7 @@ def test_now_playing_indicator_shows_a_game_running_from_anywhere(
     # No detail page is shown here - the header indicator must reflect a
     # running game (e.g. started from Steam) regardless of which page, if
     # any, is currently displayed.
-    paths = Paths(
-        tmp_path / "data",
-        tmp_path / "cache",
-        tmp_path / "config",
-        tmp_path / "games",
-        tmp_path / "prefix",
-        tmp_path / "tools",
-    )
-    paths.create()
+    paths = _running_game_paths(tmp_path)
     game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
     game.save(paths)
     monkeypatch.setattr(
@@ -1272,7 +1263,7 @@ def test_now_playing_indicator_shows_a_game_running_from_anywhere(
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
 
-    window._update_now_playing()
+    window._poll_running_game()
 
     assert not window.now_playing_label.isHidden()
     assert "Echo" in window.now_playing_label.text()
@@ -1284,20 +1275,12 @@ def test_now_playing_indicator_shows_a_game_running_from_anywhere(
 def test_now_playing_indicator_is_hidden_when_nothing_is_running(
     tmp_path: Path, monkeypatch
 ) -> None:
-    paths = Paths(
-        tmp_path / "data",
-        tmp_path / "cache",
-        tmp_path / "config",
-        tmp_path / "games",
-        tmp_path / "prefix",
-        tmp_path / "tools",
-    )
-    paths.create()
+    paths = _running_game_paths(tmp_path)
     monkeypatch.setattr("riftlift.main_window.running_launch", lambda _paths: None)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
 
-    window._update_now_playing()
+    window._poll_running_game()
 
     assert window.now_playing_label.isHidden()
     assert window.now_playing_icon.isHidden()

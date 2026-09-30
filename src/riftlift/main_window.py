@@ -19,7 +19,7 @@ from .doctor_components import needs_setup
 from .entitlements import OwnedApp, list_owned_pcvr_apps
 from .game_ui import LaunchOptionsDialog, LocalGameDialog, StoreGameDialog
 from .i18n import LANGUAGES, current_language, namespace, set_language
-from .launch import launch, running_launch, running_launch_id, stop_launch
+from .launch import launch, running_launch
 from .library import add_local, remove
 from .metadata import (
     fetch_catalog_metadata,
@@ -253,7 +253,7 @@ class Window(QtWidgets.QMainWindow):
         self._pending_owned_app_id = initial_owned_app_id
         self._owned_loaded = False
         self._running_slug: str | None = None
-        self._running_launch_id: str | None = None
+        self._launching_slug: str | None = None
         self.busy = False
         self.busy_label = ""
         self.log = ""
@@ -290,9 +290,8 @@ class Window(QtWidgets.QMainWindow):
         self._running_game_poll = QtCore.QTimer(self)
         self._running_game_poll.setInterval(2000)
         self._running_game_poll.timeout.connect(self._poll_running_game)
-        self._running_game_poll.timeout.connect(self._update_now_playing)
         self._running_game_poll.start()
-        self._update_now_playing()
+        self._poll_running_game()
 
     def label(self, text="", name=""):
         widget = QtWidgets.QLabel(text)
@@ -557,7 +556,7 @@ class Window(QtWidgets.QMainWindow):
         info.addSpacing(14)
         actions = QtWidgets.QHBoxLayout()
         actions.setSpacing(10)
-        self.launch = self.button(GAME("launch"), self._launch_or_stop, True)
+        self.launch = self.button(GAME("launch"), self.launch_game, True)
         actions.addWidget(self.launch)
         self.install_here = self.button(
             GAME("install"), lambda: self.install_owned(), True
@@ -859,7 +858,7 @@ class Window(QtWidgets.QMainWindow):
         self.meta_row.setStretchFactor(self.meta, 1)
         self.meta_row.setStretchFactor(self.meta_detail, 0)
         self.launch.setVisible(True)
-        self._poll_running_game()
+        self._update_launch_button()
         self.install_here.setVisible(False)
         self.files_button.setVisible(True)
         self.uninstall_button.setVisible(True)
@@ -1032,8 +1031,11 @@ class Window(QtWidgets.QMainWindow):
         return next((g for g in self.installed if g.slug == self.slug), None)
 
     def _update_launch_button(self) -> None:
-        running = self.slug is not None and self.slug == self._running_slug
-        self.launch.setText(GAME("stop") if running else GAME("launch"))
+        running = self.slug is not None and self.slug in (
+            self._running_slug,
+            self._launching_slug,
+        )
+        self.launch.setEnabled(not running)
 
     def _poll_running_game(self) -> None:
         """Notice a game launched outside this window's own Launch button.
@@ -1041,32 +1043,21 @@ class Window(QtWidgets.QMainWindow):
         Steam's Play button, a headset's own launch integration (e.g. WiVRn),
         or a bare `riftlift launch` from a terminal all start the game the
         same way this window does, just in a separate process it shares no
-        state with - so the currently displayed game's running status is
-        re-checked on a timer instead of only reacting to this window's own
-        launches.
-        """
-        if self.slug is None:
-            return
-        launch_id = running_launch_id(self.paths, self.slug)
-        self._running_launch_id = launch_id
-        self._running_slug = self.slug if launch_id else None
-        self._update_launch_button()
-
-    def _update_now_playing(self) -> None:
-        """Show a discreet header indicator for whatever game is running.
-
-        Unlike `_poll_running_game`, this isn't limited to the currently
-        displayed game's detail page - it's the only sign of a running game
-        visible from the library or any other page.
+        state with - so the running game is re-checked on a timer instead of
+        only reacting to this window's own launches.
         """
         found = running_launch(self.paths)
-        if found is None:
+        self._running_slug = found[0] if found else None
+        self._update_launch_button()
+        self._update_now_playing()
+
+    def _update_now_playing(self) -> None:
+        if self._running_slug is None:
             self.now_playing_icon.hide()
             self.now_playing_label.hide()
             return
-        slug, _launch_id = found
         try:
-            game = Game.load(self.paths, slug)
+            game = Game.load(self.paths, self._running_slug)
         except ValueError:
             self.now_playing_icon.hide()
             self.now_playing_label.hide()
@@ -1090,23 +1081,22 @@ class Window(QtWidgets.QMainWindow):
         )
         self.now_playing_label.show()
 
-    def _launch_or_stop(self) -> None:
-        if self.slug is not None and self.slug == self._running_slug:
-            self.stop_running_game()
-        else:
-            self.launch_game()
-
     def launch_game(self):
         if g := self.game():
-            self._running_slug = g.slug
+            # Greys the button out right away, before the launch record the
+            # poll relies on exists, and until the game exits.
+            self._launching_slug = g.slug
             self._update_launch_button()
 
-            def on_started(launch_id: str) -> None:
-                self._running_launch_id = launch_id
+            def operation():
+                try:
+                    return launch(self.paths, g, [])
+                finally:
+                    self._launching_slug = None
 
             self.run_task(
                 TASK("launching").format(name=g.name),
-                lambda: launch(self.paths, g, [], on_started=on_started),
+                operation,
                 TASK("closed").format(name=g.name),
                 refresh=True,
             )
@@ -1126,19 +1116,6 @@ class Window(QtWidgets.QMainWindow):
             )
             return
         self.refresh(game.slug)
-
-    def stop_running_game(self) -> None:
-        launch_id = self._running_launch_id
-        if launch_id is None:
-            return
-        if g := self.game():
-            self.status.setText(TASK("stopping").format(name=g.name))
-        threading.Thread(
-            target=stop_launch,
-            args=(launch_id,),
-            daemon=True,
-            name="riftlift-stop-launch",
-        ).start()
 
     def add_selected_to_steam(self):
         if g := self.game():

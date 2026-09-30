@@ -23,9 +23,7 @@ from riftlift.launch import (
     launch,
     oculus_launch_arguments,
     running_launch,
-    running_launch_id,
     runtime_backend,
-    stop_launch,
 )
 from riftlift.playtime import playtime
 from riftlift.runtime import (
@@ -1720,64 +1718,6 @@ def _paths(tmp_path: Path) -> Paths:
     )
 
 
-def test_running_launch_id_is_none_when_the_game_was_never_launched(
-    tmp_path: Path,
-) -> None:
-    assert running_launch_id(_paths(tmp_path), "sample") is None
-
-
-def test_running_launch_id_is_none_once_the_launch_has_finished(
-    tmp_path: Path, monkeypatch
-) -> None:
-    paths = _paths(tmp_path)
-    game = Game("sample", "Sample", "1", "sample-key", str(tmp_path), "Game.exe", [])
-    launch_id, started = launch_started(
-        paths, game, "openxr", wrapper=False, capabilities=[]
-    )
-    launch_finished(paths, launch_id, started, exit_code=0)
-    monkeypatch.setattr("riftlift.launch._marked_launch_processes", lambda _id: [12345])
-
-    assert running_launch_id(paths, "sample") is None
-
-
-def test_running_launch_id_returns_the_id_while_the_process_is_alive(
-    tmp_path: Path, monkeypatch
-) -> None:
-    paths = _paths(tmp_path)
-    game = Game("sample", "Sample", "1", "sample-key", str(tmp_path), "Game.exe", [])
-    launch_id, _started = launch_started(
-        paths, game, "openxr", wrapper=False, capabilities=[]
-    )
-    monkeypatch.setattr("riftlift.launch._marked_launch_processes", lambda _id: [12345])
-
-    assert running_launch_id(paths, "sample") == launch_id
-
-
-def test_running_launch_id_is_none_without_a_live_marked_process(
-    tmp_path: Path, monkeypatch
-) -> None:
-    # A "started" record with no matching "finished" one and no live marked
-    # process (e.g. a crash, or a force-kill outside RiftLift) must not be
-    # mistaken for a game that's genuinely still running.
-    paths = _paths(tmp_path)
-    game = Game("sample", "Sample", "1", "sample-key", str(tmp_path), "Game.exe", [])
-    launch_started(paths, game, "openxr", wrapper=False, capabilities=[])
-    monkeypatch.setattr("riftlift.launch._marked_launch_processes", lambda _id: [])
-
-    assert running_launch_id(paths, "sample") is None
-
-
-def test_running_launch_id_ignores_a_different_games_launch(
-    tmp_path: Path, monkeypatch
-) -> None:
-    paths = _paths(tmp_path)
-    other = Game("other", "Other", "1", "other-key", str(tmp_path), "Other.exe", [])
-    launch_started(paths, other, "openxr", wrapper=False, capabilities=[])
-    monkeypatch.setattr("riftlift.launch._marked_launch_processes", lambda _id: [12345])
-
-    assert running_launch_id(paths, "sample") is None
-
-
 def test_running_launch_is_none_when_nothing_was_ever_launched(
     tmp_path: Path,
 ) -> None:
@@ -1811,15 +1751,15 @@ def test_running_launch_is_none_once_the_launch_has_finished(
     assert running_launch(paths) is None
 
 
-def test_stop_launch_terminates_every_process_marked_with_that_launch_id(
-    monkeypatch,
+def test_running_launch_is_none_without_a_live_marked_process(
+    tmp_path: Path, monkeypatch
 ) -> None:
-    calls = []
-    monkeypatch.setattr(
-        "riftlift.launch._terminate_marked_launch_processes",
-        lambda launch_id: calls.append(launch_id),
-    )
+    # A "started" record with no matching "finished" one and no live marked
+    # process (e.g. a crash, or a force-kill outside RiftLift) must not be
+    # mistaken for a game that's genuinely still running.
+    paths = _paths(tmp_path)
+    game = Game("sample", "Sample", "1", "sample-key", str(tmp_path), "Game.exe", [])
+    launch_started(paths, game, "openxr", wrapper=False, capabilities=[])
+    monkeypatch.setattr("riftlift.launch._marked_launch_processes", lambda _id: [])
 
-    stop_launch("abc123")
-
-    assert calls == ["abc123"]
+    assert running_launch(paths) is None
