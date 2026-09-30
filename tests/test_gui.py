@@ -1248,6 +1248,37 @@ def test_launch_button_is_greyed_out_as_soon_as_it_is_clicked(
     app.processEvents()
 
 
+def test_launch_button_stays_enabled_when_play_is_refused_as_busy(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Setup or diagnostics already running: run_task refuses the launch, so
+    # nothing would ever re-enable a button greyed out by the click.
+    paths = _running_game_paths(tmp_path)
+    monkeypatch.setattr("riftlift.main_window.running_launch", lambda _paths: None)
+    launched = []
+    monkeypatch.setattr(
+        "riftlift.main_window.launch",
+        lambda _paths, game, _arguments: launched.append(game.slug),
+    )
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
+    window.installed = [game]
+    window.show_game(game)
+    window.busy = True
+
+    window.launch.click()
+    app.processEvents()
+
+    assert window.launch.isEnabled()
+    assert window._launching_slug is None
+    assert launched == []
+
+    window.busy = False
+    window.close()
+    app.processEvents()
+
+
 def test_now_playing_indicator_shows_a_game_running_from_anywhere(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -1084,9 +1084,11 @@ class Window(QtWidgets.QMainWindow):
     def launch_game(self):
         if g := self.game():
             # Greys the button out right away, before the launch record the
-            # poll relies on exists, and until the game exits.
-            self._launching_slug = g.slug
-            self._update_launch_button()
+            # poll relies on exists, and until the game exits. Skipped when
+            # busy: run_task then refuses the launch and nothing would reset it.
+            if not self.busy:
+                self._launching_slug = g.slug
+                self._update_launch_button()
 
             def operation():
                 try:
