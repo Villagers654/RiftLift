@@ -10,6 +10,7 @@ QPushButton#titlebar_button:hover{background:#1c2740;color:#f4f7ff}
 QPushButton#titlebar_close{background:transparent;border:0;border-radius:0;color:#aeb8cd;font-size:13px;padding:0;min-height:0}
 QPushButton#titlebar_close:hover{background:#e5484d;color:white}
 QLabel#title{font-size:27px;font-weight:700} QLabel#game{background:transparent;font-size:30px;font-weight:700} QLabel#muted{background:transparent;color:#aeb8cd} QLabel#section{font-size:18px;font-weight:500}
+QLabel#now_playing{background:transparent;font-size:12px}
 QLabel#description{background:transparent;color:#ccd5e8;font-size:14px}
 QPushButton{background:#172238;border:1px solid #33415f;border-radius:16px;padding:7px 13px;min-height:20px} QPushButton:hover{background:#22304a} QPushButton:disabled{color:#66728b}
 QPushButton#primary{background:#7c5cff;color:white;border:0;font-weight:700} QPushButton#primary:hover{background:#8b70ff}

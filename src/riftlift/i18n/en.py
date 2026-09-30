@@ -75,6 +75,7 @@ STRINGS = {
         "signed_in": "Signed in to Meta",
         "signed_out": "Signed out of Meta",
         "busy": "Another operation is already running",
+        "now_playing": "Playing",
     },
     "task": {
         "checking_system": "Checking your system",

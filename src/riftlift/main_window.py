@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import html
 import io
 import shutil
 import threading
@@ -18,7 +19,7 @@ from .doctor_components import needs_setup
 from .entitlements import OwnedApp, list_owned_pcvr_apps
 from .game_ui import LaunchOptionsDialog, LocalGameDialog, StoreGameDialog
 from .i18n import LANGUAGES, current_language, namespace, set_language
-from .launch import launch
+from .launch import launch, running_launch
 from .library import add_local, remove
 from .metadata import (
     fetch_catalog_metadata,
@@ -251,6 +252,8 @@ class Window(QtWidgets.QMainWindow):
         self.slug: str | None = initial_slug
         self._pending_owned_app_id = initial_owned_app_id
         self._owned_loaded = False
+        self._running_slug: str | None = None
+        self._launching_slug: str | None = None
         self.busy = False
         self.busy_label = ""
         self.log = ""
@@ -284,6 +287,11 @@ class Window(QtWidgets.QMainWindow):
         else:
             self._check_setup_status()
         self.refresh_owned()
+        self._running_game_poll = QtCore.QTimer(self)
+        self._running_game_poll.setInterval(2000)
+        self._running_game_poll.timeout.connect(self._poll_running_game)
+        self._running_game_poll.start()
+        self._poll_running_game()
 
     def label(self, text="", name=""):
         widget = QtWidgets.QLabel(text)
@@ -300,6 +308,15 @@ class Window(QtWidgets.QMainWindow):
         header = QtWidgets.QHBoxLayout()
         header.setSpacing(10)
         header.addWidget(self.label(APP("name"), "title"))
+        header.addSpacing(10)
+        self.now_playing_icon = QtWidgets.QLabel()
+        self.now_playing_icon.setFixedSize(24, 24)
+        self.now_playing_icon.hide()
+        header.addWidget(self.now_playing_icon)
+        self.now_playing_label = self.label("", "now_playing")
+        self.now_playing_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        self.now_playing_label.hide()
+        header.addWidget(self.now_playing_label)
         header.addStretch()
         self.settings_button = self.button(NAV("settings"), self._toggle_settings)
         self.settings_button.setObjectName("nav")
@@ -841,6 +858,7 @@ class Window(QtWidgets.QMainWindow):
         self.meta_row.setStretchFactor(self.meta, 1)
         self.meta_row.setStretchFactor(self.meta_detail, 0)
         self.launch.setVisible(True)
+        self._update_launch_button()
         self.install_here.setVisible(False)
         self.files_button.setVisible(True)
         self.uninstall_button.setVisible(True)
@@ -1012,11 +1030,75 @@ class Window(QtWidgets.QMainWindow):
     def game(self):
         return next((g for g in self.installed if g.slug == self.slug), None)
 
+    def _update_launch_button(self) -> None:
+        running = self.slug is not None and self.slug in (
+            self._running_slug,
+            self._launching_slug,
+        )
+        self.launch.setEnabled(not running)
+
+    def _poll_running_game(self) -> None:
+        """Notice a game launched outside this window's own Launch button.
+
+        Steam's Play button, a headset's own launch integration (e.g. WiVRn),
+        or a bare `riftlift launch` from a terminal all start the game the
+        same way this window does, just in a separate process it shares no
+        state with - so the running game is re-checked on a timer instead of
+        only reacting to this window's own launches.
+        """
+        found = running_launch(self.paths)
+        self._running_slug = found[0] if found else None
+        self._update_launch_button()
+        self._update_now_playing()
+
+    def _update_now_playing(self) -> None:
+        if self._running_slug is None:
+            self.now_playing_icon.hide()
+            self.now_playing_label.hide()
+            return
+        try:
+            game = Game.load(self.paths, self._running_slug)
+        except ValueError:
+            self.now_playing_icon.hide()
+            self.now_playing_label.hide()
+            return
+        icon_path = game.artwork.get("icon", "")
+        if icon_path:
+            pixmap = QtGui.QPixmap(icon_path).scaled(
+                24,
+                24,
+                QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                QtCore.Qt.TransformationMode.SmoothTransformation,
+            )
+            self.now_playing_icon.setPixmap(pixmap)
+            self.now_playing_icon.show()
+        else:
+            self.now_playing_icon.hide()
+        self.now_playing_label.setText(
+            f"{html.escape(game.name)}<br>"
+            f"<span style='color:#3fb950;font-size:11px'>"
+            f"{html.escape(STATUS('now_playing'))}</span>"
+        )
+        self.now_playing_label.show()
+
     def launch_game(self):
         if g := self.game():
+            # Greys the button out right away, before the launch record the
+            # poll relies on exists, and until the game exits. Skipped when
+            # busy: run_task then refuses the launch and nothing would reset it.
+            if not self.busy:
+                self._launching_slug = g.slug
+                self._update_launch_button()
+
+            def operation():
+                try:
+                    return launch(self.paths, g, [])
+                finally:
+                    self._launching_slug = None
+
             self.run_task(
                 TASK("launching").format(name=g.name),
-                lambda: launch(self.paths, g, []),
+                operation,
                 TASK("closed").format(name=g.name),
                 refresh=True,
             )

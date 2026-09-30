@@ -77,6 +77,7 @@ STRINGS = {
         "signed_in": "Connecté à Meta",
         "signed_out": "Déconnecté de Meta",
         "busy": "Une autre opération est déjà en cours",
+        "now_playing": "En cours de jeu",
     },
     "task": {
         "checking_system": "Vérification du système",
