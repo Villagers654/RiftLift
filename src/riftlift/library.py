@@ -50,6 +50,18 @@ def _path(value: str) -> Path:
     return Path(value.replace("\\", "/"))
 
 
+def _download_path(path: Path) -> Path:
+    """Allow downloader temporary filenames beyond Windows' legacy path limit."""
+    if os.name != "nt":
+        return path
+    absolute = str(path.expanduser().resolve())
+    if absolute.startswith("\\\\?\\"):
+        return Path(absolute)
+    if absolute.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + absolute[2:])
+    return Path("\\\\?\\" + absolute)
+
+
 def _split_launch_arguments(value: str) -> list[str]:
     """Split a Windows launch string without retaining quotes or eating slashes."""
     lexer = shlex.shlex(value, posix=True)
@@ -113,7 +125,13 @@ def add(
     manifest = fetch_manifest(token, build)
     workers = default_download_workers() if jobs is None else jobs
     print(f"Using {workers} download workers.")
-    Downloader(token, build, directory, paths.cache / "segments", workers).run(manifest)
+    Downloader(
+        token,
+        build,
+        _download_path(directory),
+        _download_path(paths.cache / "segments"),
+        workers,
+    ).run(manifest)
     launch_file = _best_executable(directory, manifest, executable)
     launch_arguments = _launch_arguments(directory, launch_file, manifest, arguments)
     game = Game(
