@@ -103,7 +103,7 @@ jobs:
 
   test:
     needs: changes
-    if: needs.changes.outputs.app == 'true'
+    if: needs.changes.outputs.app == 'true' || needs.changes.outputs.runtime == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:

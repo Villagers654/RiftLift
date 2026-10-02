@@ -72,7 +72,7 @@ ovrResult InputManager::GetInputState(ovrSession session, ovrControllerType cont
 	std::lock_guard<std::mutex> actionLock(m_ActionMutex);
 
 	memset(inputState, 0, sizeof(ovrInputState));
-	SyncActions(session->Session);
+	CHK_XR(SyncActions(session->Session));
 
 	if (controllerType == ovrControllerType_Active)
 		controllerType = ovrControllerType_Touch;
@@ -299,7 +299,7 @@ bool InputManager::Action::GetDigital(XrSession session, ovrHandType hand) const
 	XrActionStateBoolean data = XR_TYPE(ACTION_STATE_BOOLEAN);
 	XrResult rs = xrGetActionStateBoolean(session, &info, &data);
 	assert(XR_SUCCEEDED(rs));
-	return data.currentState;
+	return XR_SUCCEEDED(rs) && data.isActive && data.currentState;
 }
 
 bool InputManager::Action::IsPressed(XrSession session, ovrHandType hand) const
@@ -609,6 +609,14 @@ void InputManager::OculusTouch::GetInputState(XrSession session, ovrControllerTy
 
 		if (m_Button_Thumb.GetDigital(session, hand))
 			buttons |= ovrButton_RThumb;
+
+		// Match the OpenVR Touch binding when the runtime reserves Menu for its
+		// dashboard. Use translated buttons so WMR's shared trackpad click is
+		// still a single button, and keep the normal X/Y input intact.
+		const unsigned int menuChord = ovrButton_A | ovrButton_B;
+		if (hand == ovrHand_Left && (controllerType & ovrControllerType_LTouch) &&
+			(buttons & menuChord) == menuChord)
+			inputState->Buttons |= ovrButton_Enter;
 
 		if (m_Touch_Thumb.GetDigital(session, hand))
 			touches |= ovrTouch_RThumb;
