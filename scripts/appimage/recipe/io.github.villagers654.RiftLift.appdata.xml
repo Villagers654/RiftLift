@@ -2,7 +2,7 @@
 <component type="desktop-application">
     <id>io.github.villagers654.RiftLift</id>
     <metadata_license>MIT</metadata_license>
-    <project_license>GPL-3.0-or-later</project_license>
+    <project_license>MIT</project_license>
     <name>RiftLift</name>
     <summary>Run owned Meta Rift games on Linux OpenXR</summary>
     <description>

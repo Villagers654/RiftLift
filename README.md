@@ -259,7 +259,7 @@ automatically; users do not need to install or configure xrizer separately.
 
 ### Credits
 
-RiftLift's Oculus API translation work is derived from the GPL-licensed
+RiftLift's Oculus API translation work is derived from the MIT-licensed
 [Revive project](https://github.com/LibreVR/Revive). RiftLift maintains that
 code as part of its own runtime while preserving Revive's copyright and license
 notices. Thanks to LibreVR and every Revive contributor whose work made this
@@ -277,5 +277,5 @@ Expanded debug logs are stored inside RiftLift's user-private diagnostics
 directory and may contain game or system details. Public doctor reports redact
 credentials, email addresses, and home paths and include only selected excerpts.
 
-RiftLift is GPL-3.0-or-later. Bundled and upstream components retain their own
+RiftLift is MIT-licensed. Bundled and upstream components retain their own
 licenses and notices.
