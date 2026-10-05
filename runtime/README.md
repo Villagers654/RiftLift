@@ -16,7 +16,7 @@ code must not contain title allowlists or per-game exceptions.
 ## Upstream credit
 
 This runtime is derived from [LibreVR/Revive](https://github.com/LibreVR/Revive)
-and remains licensed under GPL-3.0. The original copyright and license notice is
+and remains licensed under MIT. The original copyright and license notice is
 preserved in [LICENSE](LICENSE). RiftLift is grateful to LibreVR and all Revive
 contributors for the Oculus-to-OpenVR/OpenXR implementation this work builds
 upon.

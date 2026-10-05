@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Meta Rift games for OpenXR runtimes on Linux and Windows"
 readme = "README.md"
 requires-python = ">=3.10.12"
-license = "GPL-3.0-or-later"
+license = "MIT"
 authors = [{name = "Villagers654"}]
 keywords = ["linux", "windows", "meta", "monado", "oculus", "openxr", "rift", "vr"]
 classifiers = [
