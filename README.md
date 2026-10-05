@@ -294,4 +294,4 @@ directory and may contain game or system details. Public doctor reports redact
 credentials, email addresses, and home paths and include only selected excerpts.
 
 RiftLift is MIT-licensed. Bundled and upstream components retain their own
-licenses and notices.
+licenses and notices; see [third-party licenses](THIRD_PARTY_NOTICES.md).
