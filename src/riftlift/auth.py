@@ -41,7 +41,7 @@ def login(paths: Paths) -> int:
             complete_browser_login(paths, session)
             print("RiftLift is signed in to Meta.")
             return 0
-        if process.poll() not in (None, 0):
+        if process is not None and process.poll() not in (None, 0):
             raise RiftLiftError("could not open the browser for Meta sign-in")
         time.sleep(1)
 

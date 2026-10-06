@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import re
 import shlex
 import threading
@@ -13,13 +12,12 @@ from urllib.parse import urlparse
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .config import Game, Paths
+from .desktop_services import supports_steam_shortcuts
+from .download_job import DownloadJob
 from .i18n import namespace
-from .library import add, parse_download_progress
 from .metadata import fetch_catalog_metadata
-from .steam import sync_with_restart
 from .theme import STYLE
 from .titlebar import wrap_dialog
-from .util import LineWriter
 
 LINK_VALIDATION_DELAY_MS = 350
 
@@ -161,6 +159,10 @@ class StoreGameDialog(QtWidgets.QDialog):
         self.paths = paths
         self.installed_game = None
         self.sync_steam = True
+        self.install_warning = None
+        self._job = None
+        self._busy = False
+        self._close_when_paused = False
         self._generation = 0
         self._verified_url = ""
         self.setWindowTitle(ADD_GAME("title"))
@@ -187,7 +189,10 @@ class StoreGameDialog(QtWidgets.QDialog):
         self.validation.setWordWrap(True)
         layout.addWidget(self.validation)
         self.steam = QtWidgets.QCheckBox(ADD_GAME("add_to_steam"))
-        self.steam.setChecked(True)
+        self.steam.setChecked(supports_steam_shortcuts())
+        self.steam.setEnabled(supports_steam_shortcuts())
+        if not supports_steam_shortcuts():
+            self.steam.setToolTip(namespace("shell")("steam_shortcuts_unavailable"))
         layout.addWidget(self.steam)
         self.progress = QtWidgets.QProgressBar()
         self.progress.hide()
@@ -201,7 +206,7 @@ class StoreGameDialog(QtWidgets.QDialog):
         )
         self.submit.setObjectName("primary")
         self.submit.setEnabled(False)
-        buttons.rejected.connect(self.reject)
+        buttons.rejected.connect(self._cancel_install)
         layout.addWidget(buttons)
 
         self.timer = QtCore.QTimer(self)
@@ -218,7 +223,6 @@ class StoreGameDialog(QtWidgets.QDialog):
 
         if simple_name:
             self.setWindowTitle(simple_name)
-            self.titlebar.set_title(simple_name)
             heading.setText(ADD_GAME("install_heading"))
             local.hide()
             url_section.hide()
@@ -294,6 +298,11 @@ class StoreGameDialog(QtWidgets.QDialog):
         self._start_install(value)
 
     def _start_install(self, url: str) -> None:
+        if self._busy:
+            return
+        if self._job is not None:
+            self._job.deleteLater()
+        self._close_when_paused = False
         self.sync_steam = self.steam.isChecked()
         self.entry.setEnabled(False)
         self.steam.setEnabled(False)
@@ -303,24 +312,58 @@ class StoreGameDialog(QtWidgets.QDialog):
         self.progress.show()
         self.validation.setText(ADD_GAME("starting_install"))
 
-        def emit_line(line: str) -> None:
-            parsed = parse_download_progress(line)
-            if parsed is not None:
-                self.install_events.progress.emit(*parsed)
-            elif line.strip():
-                self.install_events.progress.emit(line.strip(), -1, -1)
+        self._busy = True
+        self._job = DownloadJob(self.paths, url, self.sync_steam, self)
+        self._job.progress.connect(self.install_events.progress)
+        self._job.complete.connect(self.install_events.complete)
+        self._job.paused.connect(self._finish_pause)
+        self._job.finishing.connect(self._finish_download)
+        self.cancel_button.setText(ADD_GAME("pause_download"))
+        self.cancel_button.setAccessibleName(self.cancel_button.text())
+        self.cancel_button.setEnabled(True)
+        self.cancel_button.setFocus()
+        self._job.start()
 
-        def worker() -> None:
-            try:
-                with contextlib.redirect_stdout(LineWriter(emit_line)):
-                    game = add(self.paths, url)
-                    if self.sync_steam:
-                        sync_with_restart(self.paths)
-                self.install_events.complete.emit(game, None)
-            except Exception as error:
-                self.install_events.complete.emit(None, error)
+    def _finish_download(self):
+        self.cancel_button.setEnabled(False)
+        self.validation.setText(ADD_GAME("finishing_install"))
 
-        threading.Thread(target=worker, daemon=True, name="riftlift-install").start()
+    def _cancel_install(self):
+        if not self._busy:
+            super().reject()
+            return
+        if self.cancel_button.isEnabled():
+            self.cancel_button.setEnabled(False)
+            self.validation.setText(ADD_GAME("pausing_download"))
+            self._job.pause()
+
+    def _finish_pause(self):
+        self._busy = False
+        self.progress.hide()
+        self.submit.setText(ADD_GAME("resume_download"))
+        self.submit.setAccessibleName(self.submit.text())
+        self.submit.setEnabled(True)
+        self.cancel_button.setText(ACTION("cancel"))
+        self.cancel_button.setAccessibleName(self.cancel_button.text())
+        self.cancel_button.setEnabled(True)
+        self.validation.setText(ADD_GAME("download_paused"))
+        self.submit.setFocus()
+        if self._close_when_paused:
+            super().reject()
+
+    def reject(self):
+        if self._busy:
+            self._close_when_paused = True
+            self._cancel_install()
+            return
+        super().reject()
+
+    def closeEvent(self, event):
+        if self._busy:
+            event.ignore()
+            self.reject()
+        else:
+            super().closeEvent(event)
 
     def _update_progress(self, label: str, current: int, total: int) -> None:
         if key := _PHASE_KEYS.get(label):
@@ -334,16 +377,33 @@ class StoreGameDialog(QtWidgets.QDialog):
             self.validation.setText(label)
 
     def _finish_install(self, game, error) -> None:
+        self._busy = False
+        if game is not None:
+            self.installed_game = game
+            self.install_warning = error
+            self.accept()
+            return
         if error is not None:
             self.progress.hide()
             self.entry.setEnabled(True)
-            self.steam.setEnabled(True)
+            self.steam.setEnabled(supports_steam_shortcuts())
             self.submit.setEnabled(True)
             self.cancel_button.setEnabled(True)
-            self.validation.setText(str(error))
+            self.cancel_button.setText(ACTION("cancel"))
+            self.cancel_button.setAccessibleName(self.cancel_button.text())
+            self.submit.setText(ADD_GAME("retry_download"))
+            self.submit.setAccessibleName(self.submit.text())
+            key = (
+                error
+                if isinstance(error, str)
+                and error in {"sign_in_required", "download_failed", "worker_failed"}
+                else "download_failed"
+            )
+            self.validation.setText(ADD_GAME(key))
+            self.submit.setFocus()
+            if self._close_when_paused:
+                super().reject()
             return
-        self.installed_game = game
-        self.accept()
 
 
 class LocalGameDialog(QtWidgets.QDialog):
@@ -381,7 +441,10 @@ class LocalGameDialog(QtWidgets.QDialog):
             "Images (*.png *.jpg *.jpeg *.webp)",
         )
         self.steam = QtWidgets.QCheckBox(ADD_GAME("add_to_steam"))
-        self.steam.setChecked(True)
+        self.steam.setChecked(supports_steam_shortcuts())
+        self.steam.setEnabled(supports_steam_shortcuts())
+        if not supports_steam_shortcuts():
+            self.steam.setToolTip(namespace("shell")("steam_shortcuts_unavailable"))
         layout.addWidget(self.steam)
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
         cancel_button = buttons.button(QtWidgets.QDialogButtonBox.Cancel)

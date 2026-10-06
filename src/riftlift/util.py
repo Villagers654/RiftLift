@@ -60,8 +60,9 @@ def atomic_write_bytes(target: Path, payload: bytes, mode: int = 0o600) -> None:
     descriptor, name = tempfile.mkstemp(prefix=f".{target.name}-", dir=target.parent)
     temporary = Path(name)
     try:
-        os.fchmod(descriptor, mode)
         with os.fdopen(descriptor, "wb") as stream:
+            if os.name != "nt":
+                os.fchmod(stream.fileno(), mode)
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())

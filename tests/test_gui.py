@@ -6,7 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+if os.name != "nt":
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6 import QtWidgets
 
@@ -82,9 +83,12 @@ def test_gui_exposes_only_the_primary_library_actions(tmp_path: Path) -> None:
         "Sign In",
         "Steam Games",
         "Add Game",
-        "⟳",
         "View Activity",
     } <= buttons
+    assert (
+        window.refresh_button.accessibleName()
+        == "Refresh installed games and your Meta library"
+    )
     assert "Refresh Info" not in buttons
     assert "Store" not in buttons
     assert "Open in Rift Store ↗" in buttons
@@ -864,13 +868,13 @@ def test_store_action_matches_the_selected_game_source(tmp_path: Path) -> None:
     paths.create()
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
-    rift = Game("rift", "Rift Game", "123", "rift.game", "/tmp", "game.exe", [])
+    rift = Game("rift", "Rift Game", "123", "rift.game", str(tmp_path), "game.exe", [])
     steam = Game(
         "steam",
         "Steam Game",
         "456",
         "steam.app.456",
-        "/tmp",
+        str(tmp_path),
         "game.exe",
         [],
         store_url="https://store.steampowered.com/app/456/",
@@ -887,7 +891,7 @@ def test_store_action_matches_the_selected_game_source(tmp_path: Path) -> None:
         "Local Game",
         "",
         "local.local-game",
-        "/tmp",
+        str(tmp_path),
         "game.exe",
         [],
         source="local",
@@ -917,7 +921,7 @@ def test_meta_row_gives_the_stretch_to_whichever_label_holds_the_text(
     paths.create()
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
-    game = Game("g", "Installed Game", "1", "k", "/tmp", "game.exe", [])
+    game = Game("g", "Installed Game", "1", "k", str(tmp_path), "game.exe", [])
 
     window.show_game(game)
     assert window.meta_row.stretch(0) == 1
@@ -960,7 +964,7 @@ def test_game_description_refreshes_only_when_its_language_is_stale(
         "Current Language Game",
         "111",
         "current.game",
-        "/tmp",
+        str(tmp_path),
         "game.exe",
         [],
         description="Already in English",
@@ -977,7 +981,7 @@ def test_game_description_refreshes_only_when_its_language_is_stale(
         "Stale Language Game",
         "222",
         "stale.game",
-        "/tmp",
+        str(tmp_path),
         "game.exe",
         [],
         description="Ancienne description en francais",
@@ -1030,7 +1034,7 @@ def test_a_game_with_unknown_description_language_always_refreshes(
         "Legacy Game",
         "333",
         "legacy.game",
-        "/tmp",
+        str(tmp_path),
         "game.exe",
         [],
         description="Some old cached text",
@@ -1082,7 +1086,7 @@ def test_description_refresh_ignores_a_meta_games_steam_shortcut_id(
         "Synced Meta Game",
         "1711938725528735",
         "meta.synced",
-        "/tmp",
+        str(tmp_path),
         "game.exe",
         [],
         source="meta",
@@ -1113,7 +1117,7 @@ def test_selected_game_shows_local_playtime(tmp_path: Path) -> None:
     add_playtime(paths, "echo", 7380)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
-    game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
 
     window.show_game(game)
 
@@ -1144,12 +1148,12 @@ def test_launch_button_is_greyed_out_while_the_game_is_running(
     )
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
-    game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
 
     window.show_game(game)
 
     assert not window.launch.isEnabled()
-    assert window.launch.text() == "Launch in VR"
+    assert window.launch.text() == "Launch"
 
     window.close()
     app.processEvents()
@@ -1162,7 +1166,7 @@ def test_launch_button_is_enabled_when_the_game_is_not_running(
     monkeypatch.setattr("riftlift.main_window.running_launch", lambda _paths: None)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
-    game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
 
     window.show_game(game)
 
@@ -1181,7 +1185,7 @@ def test_launch_button_stays_enabled_for_a_game_that_is_not_the_running_one(
     )
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
-    game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
 
     window.show_game(game)
 
@@ -1202,7 +1206,7 @@ def test_poll_running_game_detects_a_launch_started_outside_the_gui(
     monkeypatch.setattr("riftlift.main_window.running_launch", lambda _paths: None)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
-    game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
     window.show_game(game)
     assert window.launch.isEnabled()
 
@@ -1231,7 +1235,7 @@ def test_launch_button_is_greyed_out_as_soon_as_it_is_clicked(
     )
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
-    game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
     window.installed = [game]
     window.show_game(game)
 
@@ -1262,7 +1266,7 @@ def test_launch_button_stays_enabled_when_play_is_refused_as_busy(
     )
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
-    game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
     window.installed = [game]
     window.show_game(game)
     window.busy = True
@@ -1286,7 +1290,7 @@ def test_now_playing_indicator_shows_a_game_running_from_anywhere(
     # running game (e.g. started from Steam) regardless of which page, if
     # any, is currently displayed.
     paths = _running_game_paths(tmp_path)
-    game = Game("echo", "Echo", "", "local.echo", "/tmp", "echo.exe", [])
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
     game.save(paths)
     monkeypatch.setattr(
         "riftlift.main_window.running_launch", lambda _paths: ("echo", "abc123")
@@ -1590,15 +1594,20 @@ def test_add_dialog_prefill_installs_and_reports_progress(
     )
     progress_lines = []
 
-    def fake_add(_paths, url):
-        assert url == "https://www.meta.com/experiences/pcvr/lone-echo/123456789/"
-        print("Preparing 2 unique segments with 8 workers...")
-        print("  segments 1/2 (0 cached)")
-        print("  segments 2/2 (0 cached)")
-        return fake_game
+    from riftlift.download_job import DownloadJob
 
-    monkeypatch.setattr("riftlift.game_ui.add", fake_add)
-    monkeypatch.setattr("riftlift.game_ui.sync_with_restart", lambda _paths: "ok")
+    class FakeJob(DownloadJob):
+        def start(self):
+            assert (
+                self.request["url"]
+                == "https://www.meta.com/experiences/pcvr/lone-echo/123456789/"
+            )
+            self.progress.emit("Preparing segments", 0, 2)
+            self.progress.emit("Downloading", 1, 2)
+            self.progress.emit("Downloading", 2, 2)
+            self.complete.emit(fake_game, None)
+
+    monkeypatch.setattr("riftlift.game_ui.DownloadJob", FakeJob)
 
     dialog = StoreGameDialog(
         paths,
@@ -1746,14 +1755,14 @@ def test_uninstall_button_wording_matches_the_game_source(tmp_path: Path) -> Non
     window = Window(paths)
 
     meta_game = Game(
-        "meta-game", "Meta Game", "111", "meta.game", "/tmp", "game.exe", []
+        "meta-game", "Meta Game", "111", "meta.game", str(tmp_path), "game.exe", []
     )
     steam_game = Game(
         "steam-game",
         "Steam Game",
         "222",
         "steam.app.222",
-        "/tmp",
+        str(tmp_path),
         "game.exe",
         [],
         steam_app_id=222,

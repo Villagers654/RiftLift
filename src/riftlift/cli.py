@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from dataclasses import replace
 
@@ -11,19 +12,21 @@ from meta_pcvr_downloader.download import DownloadError
 from . import __version__
 from .auth import complete_login, login, runtime_access_token
 from .config import Game, Paths, games
-from .doctor import doctor
+from .desktop_services import doctor, launch, setup
 from .entitlements import list_owned_pcvr_apps
-from .launch import launch
 from .library import add, add_local, remove
 from .metadata import populate_game_metadata
 from .playtime import playtime, playtime_label
-from .runtime import setup
 from .steam import sync_with_restart
 from .steam_oculus import steam_oculus_game, steam_oculus_games
 from .util import RiftLiftError
 
 
 def parser() -> argparse.ArgumentParser:
+    if os.name == "nt":
+        from .windows import parser as windows_parser
+
+        return windows_parser()
     root = argparse.ArgumentParser(
         prog="riftlift",
         description="Run owned Meta Rift games on Linux OpenXR/Monado.",
@@ -285,6 +288,10 @@ def run(arguments: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if os.name == "nt":
+        from .windows import main as windows_main
+
+        return windows_main(argv)
     values = list(sys.argv[1:] if argv is None else argv)
     try:
         return run(parser().parse_args(values))

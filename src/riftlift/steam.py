@@ -16,7 +16,26 @@ from .util import (
     atomic_write_bytes,
     atomic_write_text,
     installed_command,
+    read_limited,
 )
+
+
+def shortcut_state(game: Game) -> str:
+    """Read the actual active profile; cached app IDs are not proof of a shortcut."""
+    if game.source == "steam":
+        return "present"
+    try:
+        target = user_config() / "shortcuts.vdf"
+        if not target.exists():
+            return "absent"
+        with target.open("rb") as stream:
+            document = loads(read_limited(stream, 16 * 1024 * 1024, "Steam shortcuts"))
+        shortcuts = document.get("shortcuts")
+        if not isinstance(shortcuts, dict):
+            return "unavailable"
+        return "present" if game.slug in _existing_by_slug(shortcuts) else "absent"
+    except (OSError, ValueError, RiftLiftError, VdfError):
+        return "unavailable"
 
 
 def steam_root() -> Path:

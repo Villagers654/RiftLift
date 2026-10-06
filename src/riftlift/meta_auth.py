@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import secrets
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -99,8 +101,44 @@ def record_callback(paths: Paths, callback_url: str) -> int:
     return 0
 
 
+def windows_callback_command(paths: Paths) -> tuple[Path, str]:
+    """Quote the callback for either a bundled app or a source installation."""
+    if getattr(sys, "frozen", False):
+        python = Path(sys.executable)
+        entry = [str(python)]
+    else:
+        python = Path(sys.executable).with_name("pythonw.exe")
+        if not python.is_file():
+            python = Path(sys.executable)
+        entry = [str(python), "-m", "riftlift.windows"]
+    command = (
+        subprocess.list2cmdline(
+            [*entry, "--home", str(paths.config.parent), "callback"]
+        )
+        + ' "%1"'
+    )
+    return python, command
+
+
 def install_protocol_handler() -> Path:
     """Register RiftLift as the host handler for Meta's browser callback."""
+    if os.name == "nt":
+        import winreg
+
+        paths = Paths.defaults()
+        python, command = windows_callback_command(paths)
+        for scheme in ("oculus", "oculus-client"):
+            with winreg.CreateKey(
+                winreg.HKEY_CURRENT_USER, rf"Software\Classes\{scheme}"
+            ) as key:
+                winreg.SetValueEx(key, "", 0, winreg.REG_SZ, "URL:RiftLift Meta Login")
+                winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
+            with winreg.CreateKey(
+                winreg.HKEY_CURRENT_USER,
+                rf"Software\Classes\{scheme}\shell\open\command",
+            ) as key:
+                winreg.SetValueEx(key, "", 0, winreg.REG_SZ, command)
+        return python
     applications = xdg_data_home() / "applications"
     applications.mkdir(parents=True, exist_ok=True)
     desktop = applications / "riftlift-meta-login.desktop"

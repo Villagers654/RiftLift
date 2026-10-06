@@ -1,6 +1,18 @@
 """English strings: the authoritative reference every key must have an entry in."""
 
 STRINGS = {
+    "shell": {
+        "steam_shortcuts_unavailable": "Steam shortcut updates are not available in this Windows build.",
+        "steam_import_unavailable": "Steam game import is not available in this Windows build.",
+        "steam_status_unknown": "Steam shortcut status unavailable",
+        "steam_already_added": "Already added to Steam",
+        "game_actions": "Game actions",
+        "search": "Search your library",
+        "no_matches": "No games match. Try another title.",
+        "welcome": "Your library",
+        "welcome_hint": "Sign in to see your Meta Rift games.",
+        "activity_status": "Library activity status",
+    },
     "app": {
         "name": "RiftLift",
     },
@@ -54,7 +66,7 @@ STRINGS = {
         ),
     },
     "game": {
-        "launch": "Launch in VR",
+        "launch": "Launch",
         "install": "Install",
         "files": "Files",
         "launch_options": "Launch options",
@@ -123,6 +135,16 @@ STRINGS = {
         "confirm_install": "Install {name}?",
         "add_to_steam": "Add to Steam when finished",
         "starting_install": "Starting install…",
+        "pause_download": "Pause download",
+        "pausing_download": "Pausing download…",
+        "resume_download": "Resume",
+        "download_paused": "Download paused. Completed files are kept; resume when ready.",
+        "retry_download": "Retry",
+        "finishing_install": "Finishing installation…",
+        "sign_in_required": "Sign in again from your library, then retry. Completed files are kept.",
+        "download_failed": "Download failed. Check your connection and retry. Completed files are kept.",
+        "worker_failed": "The download process stopped. Retry to continue from completed files.",
+        "steam_sync_failed": "Installed. Steam shortcut update failed; check Steam, then retry Add to Steam.",
         "phase_preparing_segments": "Preparing segments",
         "phase_downloading": "Downloading",
         "phase_assembling_files": "Assembling files",
@@ -191,6 +213,10 @@ STRINGS = {
         "signed_out": "Signed out. Open your default browser when ready.",
     },
     "settings": {
+        "windows_system_check_explanation": "Checks the Windows VR runtime and writes a diagnostic report to Activity.",
+        "windows_debug_logging_tooltip": "Include Windows launcher and VR bridge diagnostics in Activity.",
+        "windows_runtime_heading": "Windows VR runtime",
+        "windows_runtime_explanation": "Checks and restores the native VR bridge. Keep your OpenXR runtime available and your headset connected.",
         "title": "Settings",
         "language": "Language",
         "debug_logging": "Debug logging",

@@ -8,6 +8,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -181,6 +182,8 @@ def _desktop_browser(desktop_id: str) -> Browser:
 
 
 def default_browser() -> Browser:
+    if os.name == "nt":
+        return Browser("windows", "your default browser", "native", ())
     override = os.environ.get("RIFTLIFT_AUTH_BROWSER", "").strip().lower()
     if override:
         if override.endswith(".desktop"):
@@ -215,7 +218,11 @@ def browser_home(paths: Paths, browser: Browser) -> Path:
 
 def launch_browser_login(
     paths: Paths, browser: Browser, url: str = META_LOGIN_URL
-) -> subprocess.Popen[bytes]:
+) -> subprocess.Popen[bytes] | None:
+    if os.name == "nt":
+        if not webbrowser.open(url):
+            raise RiftLiftError("Could not open the Windows default browser")
+        return None
     return subprocess.Popen(
         [*browser.command, url],
         stdout=subprocess.DEVNULL,
