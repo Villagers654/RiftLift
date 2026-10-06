@@ -37,6 +37,9 @@ if mode == "pause" and not resumed:
     while True:
         time.sleep(0.01)
 emit("progress", label="Downloading", current=2, total=2)
+emit("finishing")
+(cache / "awaiting-finalize").write_text("ready")
+assert json.loads(sys.stdin.readline()) == {"event": "finalize"}
 (data / "games").mkdir(parents=True, exist_ok=True)
 (data / "games" / "fixture.json").write_text(
     json.dumps(
@@ -52,7 +55,6 @@ emit("progress", label="Downloading", current=2, total=2)
         }
     )
 )
-emit("finishing")
 if mode == "finishing":
     while not (cache / "release").exists():
         time.sleep(0.01)

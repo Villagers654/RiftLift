@@ -235,3 +235,30 @@ def test_windows_optional_steam_sync_does_not_block_install_or_removal(
     )
     Window.uninstall_selected(window)
     assert removed == [(window.paths, window.installed[0])]
+
+
+def test_owned_windows_launch_stays_now_playing_through_poll_until_exit(
+    app, window, monkeypatch
+):
+    from riftlift.main_window import Window
+
+    game = window.installed[0]
+    game.save(window.paths)
+    monkeypatch.setattr("riftlift.main_window.running_launch", lambda paths: None)
+    operations = []
+    monkeypatch.setattr(
+        window,
+        "run_task",
+        lambda label, operation, *a, **k: operations.append(operation),
+    )
+    monkeypatch.setattr("riftlift.main_window.launch", lambda *args: 0)
+    Window.launch_game(window)
+    assert window.now_playing_label.isVisible()
+    assert game.name in window.now_playing_label.text()
+    window._poll_running_game()
+    assert window.now_playing_label.isVisible()
+    assert not window.launch.isEnabled()
+    operations[0]()
+    window._poll_running_game()
+    assert not window.now_playing_label.isVisible()
+    assert window.launch.isEnabled()

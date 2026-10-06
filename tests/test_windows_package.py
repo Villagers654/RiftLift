@@ -1,3 +1,6 @@
+import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -67,3 +70,46 @@ def test_source_callback_uses_python_module(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "frozen", False, raising=False)
     _, command = windows_callback_command(Paths.defaults())
     assert "-m riftlift.windows" in command
+
+
+def test_console_free_worker_reads_request_and_finalization_ack(tmp_path):
+    script = tmp_path / "fixture_worker.py"
+    script.write_text(
+        "from riftlift import library, windows_app\n"
+        "from riftlift.config import Game\n"
+        "import sys\n"
+        "def add(paths, url, *, on_finalizing):\n"
+        "    on_finalizing()\n"
+        "    game = Game('fixture', 'Fixture', '1', 'fixture', str(paths.games), 'fixture.exe', [])\n"
+        "    game.save(paths)\n"
+        "    return game\n"
+        "library.add = add\n"
+        "sys.argv = ['fixture', '--download-worker']\n"
+        "raise SystemExit(windows_app.main())\n",
+        encoding="utf-8",
+    )
+    request = {
+        "paths": {
+            key: str(tmp_path / key)
+            for key in ("data", "cache", "config", "games", "prefix", "tools")
+        },
+        "url": "123456789",
+        "sync_steam": False,
+    }
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    result = subprocess.run(
+        [str(Path(sys.executable).with_name("pythonw.exe")), str(script)],
+        input=(json.dumps(request) + '\n{"event":"finalize"}\n').encode(),
+        capture_output=True,
+        timeout=10,
+        env=environment,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert [json.loads(line)["event"] for line in result.stdout.splitlines()] == [
+        "finishing",
+        "complete",
+    ]
+    assert (tmp_path / "data/games/fixture.json").is_file()
+    assert not (tmp_path / "data/logs").exists()

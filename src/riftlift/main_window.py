@@ -726,12 +726,13 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
         self._update_now_playing()
 
     def _update_now_playing(self) -> None:
-        if self._running_slug is None:
+        slug = self._running_slug or self._launching_slug
+        if slug is None:
             self.now_playing_icon.hide()
             self.now_playing_label.hide()
             return
         try:
-            game = Game.load(self.paths, self._running_slug)
+            game = Game.load(self.paths, slug)
         except ValueError:
             self.now_playing_icon.hide()
             self.now_playing_label.hide()
@@ -763,6 +764,7 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
             if not self.busy:
                 self._launching_slug = g.slug
                 self._update_launch_button()
+                self._update_now_playing()
 
             def operation():
                 try:

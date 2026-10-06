@@ -75,6 +75,16 @@ def runtime_dir(paths: Paths) -> Path:
     return paths.tools / "windows-native" / RELEASE
 
 
+def _check_platform_payload(target: Path) -> None:
+    missing = sorted(name for name in PLATFORM_FILES if not (target / name).is_file())
+    if missing:
+        raise RiftLiftError(
+            "Native bridge installed, but Meta platform compatibility is incomplete: "
+            + ", ".join(missing)
+            + ". Use a complete Windows package or a validated source-built runtime."
+        )
+
+
 def install_payload(paths: Paths, archive: Path | None = None) -> Path:
     if getattr(sys, "frozen", False):
         target = runtime_dir(paths)
@@ -103,13 +113,16 @@ def install_payload(paths: Paths, archive: Path | None = None) -> Path:
             relative = PurePosixPath(name)
             if relative.is_absolute() or ".." in relative.parts or ":" in name:
                 raise RiftLiftError("Invalid native payload path")
-            if name in FILES or (name.startswith("Input/") and name.endswith(".json")):
+            if name in FILES | PLATFORM_FILES or (
+                name.startswith("Input/") and name.endswith(".json")
+            ):
                 selected.append((relative, bundle.read(entry)))
         for relative, data in selected:
             dest = target.joinpath(*relative.parts)
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(data)
     (target / "local-build.json").unlink(missing_ok=True)
+    _check_platform_payload(target)
     return target
 
 

@@ -1,6 +1,7 @@
 import shutil
 import struct
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,51 @@ from riftlift.library import (
     parse_download_progress,
     remove,
 )
+
+
+def test_finalization_is_acknowledged_before_install_record_and_metadata(
+    tmp_path, monkeypatch
+):
+    from riftlift import library
+
+    paths = Paths(
+        *(
+            tmp_path / name
+            for name in ("data", "cache", "config", "games", "prefix", "tools")
+        )
+    )
+    build = SimpleNamespace(app_name="Fixture game", version="1")
+    monkeypatch.setattr(library, "runtime_access_token", lambda paths: "FIXTURE")
+    monkeypatch.setattr(library, "list_builds", lambda *args: [build])
+    monkeypatch.setattr(library, "select_build", lambda *args: build)
+    monkeypatch.setattr(
+        library, "fetch_manifest", lambda *args: {"launchFile": "game.exe"}
+    )
+
+    class FixtureDownloader:
+        def __init__(self, token, build, directory, cache, workers):
+            self.directory = directory
+
+        def run(self, manifest):
+            _pe64(self.directory / "game.exe")
+
+    monkeypatch.setattr(library, "Downloader", FixtureDownloader)
+    record = paths.data / "games/fixture-game.json"
+    stages = []
+
+    def finalize():
+        assert not record.exists()
+        stages.append("finalizing")
+
+    def metadata(paths, game):
+        assert record.exists()
+        assert stages == ["finalizing"]
+        stages.append("metadata")
+
+    monkeypatch.setattr(library, "populate_game_metadata", metadata)
+    game = library.add(paths, "123456789", on_finalizing=finalize)
+    assert game.slug == "fixture-game"
+    assert stages == ["finalizing", "metadata"]
 
 
 def test_download_workers_scale_with_available_cpus() -> None:

@@ -1,5 +1,8 @@
+import hashlib
+import io
 import json
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -17,6 +20,33 @@ pytestmark = pytest.mark.skipif(
 def paths(tmp_path, monkeypatch):
     monkeypatch.setenv("RIFTLIFT_HOME", str(tmp_path))
     return Paths.defaults()
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_source_setup_never_reports_ready_without_meta_platform_payload(
+    paths, tmp_path, monkeypatch, complete
+):
+    from riftlift import desktop_services
+
+    names = windows.FILES | (windows.PLATFORM_FILES if complete else set())
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        for name in names:
+            bundle.writestr(name, b"fixture payload")
+        bundle.writestr("Input/bindings.json", "{}")
+    payload = archive.getvalue()
+    package = tmp_path / "fixture.zip"
+    package.write_bytes(payload)
+    monkeypatch.setattr(windows, "PAYLOAD_SHA256", hashlib.sha256(payload).hexdigest())
+    if complete:
+        assert windows.install_payload(paths, package) == windows.runtime_dir(paths)
+        assert not desktop_services.needs_setup(paths)
+    else:
+        with pytest.raises(
+            RiftLiftError, match="Meta platform compatibility is incomplete"
+        ):
+            windows.install_payload(paths, package)
+        assert desktop_services.needs_setup(paths)
 
 
 def test_windows_paths_are_portable(paths, tmp_path):

@@ -63,16 +63,23 @@ class DownloadJob(QtCore.QObject):
 
     def _send_request(self):
         self.process.write(json.dumps(self.request).encode("utf-8") + b"\n")
-        self.process.closeWriteChannel()
         if self._pause_requested:
             self.process.kill()
 
     def pause(self):
+        self._read()
         if self._terminal or self._finishing:
             return
         self._pause_requested = True
         if self.process.state() != QtCore.QProcess.NotRunning:
             self.process.kill()
+
+    def _begin_finalization(self):
+        self._finishing = True
+        self.finishing.emit()
+        if self.process.state() == QtCore.QProcess.Running:
+            self.process.write(b'{"event":"finalize"}\n')
+            self.process.closeWriteChannel()
 
     def _read(self):
         self._buffer += bytes(self.process.readAllStandardOutput())
@@ -96,8 +103,7 @@ class DownloadJob(QtCore.QObject):
                             label, int(event["current"]), int(event["total"])
                         )
                 elif kind == "finishing":
-                    self._finishing = True
-                    self.finishing.emit()
+                    self._begin_finalization()
                 elif kind == "complete":
                     self._result = Game.load(self.paths, event["slug"])
                 elif kind == "error":

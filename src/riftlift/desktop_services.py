@@ -31,7 +31,8 @@ def needs_setup(paths):
     if os.name == "nt":
         backend = _windows()
         return not all(
-            (backend.runtime_dir(paths) / name).is_file() for name in backend.FILES
+            (backend.runtime_dir(paths) / name).is_file()
+            for name in backend.FILES | backend.PLATFORM_FILES
         )
     from .doctor_components import needs_setup as check
 

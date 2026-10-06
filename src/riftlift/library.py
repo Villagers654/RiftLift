@@ -5,6 +5,7 @@ import os
 import re
 import shlex
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 from meta_pcvr_downloader.api import list_builds, parse_app_id, select_build
@@ -113,6 +114,7 @@ def add(
     executable: str | None = None,
     arguments: str | None = None,
     jobs: int | None = None,
+    on_finalizing: Callable[[], None] | None = None,
 ) -> Game:
     paths.create()
     app_id = parse_app_id(app)
@@ -146,6 +148,8 @@ def add(
         platform_offline=True,
         source="meta",
     )
+    if on_finalizing is not None:
+        on_finalizing()
     game.save(paths)
     try:
         populate_game_metadata(paths, game)

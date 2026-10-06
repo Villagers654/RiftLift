@@ -127,6 +127,68 @@ def test_close_during_finalization_waits_and_preserves_install(app, dialog):
     assert dialog.result() == QtWidgets.QDialog.Accepted
 
 
+def test_pause_drains_finalization_and_acknowledges_before_commit(
+    app, dialog, monkeypatch
+):
+    original_read = DownloadJob._read
+    gate = {"read": False}
+    monkeypatch.setattr(
+        DownloadJob, "_read", lambda job: original_read(job) if gate["read"] else None
+    )
+    (dialog.paths.cache / "mode").write_text("finishing")
+    dialog.submit.click()
+    assert wait(app, lambda: (dialog.paths.cache / "awaiting-finalize").exists())
+    record = dialog.paths.data / "games/fixture.json"
+    assert not record.exists()
+    gate["read"] = True
+    dialog._job.pause()
+    assert wait(app, lambda: dialog._job._finishing and record.exists())
+    assert not dialog._job._pause_requested
+    assert not dialog.cancel_button.isEnabled()
+    assert dialog._job.process.state() == QtCore.QProcess.Running
+    (dialog.paths.cache / "release").write_text("ready")
+    assert wait(app, lambda: dialog.installed_game is not None)
+
+
+@pytest.mark.parametrize("acknowledged", [False, True])
+def test_actual_worker_requires_ui_acknowledgement_before_save(
+    dialog, monkeypatch, acknowledged
+):
+    from riftlift import download_worker
+    from riftlift.config import Game
+
+    game = Game(
+        "fixture", "Fixture", "1", "fixture", str(dialog.paths.games), "fixture.exe", []
+    )
+    output = io.StringIO()
+    request = {
+        "paths": {
+            key: str(getattr(dialog.paths, key))
+            for key in ("data", "cache", "config", "games", "prefix", "tools")
+        },
+        "url": "123456789",
+        "sync_steam": False,
+    }
+    incoming = json.dumps(request) + "\n"
+    if acknowledged:
+        incoming += '{"event":"finalize"}\n'
+    monkeypatch.setattr(sys, "stdin", io.StringIO(incoming))
+    monkeypatch.setattr(sys, "stdout", output)
+
+    def add(paths, url, *, on_finalizing):
+        assert not (paths.data / "games/fixture.json").exists()
+        on_finalizing()
+        assert json.loads(output.getvalue().splitlines()[0]) == {"event": "finishing"}
+        game.save(paths)
+        return game
+
+    monkeypatch.setattr("riftlift.library.add", add)
+    assert download_worker.main() == (0 if acknowledged else 1)
+    assert (dialog.paths.data / "games/fixture.json").exists() == acknowledged
+    events = [json.loads(line)["event"] for line in output.getvalue().splitlines()]
+    assert events == ["finishing", "complete" if acknowledged else "error"]
+
+
 def test_steam_sync_failure_keeps_installed_game_and_reports_warning(app, dialog):
     (dialog.paths.cache / "mode").write_text("warning")
     dialog.submit.click()
@@ -137,7 +199,7 @@ def test_steam_sync_failure_keeps_installed_game_and_reports_warning(app, dialog
 def test_worker_classifies_auth_failure_without_exposing_url(app, dialog, monkeypatch):
     from riftlift import download_worker
 
-    def fail(*args):
+    def fail(*args, **kwargs):
         raise ValueError("401 https://fixture.invalid/?access_token=SECRET_FIXTURE")
 
     monkeypatch.setattr("riftlift.library.add", fail)

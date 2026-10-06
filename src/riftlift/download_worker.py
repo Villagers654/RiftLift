@@ -54,9 +54,16 @@ def main() -> int:
                 label, current, total = parsed
                 emit("progress", label=label, current=current, total=total)
 
-        with contextlib.redirect_stdout(LineWriter(progress)):
-            game = add(paths, request["url"])
+        def finalize():
             emit("finishing")
+            # Do not commit until the owning UI has disabled Pause. If Pause
+            # wins the race, the killed worker has not saved an install record.
+            acknowledgement = json.loads(sys.stdin.readline(1024))
+            if acknowledgement != {"event": "finalize"}:
+                raise ValueError("Invalid finalization acknowledgement")
+
+        with contextlib.redirect_stdout(LineWriter(progress)):
+            game = add(paths, request["url"], on_finalizing=finalize)
             # The install record is already committed. A Steam sync failure
             # must not turn an installed game into a failed download.
             if request.get("sync_steam"):
