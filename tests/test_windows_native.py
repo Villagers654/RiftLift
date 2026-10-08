@@ -23,12 +23,14 @@ def paths(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("complete", [False, True])
-def test_source_setup_never_reports_ready_without_meta_platform_payload(
+def test_source_setup_completes_missing_meta_platform_dependencies(
     paths, tmp_path, monkeypatch, complete
 ):
     from riftlift import desktop_services
 
-    names = windows.FILES | (windows.PLATFORM_FILES if complete else set())
+    names = windows.FILES | (
+        windows.PLATFORM_FILES if complete else {"LibOVRPlatformImpl64_1.dll"}
+    )
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w") as bundle:
         for name in names:
@@ -38,15 +40,51 @@ def test_source_setup_never_reports_ready_without_meta_platform_payload(
     package = tmp_path / "fixture.zip"
     package.write_bytes(payload)
     monkeypatch.setattr(windows, "PAYLOAD_SHA256", hashlib.sha256(payload).hexdigest())
-    if complete:
-        assert windows.install_payload(paths, package) == windows.runtime_dir(paths)
-        assert not desktop_services.needs_setup(paths)
-    else:
-        with pytest.raises(
-            RiftLiftError, match="Meta platform compatibility is incomplete"
-        ):
-            windows.install_payload(paths, package)
-        assert desktop_services.needs_setup(paths)
+    meta = tmp_path / "meta.zip"
+    with zipfile.ZipFile(meta, "w") as bundle:
+        for name in windows.PLATFORM_FILES - {"LibOVRPlatformImpl64_1_real.dll"}:
+            bundle.writestr(name, b"original Meta payload")
+    monkeypatch.setattr(
+        windows,
+        "SDK_RUNTIME_SHA256",
+        hashlib.sha256(b"original Meta payload").hexdigest(),
+    )
+    fetched = []
+
+    def fetch(url, target, expected_sha256):
+        assert url.endswith("?id=3766757683456363")
+        assert expected_sha256 == (
+            "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009"
+        )
+        fetched.append(target)
+        return meta
+
+    monkeypatch.setattr(windows, "download", fetch)
+    native = windows.install_payload(paths, package)
+    assert native == windows.runtime_dir(paths)
+    assert not desktop_services.needs_setup(paths)
+    assert (native / "LibOVRPlatformImpl64_1.dll").read_bytes() == b"fixture payload"
+    assert len(fetched) == (0 if complete else 1)
+    if not complete:
+        assert (native / "LibOVRPlatformImpl64_1_real.dll").read_bytes() == (
+            b"original Meta payload"
+        )
+    windows.install_platform_dependencies(paths, native)
+    assert len(fetched) == (0 if complete else 1)
+
+
+def test_platform_dependency_validation_happens_before_writes(
+    paths, tmp_path, monkeypatch
+):
+    archive = tmp_path / "meta.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        for name in windows.PLATFORM_FILES - {"LibOVRPlatformImpl64_1_real.dll"}:
+            bundle.writestr(name, b"invalid SDK runtime")
+    monkeypatch.setattr(windows, "download", lambda *args: archive)
+    native = windows.runtime_dir(paths)
+    with pytest.raises(RiftLiftError, match="Meta SDK runtime checksum mismatch"):
+        windows.install_platform_dependencies(paths, native)
+    assert not native.exists()
 
 
 def test_windows_paths_are_portable(paths, tmp_path):

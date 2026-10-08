@@ -85,6 +85,37 @@ def _check_platform_payload(target: Path) -> None:
         )
 
 
+def install_platform_dependencies(paths: Paths, target: Path) -> None:
+    """Complete the pinned bridge with Meta's checksum-verified original DLLs."""
+    dependencies = {
+        "LibOVRPlatform64_1.dll": "LibOVRPlatform64_1.dll",
+        "LibOVRP2P64_1.dll": "LibOVRP2P64_1.dll",
+        "LibOVRRT64_1.dll": "LibOVRRT64_1.dll",
+        "LibOVRPlatformImpl64_1_real.dll": "LibOVRPlatformImpl64_1.dll",
+    }
+    missing = {
+        name: source
+        for name, source in dependencies.items()
+        if not (target / name).is_file()
+    }
+    if not missing:
+        return
+    package = download(
+        "https://securecdn.oculus.com/binaries/download/?id=3766757683456363",
+        paths.cache / "oculus-runtime.zip",
+        "adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009",
+    )
+    with zipfile.ZipFile(package) as bundle:
+        # Read and validate before writing; never replace the compatibility shim
+        # with Meta's original implementation of the same name.
+        selected = {name: bundle.read(source) for name, source in missing.items()}
+        sdk = bundle.read("LibOVRRT64_1.dll")
+        if hashlib.sha256(sdk).hexdigest() != SDK_RUNTIME_SHA256:
+            raise RiftLiftError("Meta SDK runtime checksum mismatch")
+    for name, payload in selected.items():
+        atomic_write_bytes(target / name, payload)
+
+
 def install_payload(paths: Paths, archive: Path | None = None) -> Path:
     if getattr(sys, "frozen", False):
         target = runtime_dir(paths)
@@ -101,8 +132,8 @@ def install_payload(paths: Paths, archive: Path | None = None) -> Path:
     if hashlib.sha256(payload).hexdigest() != PAYLOAD_SHA256:
         raise RiftLiftError("Native payload SHA256 mismatch")
     target = runtime_dir(paths)
-    # Validate the complete archive before writing. This pinned archive supplies
-    # the base bridge; the native platform layer is built with runtime/CMakeLists.txt.
+    # Validate the complete archive before writing. The pinned source payload
+    # includes the bridge and platform shim; Meta supplies its original dependencies.
     with zipfile.ZipFile(io.BytesIO(payload)) as bundle:
         names = {i.filename.replace("\\", "/") for i in bundle.infolist()}
         if not FILES.issubset(names):
@@ -122,6 +153,7 @@ def install_payload(paths: Paths, archive: Path | None = None) -> Path:
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(data)
     (target / "local-build.json").unlink(missing_ok=True)
+    install_platform_dependencies(paths, target)
     _check_platform_payload(target)
     return target
 
