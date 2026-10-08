@@ -1,11 +1,13 @@
 import os
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+if os.name != "nt":
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6 import QtWidgets
 
@@ -83,8 +85,10 @@ def test_gui_exposes_only_the_primary_library_actions(tmp_path: Path) -> None:
         "Add Game",
         "View Activity",
     } <= buttons
-    assert window.refresh_button.accessibleName() == "Refresh library"
-    assert not window.refresh_button.icon().isNull()
+    assert (
+        window.refresh_button.accessibleName()
+        == "Refresh installed games and your Meta library"
+    )
     assert "Refresh Info" not in buttons
     assert "Store" not in buttons
     assert "Open in Rift Store ↗" in buttons
@@ -917,7 +921,7 @@ def test_meta_row_gives_the_stretch_to_whichever_label_holds_the_text(
     paths.create()
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
-    game = Game("g", "Installed Game", "1", "k", "/tmp", "game.exe", [])
+    game = Game("g", "Installed Game", "1", "k", str(tmp_path), "game.exe", [])
 
     window.show_game(game)
     assert window.meta_row.stretch(0) == 1
@@ -960,7 +964,7 @@ def test_game_description_refreshes_only_when_its_language_is_stale(
         "Current Language Game",
         "111",
         "current.game",
-        "/tmp",
+        str(tmp_path),
         "game.exe",
         [],
         description="Already in English",
@@ -977,7 +981,7 @@ def test_game_description_refreshes_only_when_its_language_is_stale(
         "Stale Language Game",
         "222",
         "stale.game",
-        "/tmp",
+        str(tmp_path),
         "game.exe",
         [],
         description="Ancienne description en francais",
@@ -1030,7 +1034,7 @@ def test_a_game_with_unknown_description_language_always_refreshes(
         "Legacy Game",
         "333",
         "legacy.game",
-        "/tmp",
+        str(tmp_path),
         "game.exe",
         [],
         description="Some old cached text",
@@ -1082,7 +1086,7 @@ def test_description_refresh_ignores_a_meta_games_steam_shortcut_id(
         "Synced Meta Game",
         "1711938725528735",
         "meta.synced",
-        "/tmp",
+        str(tmp_path),
         "game.exe",
         [],
         source="meta",
@@ -1118,6 +1122,204 @@ def test_selected_game_shows_local_playtime(tmp_path: Path) -> None:
     window.show_game(game)
 
     assert "2h 3m played" in window.meta.text()
+    window.close()
+    app.processEvents()
+
+
+def _running_game_paths(tmp_path: Path) -> Paths:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    return paths
+
+
+def test_launch_button_is_greyed_out_while_the_game_is_running(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _running_game_paths(tmp_path)
+    monkeypatch.setattr(
+        "riftlift.main_window.running_launch", lambda _paths: ("echo", "abc123")
+    )
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
+
+    window.show_game(game)
+
+    assert not window.launch.isEnabled()
+    assert window.launch.text() == "Launch"
+
+    window.close()
+    app.processEvents()
+
+
+def test_launch_button_is_enabled_when_the_game_is_not_running(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _running_game_paths(tmp_path)
+    monkeypatch.setattr("riftlift.main_window.running_launch", lambda _paths: None)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
+
+    window.show_game(game)
+
+    assert window.launch.isEnabled()
+
+    window.close()
+    app.processEvents()
+
+
+def test_launch_button_stays_enabled_for_a_game_that_is_not_the_running_one(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _running_game_paths(tmp_path)
+    monkeypatch.setattr(
+        "riftlift.main_window.running_launch", lambda _paths: ("other", "abc123")
+    )
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
+
+    window.show_game(game)
+
+    assert window.launch.isEnabled()
+
+    window.close()
+    app.processEvents()
+
+
+def test_poll_running_game_detects_a_launch_started_outside_the_gui(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Steam's own Play button, a headset's launch integration, or a bare
+    # `riftlift launch` from a terminal all start the game in a separate
+    # process the window shares no state with - window.launch_game() is
+    # never called here, only the poll that should notice it regardless.
+    paths = _running_game_paths(tmp_path)
+    monkeypatch.setattr("riftlift.main_window.running_launch", lambda _paths: None)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
+    window.show_game(game)
+    assert window.launch.isEnabled()
+
+    monkeypatch.setattr(
+        "riftlift.main_window.running_launch", lambda _paths: ("echo", "external")
+    )
+    window._poll_running_game()
+
+    assert not window.launch.isEnabled()
+
+    window.close()
+    app.processEvents()
+
+
+def test_launch_button_is_greyed_out_as_soon_as_it_is_clicked(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # The launch record the poll relies on only exists once the launch has
+    # been prepared, so the click itself must grey the button out.
+    paths = _running_game_paths(tmp_path)
+    monkeypatch.setattr("riftlift.main_window.running_launch", lambda _paths: None)
+    release = threading.Event()
+    monkeypatch.setattr(
+        "riftlift.main_window.launch",
+        lambda _paths, _game, _arguments: release.wait(2) and 0,
+    )
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
+    window.installed = [game]
+    window.show_game(game)
+
+    window.launch.click()
+
+    assert not window.launch.isEnabled()
+
+    release.set()
+    assert wait_until(app, lambda: window._launching_slug is None)
+    window._update_launch_button()
+    assert window.launch.isEnabled()
+
+    window.close()
+    app.processEvents()
+
+
+def test_launch_button_stays_enabled_when_play_is_refused_as_busy(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Setup or diagnostics already running: run_task refuses the launch, so
+    # nothing would ever re-enable a button greyed out by the click.
+    paths = _running_game_paths(tmp_path)
+    monkeypatch.setattr("riftlift.main_window.running_launch", lambda _paths: None)
+    launched = []
+    monkeypatch.setattr(
+        "riftlift.main_window.launch",
+        lambda _paths, game, _arguments: launched.append(game.slug),
+    )
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
+    window.installed = [game]
+    window.show_game(game)
+    window.busy = True
+
+    window.launch.click()
+    app.processEvents()
+
+    assert window.launch.isEnabled()
+    assert window._launching_slug is None
+    assert launched == []
+
+    window.busy = False
+    window.close()
+    app.processEvents()
+
+
+def test_now_playing_indicator_shows_a_game_running_from_anywhere(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # No detail page is shown here - the header indicator must reflect a
+    # running game (e.g. started from Steam) regardless of which page, if
+    # any, is currently displayed.
+    paths = _running_game_paths(tmp_path)
+    game = Game("echo", "Echo", "", "local.echo", str(tmp_path), "echo.exe", [])
+    game.save(paths)
+    monkeypatch.setattr(
+        "riftlift.main_window.running_launch", lambda _paths: ("echo", "abc123")
+    )
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+
+    window._poll_running_game()
+
+    assert not window.now_playing_label.isHidden()
+    assert "Echo" in window.now_playing_label.text()
+
+    window.close()
+    app.processEvents()
+
+
+def test_now_playing_indicator_is_hidden_when_nothing_is_running(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _running_game_paths(tmp_path)
+    monkeypatch.setattr("riftlift.main_window.running_launch", lambda _paths: None)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+
+    window._poll_running_game()
+
+    assert window.now_playing_label.isHidden()
+    assert window.now_playing_icon.isHidden()
+
     window.close()
     app.processEvents()
 
@@ -1259,7 +1461,7 @@ def test_auth_dialog_detects_browser_completion_and_returns(
     app.processEvents()
 
 
-def test_auth_dialog_preserves_browser_after_login_error(
+def test_auth_dialog_stops_owned_windows_browser_after_login_error(
     tmp_path: Path, monkeypatch
 ) -> None:
     paths = Paths(
@@ -1283,7 +1485,7 @@ def test_auth_dialog_preserves_browser_after_login_error(
 
     dialog.show_error("Meta rejected the token")
 
-    assert not stopped
+    assert stopped == ([True] if os.name == "nt" else [])
     assert dialog.process is None
     assert dialog.status.text() == "Meta rejected the token"
     dialog.close()
@@ -1392,15 +1594,20 @@ def test_add_dialog_prefill_installs_and_reports_progress(
     )
     progress_lines = []
 
-    def fake_add(_paths, url):
-        assert url == "https://www.meta.com/experiences/pcvr/lone-echo/123456789/"
-        print("Preparing 2 unique segments with 8 workers...")
-        print("  segments 1/2 (0 cached)")
-        print("  segments 2/2 (0 cached)")
-        return fake_game
+    from riftlift.download_job import DownloadJob
 
-    monkeypatch.setattr("riftlift.game_ui.add", fake_add)
-    monkeypatch.setattr("riftlift.game_ui.sync_with_restart", lambda _paths: "ok")
+    class FakeJob(DownloadJob):
+        def start(self):
+            assert (
+                self.request["url"]
+                == "https://www.meta.com/experiences/pcvr/lone-echo/123456789/"
+            )
+            self.progress.emit("Preparing segments", 0, 2)
+            self.progress.emit("Downloading", 1, 2)
+            self.progress.emit("Downloading", 2, 2)
+            self.complete.emit(fake_game, None)
+
+    monkeypatch.setattr("riftlift.game_ui.DownloadJob", FakeJob)
 
     dialog = StoreGameDialog(
         paths,
@@ -1548,14 +1755,14 @@ def test_uninstall_button_wording_matches_the_game_source(tmp_path: Path) -> Non
     window = Window(paths)
 
     meta_game = Game(
-        "meta-game", "Meta Game", "111", "meta.game", "/tmp", "game.exe", []
+        "meta-game", "Meta Game", "111", "meta.game", str(tmp_path), "game.exe", []
     )
     steam_game = Game(
         "steam-game",
         "Steam Game",
         "222",
         "steam.app.222",
-        "/tmp",
+        str(tmp_path),
         "game.exe",
         [],
         steam_app_id=222,

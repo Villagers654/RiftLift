@@ -45,7 +45,8 @@ class AuthDialog(QtWidgets.QDialog):
         explanation = QtWidgets.QLabel(
             "RiftLift opens your browser and returns here when Meta finishes. "
             "Your password and security codes go only to Meta."
-            if os.name == "nt" else AUTH("explanation")
+            if os.name == "nt"
+            else AUTH("explanation")
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)

@@ -46,10 +46,9 @@ SDK_RUNTIME_SHA256 = "f6941275692026b18666bb856d71fe1b19462017b2b2e556fe8df82461
 def install_sdk_runtime(paths: Paths) -> Path:
     """Keep Meta's signed discovery DLL intact for the static Oculus SDK loader."""
     native = runtime_dir(paths)
-    if (
-        (native / "LibOVRRT64_1.dll").is_file()
-        and sha256(native / "LibOVRRT64_1.dll") == SDK_RUNTIME_SHA256
-    ):
+    if (native / "LibOVRRT64_1.dll").is_file() and sha256(
+        native / "LibOVRRT64_1.dll"
+    ) == SDK_RUNTIME_SHA256:
         return native
     directory = paths.tools / "meta-runtime"
     target = directory / "LibOVRRT64_1.dll"
@@ -74,6 +73,16 @@ def runtime_dir(paths: Paths) -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys._MEIPASS) / "native"
     return paths.tools / "windows-native" / RELEASE
+
+
+def _check_platform_payload(target: Path) -> None:
+    missing = sorted(name for name in PLATFORM_FILES if not (target / name).is_file())
+    if missing:
+        raise RiftLiftError(
+            "Native bridge installed, but Meta platform compatibility is incomplete: "
+            + ", ".join(missing)
+            + ". Use a complete Windows package or a validated source-built runtime."
+        )
 
 
 def install_payload(paths: Paths, archive: Path | None = None) -> Path:
@@ -104,13 +113,16 @@ def install_payload(paths: Paths, archive: Path | None = None) -> Path:
             relative = PurePosixPath(name)
             if relative.is_absolute() or ".." in relative.parts or ":" in name:
                 raise RiftLiftError("Invalid native payload path")
-            if name in FILES or (name.startswith("Input/") and name.endswith(".json")):
+            if name in FILES | PLATFORM_FILES or (
+                name.startswith("Input/") and name.endswith(".json")
+            ):
                 selected.append((relative, bundle.read(entry)))
         for relative, data in selected:
             dest = target.joinpath(*relative.parts)
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(data)
     (target / "local-build.json").unlink(missing_ok=True)
+    _check_platform_payload(target)
     return target
 
 
@@ -281,6 +293,7 @@ def launch_command(
         str(game.game_dir),
         str(executable),
         *game.arguments,
+        *game.launch_options,
         *(extra or []),
     ]
 
@@ -301,6 +314,7 @@ def launch(
             f"Configure a Windows {backend} runtime and connect the headset first"
         )
     environment = os.environ.copy()
+    environment.update(game.environment)
     # Older Platform SDK loaders concatenate the DLL name directly to this value.
     environment["LIBOVR_DLL_DIR"] = str(install_sdk_runtime(paths)) + os.sep
     if game.platform_shim:
@@ -332,9 +346,7 @@ def launch(
             stdout=stream,
             env=environment,
         )
-        stream.write(
-            f"\nExit code: {returncode} (0x{returncode & 0xFFFFFFFF:08X})\n"
-        )
+        stream.write(f"\nExit code: {returncode} (0x{returncode & 0xFFFFFFFF:08X})\n")
         launcher_log = (
             Path(os.environ["LOCALAPPDATA"]) / "RiftLift/RiftLiftLauncher.txt"
         )

@@ -235,10 +235,16 @@ def _windows_default_browser() -> Browser | None:
         return None
     browsers = {
         "msedgehtm": (
-            "edge", "Microsoft Edge", "msedge.exe", "Microsoft/Edge/Application"
+            "edge",
+            "Microsoft Edge",
+            "msedge.exe",
+            "Microsoft/Edge/Application",
         ),
         "chromehtml": (
-            "chrome", "Google Chrome", "chrome.exe", "Google/Chrome/Application"
+            "chrome",
+            "Google Chrome",
+            "chrome.exe",
+            "Google/Chrome/Application",
         ),
     }
     match = browsers.get(prog_id)
@@ -377,7 +383,7 @@ def launch_browser_login(
 
 def stop_browser(paths: Paths, browser: Browser, process) -> None:
     """Stop only browser processes using RiftLift's isolated auth profile."""
-    if os.name != "nt":
+    if os.name != "nt" or browser.family != "chromium":
         return
     if process is not None and process.poll() is None:
         process.terminate()

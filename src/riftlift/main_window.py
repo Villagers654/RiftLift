@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import html
 import io
 import os
 import shutil
@@ -14,10 +15,21 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from .auth import is_signed_in, runtime_access_token
 from .auth_ui import AuthDialog
 from .config import Game, Paths, games, language_preference, set_language_preference
+from .desktop_services import (
+    active_runtime_json,
+    add_local,
+    doctor,
+    launch,
+    needs_setup,
+    running_launch,
+    setup,
+    supports_steam_import,
+    supports_steam_shortcuts,
+)
 from .entitlements import OwnedApp, list_owned_pcvr_apps
 from .game_ui import LaunchOptionsDialog, LocalGameDialog, StoreGameDialog
 from .i18n import LANGUAGES, current_language, namespace, set_language
-from .library import add_local, remove
+from .library import remove
 from .metadata import (
     fetch_catalog_metadata,
     fetch_owned_hero,
@@ -26,41 +38,15 @@ from .metadata import (
     fetch_steam_catalog_metadata,
     populate_game_metadata,
 )
+from .native_shell import NativePresentation
+from .native_theme import STYLE
 from .pages.settings import SettingsPage
 from .playtime import format_playtime, playtime
-from .steam import sync_with_restart
+from .steam import shortcut_state, sync_with_restart
 from .steam_oculus import add_steam_game
 from .steam_ui import SteamGamesDialog
-from .theme import STYLE
-from .titlebar import ResizableFrame, TitleBar, wrap_dialog
+from .titlebar import wrap_dialog
 from .util import RiftLiftError
-
-if os.name != "nt":
-    from .doctor import doctor
-    from .doctor_components import needs_setup
-    from .launch import launch
-    from .runtime import setup
-    from .xr_runtime import active_runtime_json
-
-
-def _needs_runtime_setup(paths: Paths) -> bool:
-    if os.name == "nt":
-        from . import windows
-
-        native = windows.runtime_dir(paths)
-        return not all(
-            (native / name).is_file()
-            for name in windows.FILES
-        )
-    return needs_setup(paths)
-
-
-def _install_runtime(paths: Paths):
-    if os.name == "nt":
-        from .windows import install_payload
-
-        return install_payload(paths)
-    return setup(paths)
 
 APP = namespace("app")
 SETUP = namespace("setup")
@@ -127,14 +113,6 @@ def _themed_error(parent, title: str, text: str) -> None:
     layout.addWidget(ok_button, alignment=QtCore.Qt.AlignRight)
     dialog.exec()
 
-if os.name == "nt":
-    from .windows import add_local
-    from .windows_ui_backend import doctor, launch
-else:
-    from .doctor import doctor
-    from .launch import launch
-    from .library import add_local
-
 
 class Events(QtCore.QObject):
     output = QtCore.Signal(str)
@@ -155,6 +133,7 @@ class GameMetadataEvents(QtCore.QObject):
 
 class SetupStatusEvents(QtCore.QObject):
     complete = QtCore.Signal(bool)
+    failed = QtCore.Signal(str)
 
 
 class SystemStatusEvents(QtCore.QObject):
@@ -174,104 +153,14 @@ class Output(io.TextIOBase):
         pass
 
 
-class SkeletonLines(QtWidgets.QWidget):
-    """A pulsing placeholder for text that hasn't loaded yet."""
-
-    _DEFAULT_WIDTHS = (1.0, 0.94, 0.62)
-    _BAR_HEIGHT = 12
-    _BAR_SPACING = 10
-
-    def __init__(self, widths: tuple[float, ...] | None = None):
-        super().__init__()
-        self._widths = widths or self._DEFAULT_WIDTHS
-        self.setFixedHeight(
-            len(self._widths) * self._BAR_HEIGHT
-            + (len(self._widths) - 1) * self._BAR_SPACING
-        )
-        self._effect = QtWidgets.QGraphicsOpacityEffect(self)
-        self.setGraphicsEffect(self._effect)
-        self._animation = QtCore.QPropertyAnimation(self._effect, b"opacity", self)
-        self._animation.setStartValue(0.35)
-        self._animation.setEndValue(0.85)
-        self._animation.setDuration(900)
-        self._animation.setEasingCurve(QtCore.QEasingCurve.InOutSine)
-        self._animation.setLoopCount(-1)
-
-    def showEvent(self, event: QtGui.QShowEvent) -> None:
-        self._animation.start()
-        super().showEvent(event)
-
-    def hideEvent(self, event: QtGui.QHideEvent) -> None:
-        if self._animation.state() != QtCore.QAbstractAnimation.Stopped:
-            self._animation.pause()
-        super().hideEvent(event)
-
-    def paintEvent(self, _event) -> None:
-        painter = QtGui.QPainter(self)
-        painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        painter.setPen(QtCore.Qt.NoPen)
-        painter.setBrush(QtGui.QColor("#1c2740"))
-        y = 0
-        for width in self._widths:
-            painter.drawRoundedRect(
-                QtCore.QRectF(0, y, self.width() * width, self._BAR_HEIGHT), 5, 5
-            )
-            y += self._BAR_HEIGHT + self._BAR_SPACING
-
-
-class HeroPanel(QtWidgets.QWidget):
-    """Selected-game artwork with a readable, content-first text area."""
-
-    def __init__(self):
-        super().__init__()
-        self.hero = QtGui.QPixmap()
-
-    def set_artwork(self, path: str) -> None:
-        self.hero = QtGui.QPixmap(path)
-        self.update()
-
-    def paintEvent(self, _event):
-        painter = QtGui.QPainter(self)
-        painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
-        clip = QtGui.QPainterPath()
-        clip.addRoundedRect(QtCore.QRectF(self.rect()), 10, 10)
-        painter.setClipPath(clip)
-        painter.fillRect(self.rect(), QtGui.QColor("#0b1020"))
-        if not self.hero.isNull():
-            artwork = self.hero.scaled(
-                self.size(),
-                QtCore.Qt.KeepAspectRatioByExpanding,
-                QtCore.Qt.SmoothTransformation,
-            )
-            source = QtCore.QRect(
-                (artwork.width() - self.width()) // 2,
-                (artwork.height() - self.height()) // 2,
-                self.width(),
-                self.height(),
-            )
-            painter.drawPixmap(self.rect(), artwork, source)
-
-        # The art now spans the full banner, so the overlay has to stay dark
-        # enough everywhere for the title/actions to read over any artwork.
-        horizontal = QtGui.QLinearGradient(0, 0, self.width(), 0)
-        horizontal.setColorAt(0.0, QtGui.QColor(11, 16, 32, 235))
-        horizontal.setColorAt(0.6, QtGui.QColor(11, 16, 32, 190))
-        horizontal.setColorAt(1.0, QtGui.QColor(11, 16, 32, 90))
-        painter.fillRect(self.rect(), horizontal)
-
-        vertical = QtGui.QLinearGradient(0, self.height() * 0.3, 0, self.height())
-        vertical.setColorAt(0.0, QtGui.QColor(11, 16, 32, 0))
-        vertical.setColorAt(1.0, QtGui.QColor(11, 16, 32, 245))
-        painter.fillRect(self.rect(), vertical)
-
-
-class Window(QtWidgets.QMainWindow):
+class Window(NativePresentation, QtWidgets.QMainWindow):
     def __init__(
         self,
         paths: Paths | None = None,
         *,
         initial_slug: str | None = None,
         initial_owned_app_id: str | None = None,
+        start_services: bool = True,
     ):
         super().__init__()
         self.paths = paths or Paths.defaults()
@@ -282,6 +171,8 @@ class Window(QtWidgets.QMainWindow):
         self.slug: str | None = initial_slug
         self._pending_owned_app_id = initial_owned_app_id
         self._owned_loaded = False
+        self._running_slug: str | None = None
+        self._launching_slug: str | None = None
         self.busy = False
         self.busy_label = ""
         self.log = ""
@@ -297,94 +188,62 @@ class Window(QtWidgets.QMainWindow):
         self.game_metadata_events.complete.connect(self._finish_game_metadata_refresh)
         self.setup_status_events = SetupStatusEvents()
         self.setup_status_events.complete.connect(self._finish_setup_check)
+        self.setup_status_events.failed.connect(self._runtime_check_failed)
         self.system_status_events = SystemStatusEvents()
         self.system_status_events.complete.connect(self._finish_system_status_check)
         self.setWindowTitle(APP("name"))
-        self.setWindowFlags(self.windowFlags() | QtCore.Qt.FramelessWindowHint)
-        self.resize(1024, 637)
-        self.setMinimumSize(1024, 637)
-        self.setStyleSheet(STYLE)
         self._build()
-        if os.name == "nt":
-            for control in (self.steam_games,):
-                control.setEnabled(False)
-                control.setToolTip(
-                    "This integration is pending native Windows support."
-                )
-            self.settings_page.debug_logging.setToolTip(
-                "Include native launcher diagnostics in View Activity."
-            )
-        self.refresh()
-        if _needs_runtime_setup(self.paths):
-            self.run_task(
-                "Setting up the compatibility runtime",
-                lambda: _install_runtime(self.paths),
-                success="Compatibility runtime is ready",
-            )
-        else:
-            self._check_setup_status()
-        self.refresh_owned()
-
-    def label(self, text="", name=""):
-        widget = QtWidgets.QLabel(text)
-        widget.setObjectName(name)
-        return widget
-
-    def button(self, text, callback, primary=False):
-        widget = QtWidgets.QPushButton(text)
-        widget.setObjectName("primary" if primary else "")
-        widget.clicked.connect(callback)
-        return widget
-
-    def _build_header(self, outer: QtWidgets.QVBoxLayout) -> None:
-        header = QtWidgets.QHBoxLayout()
-        header.setSpacing(10)
-        header.addWidget(self.label(APP("name"), "title"))
-        header.addStretch()
-        self.settings_button = self.button(NAV("settings"), self._toggle_settings)
-        self.settings_button.setObjectName("nav")
-        self.signin = self.button(
-            NAV("account") if is_signed_in(self.paths) else NAV("sign_in"),
-            self.show_auth,
+        self.steam_games.setEnabled(supports_steam_import())
+        if not supports_steam_import():
+            self.steam_games.setToolTip(namespace("shell")("steam_import_unavailable"))
+        if not start_services:
+            return
+        self.signin.setText(
+            NAV("account") if is_signed_in(self.paths) else NAV("sign_in")
         )
-        self.signin.setObjectName("nav")
-        self.steam_games = self.button(NAV("steam_games"), self.steam_dialog)
-        self.steam_games.setObjectName("nav")
-        self.addbtn = self.button(NAV("add_game"), lambda: self.add_dialog(), True)
-        for button in (
-            self.settings_button,
-            self.signin,
-            self.steam_games,
-            self.addbtn,
-        ):
-            header.addWidget(button)
-        outer.addLayout(header)
-        outer.addSpacing(14)
+        self.refresh()
+        try:
+            runtime_setup_needed = needs_setup(self.paths)
+        except RiftLiftError as error:
+            self.status.setText(str(error))
+            self._append_log(str(error))
+        else:
+            if runtime_setup_needed:
+                self.run_task(
+                    "Setting up the compatibility runtime",
+                    lambda: setup(self.paths),
+                    success="Compatibility runtime is ready",
+                )
+            else:
+                self._check_setup_status()
+        self.refresh_owned()
+        self._running_game_poll = QtCore.QTimer(self)
+        self._running_game_poll.setInterval(2000)
+        self._running_game_poll.timeout.connect(self._poll_running_game)
+        self._running_game_poll.start()
+        self._poll_running_game()
 
-    def _build_setup_banner(self, outer: QtWidgets.QVBoxLayout) -> None:
-        # Wrapped in its own container (rather than a separate outer.addSpacing)
-        # so hiding it also removes the gap below it - otherwise the header
-        # area stays taller than necessary even while there's nothing to show.
-        container = QtWidgets.QWidget()
-        self.setup_banner = container
-        self.setup_banner.hide()
-        container_layout = QtWidgets.QVBoxLayout(container)
-        container_layout.setContentsMargins(0, 0, 0, 14)
-        banner = QtWidgets.QWidget()
-        banner.setObjectName("setup_banner")
-        layout = QtWidgets.QHBoxLayout(banner)
-        layout.setContentsMargins(14, 10, 14, 10)
-        text = self.label(SETUP("banner_text"), "setup_banner_text")
-        text.setWordWrap(True)
-        layout.addWidget(text, 1)
-        run_now = self.button(SETUP("run_now"), self._run_setup, True)
-        layout.addWidget(run_now)
-        container_layout.addWidget(banner)
-        outer.addWidget(container)
+    def _make_settings(self):
+        return SettingsPage(
+            self.paths,
+            self._confirm_language_change,
+            self._run_system_check,
+            self._run_setup,
+            self._check_system_status,
+        )
+
+    def _load_owned_detail(self, app, *, refresh=False):
+        return (
+            fetch_owned_metadata(self.paths, app.app_id, refresh=refresh),
+            fetch_owned_hero(self.paths, app.app_id, refresh=refresh),
+        )
 
     def _check_setup_status(self) -> None:
         def worker():
-            self.setup_status_events.complete.emit(_needs_runtime_setup(self.paths))
+            try:
+                self.setup_status_events.complete.emit(needs_setup(self.paths))
+            except (OSError, RiftLiftError) as error:
+                self.setup_status_events.failed.emit(str(error))
 
         threading.Thread(
             target=worker, daemon=True, name="riftlift-setup-check"
@@ -393,23 +252,22 @@ class Window(QtWidgets.QMainWindow):
     def _finish_setup_check(self, needed: bool) -> None:
         self.setup_banner.setVisible(needed)
 
+    def _runtime_check_failed(self, message: str) -> None:
+        self.setup_banner.hide()
+        self.status.setText(message)
+        self._append_log(message + "\n")
+
     def _run_setup(self) -> None:
-        self.run_task(
-            SETUP("running"), lambda: _install_runtime(self.paths), SETUP("done")
-        )
+        self.run_task(SETUP("running"), lambda: setup(self.paths), SETUP("done"))
 
     def _check_system_status(self) -> None:
         def worker():
-            if os.name == "nt":
-                from . import windows
-
-                _, status = windows.doctor(self.paths)
-                self.system_status_events.complete.emit(
-                    status == 0,
-                    SETUP("status_ok") if status == 0 else SETUP("status_needs_setup"),
-                )
+            try:
+                missing = needs_setup(self.paths)
+            except (OSError, RiftLiftError) as error:
+                self.system_status_events.complete.emit(False, str(error))
                 return
-            if _needs_runtime_setup(self.paths):
+            if missing:
                 self.system_status_events.complete.emit(
                     False, SETUP("status_needs_setup")
                 )
@@ -444,6 +302,7 @@ class Window(QtWidgets.QMainWindow):
     def _leave_settings(self):
         self.view_stack.setCurrentIndex(0)
         self.settings_button.setText(NAV("settings"))
+        (self.tree if self.tree.currentItem() else self.search).setFocus()
 
     def _confirm_language_change(self, code: str) -> bool:
         if self.busy:
@@ -475,43 +334,7 @@ class Window(QtWidgets.QMainWindow):
         self.close()
 
     def _run_system_check(self) -> None:
-        if os.name == "nt":
-            self.show_system()
-        else:
-            self.run_task(TASK("checking_system"), lambda: doctor(self.paths))
-
-    def _build_left_column(self) -> QtWidgets.QWidget:
-        column = QtWidgets.QWidget()
-        column.setFixedWidth(280)
-        layout = QtWidgets.QVBoxLayout(column)
-        layout.setContentsMargins(0, 4, 0, 0)
-        layout.setSpacing(12)
-        heading = QtWidgets.QHBoxLayout()
-        heading.addWidget(self.label(LIBRARY("title"), "section"))
-        heading.addStretch()
-        self.refresh_button = self.button("⟳", self.refresh_all)
-        self.refresh_button.setObjectName("refresh")
-        self.refresh_button.setToolTip(LIBRARY("refresh_tooltip"))
-        self.refresh_button.setFixedSize(34, 34)
-        heading.addWidget(self.refresh_button)
-        layout.addLayout(heading)
-        self.tree = QtWidgets.QTreeWidget()
-        self.tree.setHeaderHidden(True)
-        self.tree.setIconSize(QtCore.QSize(40, 40))
-        self.tree.setIndentation(0)
-        self.tree.setRootIsDecorated(False)
-        self.tree.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.tree.currentItemChanged.connect(self._tree_item_changed)
-        self.tree.itemClicked.connect(self._category_clicked)
-        self.tree.itemExpanded.connect(self._category_toggled)
-        self.tree.itemCollapsed.connect(self._category_toggled)
-        self._categories: list[tuple[QtWidgets.QTreeWidgetItem, str]] = []
-        self._installed_category = self._add_category("installed")
-        self._steam_category = self._add_category("installed_steam")
-        self._owned_category = self._add_category("not_installed")
-        self.tree.expandAll()
-        layout.addWidget(self.tree, 1)
-        return column
+        self.run_task(TASK("checking_system"), lambda: doctor(self.paths))
 
     def _add_category(self, label_key: str) -> QtWidgets.QTreeWidgetItem:
         item = QtWidgets.QTreeWidgetItem([""])
@@ -538,196 +361,6 @@ class Window(QtWidgets.QMainWindow):
         item.setHidden(count == 0)
         arrow = "▾" if item.isExpanded() else "▸"
         item.setText(0, f"{arrow} {label} ({count})")
-
-    def _build_empty_state(self) -> QtWidgets.QWidget:
-        panel = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(panel)
-        layout.addStretch()
-        title = self.label(EMPTY("title"), "game")
-        title.setAlignment(QtCore.Qt.AlignCenter)
-        layout.addWidget(title)
-        hint = self.label(
-            EMPTY("hint"),
-            "muted",
-        )
-        hint.setAlignment(QtCore.Qt.AlignCenter)
-        layout.addWidget(hint)
-        layout.addWidget(
-            self.button(NAV("add_game"), lambda: self.add_dialog(), True),
-            alignment=QtCore.Qt.AlignCenter,
-        )
-        layout.addStretch()
-        return panel
-
-    def _build_game_detail(self) -> QtWidgets.QWidget:
-        page = QtWidgets.QWidget()
-        outer = QtWidgets.QVBoxLayout(page)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-
-        self.hero = HeroPanel()
-        self.hero.setObjectName("detail")
-        self.hero.setFixedHeight(300)
-        layout = QtWidgets.QVBoxLayout(self.hero)
-        layout.setContentsMargins(24, 24, 24, 24)
-        info = QtWidgets.QVBoxLayout()
-        info.setSpacing(0)
-        info.addStretch()
-        self.game_name = self.label("", "game")
-        self.game_name.setWordWrap(True)
-        info.addWidget(self.game_name)
-        info.addSpacing(8)
-        self.meta_row = QtWidgets.QHBoxLayout()
-        self.meta_row.setSpacing(8)
-        self.meta = self.label("", "muted")
-        self.meta.setWordWrap(True)
-        self.meta_row.addWidget(self.meta)
-        self.meta_detail = self.label("", "muted")
-        self.meta_detail.setWordWrap(True)
-        self.meta_row.addWidget(self.meta_detail)
-        self.meta_skeleton = SkeletonLines(widths=(0.5,))
-        self.meta_skeleton.setFixedWidth(130)
-        self.meta_skeleton.hide()
-        self.meta_row.addWidget(self.meta_skeleton)
-        info.addLayout(self.meta_row)
-        info.addSpacing(14)
-        actions = QtWidgets.QHBoxLayout()
-        actions.setSpacing(10)
-        self.launch = self.button(GAME("launch"), self.launch_game, True)
-        actions.addWidget(self.launch)
-        self.install_here = self.button(
-            GAME("install"), lambda: self.install_owned(), True
-        )
-        actions.addWidget(self.install_here)
-        self.files_button = self.button(GAME("files"), self.open_folder)
-        actions.addWidget(self.files_button)
-        actions.addWidget(self.button(GAME("launch_options"), self.launch_options))
-        self.add_steam_button = self.button(
-            GAME("add_to_steam"), self.add_selected_to_steam
-        )
-        actions.addWidget(self.add_steam_button)
-        self.uninstall_button = self.button(GAME("uninstall"), self.uninstall_selected)
-        self.uninstall_button.setObjectName("danger")
-        actions.addWidget(self.uninstall_button)
-        actions.addStretch()
-        info.addLayout(actions)
-        info.addSpacing(10)
-        store_link_row = QtWidgets.QHBoxLayout()
-        self.store_link = self.button(GAME("open_rift_store"), self.open_store)
-        self.store_link.setObjectName("store_link")
-        self.store_link.setCursor(QtCore.Qt.PointingHandCursor)
-        store_link_row.addWidget(self.store_link)
-        store_link_row.addStretch()
-        info.addLayout(store_link_row)
-        layout.addLayout(info)
-        outer.addWidget(self.hero)
-
-        body = QtWidgets.QWidget()
-        body_layout = QtWidgets.QVBoxLayout(body)
-        body_layout.setContentsMargins(24, 8, 24, 20)
-        body_layout.setSpacing(8)
-        body_layout.setAlignment(QtCore.Qt.AlignTop)
-        self.description_heading = self.label(GAME("about"), "section")
-        body_layout.addWidget(self.description_heading)
-        self.description_label = self.label("", "description")
-        self.description_label.setWordWrap(True)
-        self.description_label.setMaximumWidth(760)
-        body_layout.addWidget(self.description_label)
-        self.description_skeleton = SkeletonLines()
-        self.description_skeleton.setMaximumWidth(760)
-        self.description_skeleton.hide()
-        body_layout.addWidget(self.description_skeleton)
-        body_layout.addStretch()
-        outer.addWidget(body, 1)
-
-        return page
-
-    def _build_status_bar(self, outer: QtWidgets.QVBoxLayout) -> None:
-        line = QtWidgets.QFrame()
-        line.setFrameShape(QtWidgets.QFrame.HLine)
-        line.setStyleSheet("color:#263552")
-        outer.addWidget(line)
-        outer.addSpacing(20)
-        bar = QtWidgets.QWidget()
-        layout = QtWidgets.QHBoxLayout(bar)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self.status = self.label(STATUS("ready"), "muted")
-        layout.addWidget(self.status, 1)
-        activity = self.button(STATUS("view_activity"), self.show_activity)
-        activity.setObjectName("nav")
-        layout.addWidget(activity)
-        outer.addWidget(bar)
-
-    def _build(self):
-        root = ResizableFrame(self)
-        self.setCentralWidget(root)
-        root_layout = QtWidgets.QVBoxLayout(root)
-        root_layout.setContentsMargins(
-            ResizableFrame.MARGIN,
-            ResizableFrame.MARGIN,
-            ResizableFrame.MARGIN,
-            ResizableFrame.MARGIN,
-        )
-        root_layout.setSpacing(0)
-        self.titlebar = TitleBar(self, APP("name"), minimizable=True, maximizable=True)
-        self.titlebar.setCursor(QtCore.Qt.ArrowCursor)
-        root_layout.addWidget(self.titlebar)
-
-        body = QtWidgets.QWidget()
-        # Every child of the resizable central widget needs its own explicit
-        # cursor, otherwise it inherits whatever ResizableFrame last set
-        # while the mouse was hovering its resize margin (which only that
-        # margin's mouseMoveEvent ever updates again).
-        body.setCursor(QtCore.Qt.ArrowCursor)
-        outer = QtWidgets.QVBoxLayout(body)
-        outer.setContentsMargins(20, 17, 20, 15)
-        outer.setSpacing(0)
-        self._build_header(outer)
-        self._build_setup_banner(outer)
-
-        self.view_stack = QtWidgets.QStackedWidget()
-        outer.addWidget(self.view_stack, 1)
-
-        main_view = QtWidgets.QWidget()
-        content = QtWidgets.QHBoxLayout(main_view)
-        content.setContentsMargins(0, 0, 0, 0)
-        content.setSpacing(20)
-        content.addWidget(self._build_left_column())
-        right = QtWidgets.QWidget()
-        rl = QtWidgets.QVBoxLayout(right)
-        rl.setContentsMargins(0, 0, 0, 0)
-        self.stack = QtWidgets.QStackedWidget()
-        # The setup banner (and small windows in general) can leave less
-        # height than the hero banner + description need; scroll instead of
-        # letting them overlap.
-        scroll = QtWidgets.QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        scroll.setWidget(self.stack)
-        rl.addWidget(scroll)
-        content.addWidget(right, 1)
-        self.stack.addWidget(self._build_empty_state())
-        self.detail = self._build_game_detail()
-        self.stack.addWidget(self.detail)
-        self.view_stack.addWidget(main_view)
-
-        self.settings_page = SettingsPage(
-            self.paths,
-            self._confirm_language_change,
-            self._run_system_check,
-            self._run_setup,
-            self._check_system_status,
-        )
-        settings_scroll = QtWidgets.QScrollArea()
-        settings_scroll.setWidgetResizable(True)
-        settings_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        settings_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        settings_scroll.setWidget(self.settings_page)
-        self.view_stack.addWidget(settings_scroll)
-
-        self._build_status_bar(outer)
-        root_layout.addWidget(body, 1)
 
     def refresh(self, preferred=None):
         if preferred:
@@ -831,6 +464,7 @@ class Window(QtWidgets.QMainWindow):
         self._set_category_text(self._owned_category, LIBRARY("not_installed"))
         self.tree.blockSignals(False)
         self._reselect()
+        self._filter_library(self.search.text())
 
     def _find_wanted_item(self) -> QtWidgets.QTreeWidgetItem | None:
         if self.slug:
@@ -894,14 +528,17 @@ class Window(QtWidgets.QMainWindow):
         self.meta_skeleton.hide()
         self.meta_row.setStretchFactor(self.meta, 1)
         self.meta_row.setStretchFactor(self.meta_detail, 0)
+        self.more_button.show()
         self.launch.setVisible(True)
+        self.options_button.setVisible(True)
+        self._update_launch_button()
         self.install_here.setVisible(False)
         self.files_button.setVisible(True)
         self.uninstall_button.setVisible(True)
         self.uninstall_button.setText(
             GAME("uninstall") if game.source == "meta" else GAME("remove_from_riftlift")
         )
-        self.add_steam_button.setVisible(game.source != "steam")
+        self._update_steam_action(game)
         self.store_link.setVisible(game.source != "local")
         self.store_link.setText(
             GAME("open_steam") if game.source == "steam" else GAME("open_rift_store")
@@ -991,7 +628,9 @@ class Window(QtWidgets.QMainWindow):
             self.meta_skeleton.show()
             self.hero.set_artwork("")
             self._show_description_loading()
+        self.more_button.hide()
         self.launch.setVisible(False)
+        self.options_button.setVisible(False)
         self.install_here.setVisible(True)
         self.files_button.setVisible(False)
         self.uninstall_button.setVisible(False)
@@ -1005,8 +644,7 @@ class Window(QtWidgets.QMainWindow):
 
         def worker():
             try:
-                metadata = fetch_owned_metadata(self.paths, app.app_id, refresh=refresh)
-                hero = fetch_owned_hero(self.paths, app.app_id, refresh=refresh)
+                metadata, hero = self._load_owned_detail(app, refresh=refresh)
                 self.owned_detail_events.complete.emit(
                     token, app.app_id, (metadata, hero), None
                 )
@@ -1056,7 +694,7 @@ class Window(QtWidgets.QMainWindow):
         visible = bool(text)
         self.description_label.setText(_short_description(text) if visible else "")
         self.description_label.setVisible(visible)
-        self.description_heading.setVisible(visible)
+        self.description_heading.hide()
 
     def _show_description_loading(self) -> None:
         self.description_label.hide()
@@ -1066,60 +704,74 @@ class Window(QtWidgets.QMainWindow):
     def game(self):
         return next((g for g in self.installed if g.slug == self.slug), None)
 
-    def show_system(self):
-        if os.name != "nt":
-            self.run_task("Checking your system", lambda: doctor(self.paths))
+    def _update_launch_button(self) -> None:
+        running = self.slug is not None and self.slug in (
+            self._running_slug,
+            self._launching_slug,
+        )
+        self.launch.setEnabled(not running)
+
+    def _poll_running_game(self) -> None:
+        """Notice a game launched outside this window's own Launch button.
+
+        Steam's Play button, a headset's own launch integration (e.g. WiVRn),
+        or a bare `riftlift launch` from a terminal all start the game the
+        same way this window does, just in a separate process it shares no
+        state with - so the running game is re-checked on a timer instead of
+        only reacting to this window's own launches.
+        """
+        found = running_launch(self.paths)
+        self._running_slug = found[0] if found else None
+        self._update_launch_button()
+        self._update_now_playing()
+
+    def _update_now_playing(self) -> None:
+        slug = self._running_slug or self._launching_slug
+        if slug is None:
+            self.now_playing_icon.hide()
+            self.now_playing_label.hide()
             return
-        from . import windows
-
-        dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("RiftLift system")
-        dialog.resize(820, 530)
-        dialog.setStyleSheet(STYLE)
-        layout = QtWidgets.QVBoxLayout(dialog)
-        layout.addWidget(self.label("Windows VR setup", "game"))
-        report, status = windows.doctor(self.paths)
-        heading = self.label(
-            "Setup needs attention"
-            if status
-            else "Runtime files are ready; launch a game to test VR output.",
-            "muted",
-        )
-        heading.setWordWrap(True)
-        layout.addWidget(heading)
-        view = QtWidgets.QTextEdit(readOnly=True)
-        view.setPlainText(report)
-        layout.addWidget(view)
-        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
-        buttons.rejected.connect(dialog.reject)
-        repair = buttons.addButton(
-            "Install / repair runtime", QtWidgets.QDialogButtonBox.ActionRole
-        )
-        repair.setEnabled(not self.busy)
-
-        def install():
-            dialog.accept()
-            self.run_task(
-                "Installing native runtime",
-                lambda: windows.install_payload(self.paths),
-                "Native runtime installed",
+        try:
+            game = Game.load(self.paths, slug)
+        except ValueError:
+            self.now_playing_icon.hide()
+            self.now_playing_label.hide()
+            return
+        icon_path = game.artwork.get("icon", "")
+        if icon_path:
+            pixmap = QtGui.QPixmap(icon_path).scaled(
+                24,
+                24,
+                QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                QtCore.Qt.TransformationMode.SmoothTransformation,
             )
-
-        repair.clicked.connect(install)
-        layout.addWidget(buttons)
-        self._append_log(report + "\n")
-        dialog.exec()
+            self.now_playing_icon.setPixmap(pixmap)
+            self.now_playing_icon.show()
+        else:
+            self.now_playing_icon.hide()
+        self.now_playing_label.setText(
+            f"{html.escape(game.name)}<br>"
+            f"<span style='color:#3fb950;font-size:11px'>"
+            f"{html.escape(STATUS('now_playing'))}</span>"
+        )
+        self.now_playing_label.show()
 
     def launch_game(self):
         if g := self.game():
-            if os.name == "nt":
-                from . import windows
+            # Greys the button out right away, before the launch record the
+            # poll relies on exists, and until the game exits. Skipped when
+            # busy: run_task then refuses the launch and nothing would reset it.
+            if not self.busy:
+                self._launching_slug = g.slug
+                self._update_launch_button()
+                self._update_now_playing()
 
-                operation = lambda: windows.launch(
-                    self.paths, g, windows.select_backend(g)
-                )
-            else:
-                operation = lambda: launch(self.paths, g, [])
+            def operation():
+                try:
+                    return launch(self.paths, g, [])
+                finally:
+                    self._launching_slug = None
+
             self.run_task(
                 TASK("launching").format(name=g.name),
                 operation,
@@ -1143,8 +795,25 @@ class Window(QtWidgets.QMainWindow):
             return
         self.refresh(game.slug)
 
+    def _steam_shortcut_state(self, game):
+        return shortcut_state(game)
+
+    def _update_steam_action(self, game):
+        state = self._steam_shortcut_state(game)
+        self.add_steam_button.setVisible(state == "absent")
+        self.steam_status_action.setVisible(state == "unavailable")
+        return state
+
     def add_selected_to_steam(self):
         if g := self.game():
+            state = self._update_steam_action(g)
+            if state != "absent":
+                self.status.setText(
+                    namespace("shell")("steam_status_unknown")
+                    if state == "unavailable"
+                    else namespace("shell")("steam_already_added")
+                )
+                return
             self.run_task(
                 TASK("adding_to_steam").format(name=g.name),
                 lambda: sync_with_restart(self.paths),
@@ -1166,7 +835,7 @@ class Window(QtWidgets.QMainWindow):
 
         def operation():
             remove(self.paths, g)
-            if g.source != "steam":
+            if g.source != "steam" and supports_steam_shortcuts():
                 sync_with_restart(self.paths)
             return None
 
@@ -1261,9 +930,6 @@ class Window(QtWidgets.QMainWindow):
             initial_url=initial_url,
             simple_name=simple_name,
         )
-        if os.name == "nt":
-            dialog.steam.setChecked(False)
-            dialog.steam.setEnabled(False)
         if dialog.exec() != QtWidgets.QDialog.Accepted or dialog.installed_game is None:
             return
         self.status.setText(
@@ -1271,12 +937,11 @@ class Window(QtWidgets.QMainWindow):
         )
         self.refresh(dialog.installed_game.slug)
         self.refresh_owned()
+        if dialog.install_warning:
+            self.status.setText(namespace("add_game")("steam_sync_failed"))
 
     def local_dialog(self):
         dialog = LocalGameDialog(self)
-        if os.name == "nt":
-            dialog.steam.setChecked(False)
-            dialog.steam.setEnabled(False)
         if dialog.exec() != QtWidgets.QDialog.Accepted:
             return
 
@@ -1322,6 +987,8 @@ class Window(QtWidgets.QMainWindow):
         self.busy_label = ""
         self.addbtn.setEnabled(True)
         self.refresh_button.setEnabled(True)
+        if self.game() is not None:
+            self._update_steam_action(self.game())
         # Any task can be the one that just made (or failed to make) the
         # compatibility runtime ready - not just setup itself - so the
         # banner is re-checked either way, not only on a successful run.

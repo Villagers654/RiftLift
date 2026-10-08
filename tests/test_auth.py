@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +21,16 @@ from riftlift.auth_browser import (
 )
 from riftlift.config import Paths
 from riftlift.util import RiftLiftError
+
+
+@pytest.fixture(autouse=True)
+def linux_browser_environment(monkeypatch):
+    # Windows browser discovery and owned profiles have dedicated native tests.
+    from riftlift import auth_browser
+
+    monkeypatch.setattr(
+        auth_browser, "os", SimpleNamespace(**{**vars(os), "name": "posix"})
+    )
 
 
 def paths_in(tmp_path: Path) -> Paths:
@@ -163,10 +174,13 @@ def test_browser_login_imports_and_protects_the_token(
     assert complete_browser_login(paths, session) == token
     target = paths.config / "meta-access-token"
     assert target.read_text().strip() == token
-    assert target.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert target.stat().st_mode & 0o777 == 0o600
 
 
-def test_new_login_keeps_browser_session_until_explicit_sign_out(tmp_path: Path) -> None:
+def test_new_login_keeps_browser_session_until_explicit_sign_out(
+    tmp_path: Path,
+) -> None:
     paths = paths_in(tmp_path)
     profile = paths.config / "auth/edge/profile"
     profile.mkdir(parents=True)

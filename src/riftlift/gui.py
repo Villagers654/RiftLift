@@ -2,8 +2,18 @@
 
 from __future__ import annotations
 
+import sys
+
 
 def main() -> int:
+    if "--download-worker" in sys.argv[1:]:
+        from .download_worker import main as worker_main
+
+        return worker_main()
+    if "--fixture" in sys.argv[1:]:
+        from .ui_preview import main as fixture_main
+
+        return fixture_main([arg for arg in sys.argv[1:] if arg != "--fixture"])
     try:
         from .main_window import main as window_main
     except ModuleNotFoundError as error:

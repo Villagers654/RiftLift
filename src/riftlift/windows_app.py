@@ -12,6 +12,10 @@ from .config import Paths
 
 
 def main() -> int:
+    if sys.argv[1:] == ["--download-worker"]:
+        from .download_worker import main as worker_main
+
+        return worker_main()
     # pythonw and PyInstaller's windowed bootloader have no standard streams.
     # Keep startup failures accessible even before the Activity widget exists.
     paths = Paths.defaults()

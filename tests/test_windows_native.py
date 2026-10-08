@@ -1,5 +1,8 @@
+import hashlib
+import io
 import json
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -17,6 +20,33 @@ pytestmark = pytest.mark.skipif(
 def paths(tmp_path, monkeypatch):
     monkeypatch.setenv("RIFTLIFT_HOME", str(tmp_path))
     return Paths.defaults()
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_source_setup_never_reports_ready_without_meta_platform_payload(
+    paths, tmp_path, monkeypatch, complete
+):
+    from riftlift import desktop_services
+
+    names = windows.FILES | (windows.PLATFORM_FILES if complete else set())
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        for name in names:
+            bundle.writestr(name, b"fixture payload")
+        bundle.writestr("Input/bindings.json", "{}")
+    payload = archive.getvalue()
+    package = tmp_path / "fixture.zip"
+    package.write_bytes(payload)
+    monkeypatch.setattr(windows, "PAYLOAD_SHA256", hashlib.sha256(payload).hexdigest())
+    if complete:
+        assert windows.install_payload(paths, package) == windows.runtime_dir(paths)
+        assert not desktop_services.needs_setup(paths)
+    else:
+        with pytest.raises(
+            RiftLiftError, match="Meta platform compatibility is incomplete"
+        ):
+            windows.install_payload(paths, package)
+        assert desktop_services.needs_setup(paths)
 
 
 def test_windows_paths_are_portable(paths, tmp_path):
@@ -93,6 +123,39 @@ def test_native_launch_builds_argv_without_shell_or_wine(paths):
     assert argv[-2:] == ["two words", "tail"]
     assert "wine" not in argv and "proton" not in argv
     assert "LibOVRPlatformImpl64_1.dll" not in " ".join(argv)
+
+
+def test_native_launch_preserves_saved_options(paths):
+    game = windows.add_local(paths, sys.executable, "Probe", arguments="base")
+    game.launch_options = ["--fixture", "two words"]
+    runtime = windows.runtime_dir(paths)
+    runtime.mkdir(parents=True)
+    for name in windows.FILES:
+        (runtime / name).touch()
+    argv = windows.launch_command(paths, game, "openxr", ["tail"])
+    assert argv[-4:] == ["base", "--fixture", "two words", "tail"]
+
+
+def test_native_launch_preserves_saved_environment_without_starting_game(
+    paths, monkeypatch
+):
+    from riftlift import windows_process
+
+    game = windows.add_local(paths, sys.executable, "Probe")
+    game.environment = {"RIFTLIFT_FIXTURE": "preserved"}
+    monkeypatch.setenv("LOCALAPPDATA", str(paths.data))
+    monkeypatch.setattr(windows, "launch_command", lambda *args: ["fixture.exe"])
+    monkeypatch.setattr(windows, "runtime_ready", lambda backend: True)
+    monkeypatch.setattr(windows, "install_sdk_runtime", lambda paths: paths.tools)
+    captured = []
+    monkeypatch.setattr(
+        windows_process,
+        "run_game",
+        lambda command, **kwargs: captured.append(kwargs["env"]) or 0,
+    )
+    assert windows.launch(paths, game, "openxr") == 0
+    assert captured[0]["RIFTLIFT_FIXTURE"] == "preserved"
+    assert captured[0]["LIBOVR_DLL_DIR"] == str(paths.tools) + __import__("os").sep
 
 
 def test_missing_runtime_stops_before_launch(paths, monkeypatch):
@@ -209,7 +272,6 @@ def test_automatic_steamvr_uses_its_openvr_interface(paths, monkeypatch):
 
 
 def test_openvr_finds_current_steamvr_layout(tmp_path, monkeypatch):
-    import json
 
     runtime = tmp_path / "SteamVR"
     (runtime / "bin").mkdir(parents=True)
@@ -221,7 +283,6 @@ def test_openvr_finds_current_steamvr_layout(tmp_path, monkeypatch):
 
 
 def test_simulator_uses_isolated_configuration(paths, tmp_path):
-    import json
 
     from riftlift.windows_simulator import configure
 
@@ -287,6 +348,26 @@ def test_windows_edge_login_uses_an_owned_profile(paths, monkeypatch):
     assert preferences["protocol_handler"]["allowed_origin_protocol_pairs"][
         "https://auth.meta.com"
     ] == {"oculus": True, "oculus-client": True}
+
+
+def test_windows_login_preserves_browser_profiles_and_protocol_preferences(
+    paths, monkeypatch
+):
+    from riftlift import auth_browser
+
+    monkeypatch.setattr(auth_browser, "_windows_default_browser", lambda: None)
+    opened = []
+    monkeypatch.setattr(
+        auth_browser.webbrowser,
+        "open",
+        lambda url: opened.append(url) or True,
+    )
+
+    browser = auth_browser.default_browser()
+    assert browser.family == "native"
+    auth_browser.launch_browser_login(paths, browser, "https://auth.meta.com/")
+    assert opened == ["https://auth.meta.com/"]
+    assert not (paths.config / "auth").exists()
 
 
 def test_download_error_is_concise_and_does_not_register_game(

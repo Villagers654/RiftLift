@@ -13,9 +13,9 @@ def test_tr_falls_back_to_english_for_an_unknown_key() -> None:
 
 def test_tr_switches_language() -> None:
     set_language("fr")
-    assert tr("game.launch") == "Lancer en VR"
+    assert tr("game.launch") == "Lancer"
     set_language("en")
-    assert tr("game.launch") == "Launch in VR"
+    assert tr("game.launch") == "Launch"
 
 
 def test_namespace_scopes_bare_keys() -> None:

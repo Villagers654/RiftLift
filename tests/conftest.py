@@ -1,5 +1,4 @@
 import gc
-import os
 
 import pytest
 
@@ -18,16 +17,8 @@ def _assume_compatibility_runtime_is_ready(monkeypatch):
     meaning to trigger a real install - a test that actually wants to assert
     setup() was called re-patches it itself, which simply overrides this.
     """
-    if os.name == "nt":
-        monkeypatch.setattr(
-            "riftlift.main_window._needs_runtime_setup", lambda _paths: False
-        )
-        monkeypatch.setattr(
-            "riftlift.main_window._install_runtime", lambda _paths: None
-        )
-    else:
-        monkeypatch.setattr("riftlift.main_window.needs_setup", lambda _paths: False)
-        monkeypatch.setattr("riftlift.main_window.setup", lambda _paths: None)
+    monkeypatch.setattr("riftlift.main_window.needs_setup", lambda _paths: False)
+    monkeypatch.setattr("riftlift.main_window.setup", lambda _paths: None)
 
 
 @pytest.fixture(autouse=True)

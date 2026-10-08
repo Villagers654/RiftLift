@@ -31,6 +31,7 @@ from .diagnostics import (
     prepare_debug_logs,
     prepare_launch_log,
     prepare_proton_logs,
+    recent_launches,
     system_build_components,
     trim_runtime_traces,
 )
@@ -107,6 +108,33 @@ def _marked_launch_processes(launch_id: str) -> list[int]:
         if marker in environment:
             result.append(int(target.name))
     return result
+
+
+def running_launch(paths: Paths) -> tuple[str, str] | None:
+    """The (slug, launch_id) of whatever game is currently running, if any.
+
+    A game can be started outside RiftLift's own GUI entirely - Steam's Play
+    button on a synced shortcut, a headset's own WiVRn launch integration, a
+    bare `riftlift launch` from a terminal - all of which call this same
+    module's `launch()` in a separate process the GUI shares no memory with.
+    The GUI instead checks the on-disk launch history every launch already
+    writes to (recent_launches), then confirms the marked process is truly
+    still running rather than trusting a "started" record that never got a
+    matching "finished" one - which a crash or a force-kill could leave
+    behind just as easily as a game that's genuinely still going.
+    """
+    seen_slugs: set[str] = set()
+    for record in recent_launches(paths, limit=20):
+        slug = record.get("slug")
+        if not isinstance(slug, str) or slug in seen_slugs:
+            continue
+        seen_slugs.add(slug)
+        if record.get("event") != "started":
+            continue
+        launch_id = record.get("id")
+        if isinstance(launch_id, str) and _marked_launch_processes(launch_id):
+            return slug, launch_id
+    return None
 
 
 def _terminate_marked_launch_processes(launch_id: str) -> None:

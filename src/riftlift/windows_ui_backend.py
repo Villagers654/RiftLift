@@ -22,6 +22,6 @@ def launch(paths: Paths, game: Game, arguments: list[str]) -> int:
     if result:
         raise RiftLiftError(
             f"Native game launch exited with code {result} "
-            f"(0x{result & 0xffffffff:08X}). Log: {paths.data / 'logs' / (game.slug + '.log')}"
+            f"(0x{result & 0xFFFFFFFF:08X}). Log: {paths.data / 'logs' / (game.slug + '.log')}"
         )
     return result

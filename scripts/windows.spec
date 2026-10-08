@@ -12,6 +12,7 @@ a = Analysis(
     pathex=[str(root / "src")],
     binaries=[],
     datas=[(str(native), "native"), (str(icon), "assets")]
+    + collect_data_files("riftlift", includes=["assets/*.svg"])
     + collect_data_files("meta_pcvr_downloader")
     + copy_metadata("meta-pcvr-downloader"),
     hiddenimports=["PySide6.QtSvg", "PySide6.QtNetwork"],

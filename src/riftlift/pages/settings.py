@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 
 from PySide6 import QtCore, QtWidgets
@@ -68,7 +69,12 @@ class SettingsPage(QtWidgets.QWidget):
         layout.addWidget(recheck, alignment=QtCore.Qt.AlignLeft)
 
         system_check_explanation = self._label(
-            SETTINGS("system_check_explanation"), "muted"
+            SETTINGS(
+                "windows_system_check_explanation"
+                if os.name == "nt"
+                else "system_check_explanation"
+            ),
+            "muted",
         )
         system_check_explanation.setWordWrap(True)
         system_check_explanation.setMaximumWidth(640)
@@ -81,14 +87,28 @@ class SettingsPage(QtWidgets.QWidget):
         self.debug_logging = QtWidgets.QCheckBox(SETTINGS("debug_logging"))
         self.debug_logging.setChecked(debug_logging_enabled(paths))
         self.debug_logging.setToolTip(SETTINGS("debug_logging_tooltip"))
+        if os.name == "nt":
+            self.debug_logging.setToolTip(SETTINGS("windows_debug_logging_tooltip"))
         self.debug_logging.toggled.connect(
             lambda enabled: set_debug_logging(self.paths, enabled)
         )
         layout.addWidget(self.debug_logging)
 
         layout.addSpacing(20)
-        layout.addWidget(self._label(SETUP("heading"), "section"))
-        setup_explanation = self._label(SETUP("explanation"), "muted")
+        layout.addWidget(
+            self._label(
+                SETTINGS("windows_runtime_heading")
+                if os.name == "nt"
+                else SETUP("heading"),
+                "section",
+            )
+        )
+        setup_explanation = self._label(
+            SETTINGS("windows_runtime_explanation")
+            if os.name == "nt"
+            else SETUP("explanation"),
+            "muted",
+        )
         setup_explanation.setWordWrap(True)
         setup_explanation.setMaximumWidth(640)
         layout.addWidget(setup_explanation)

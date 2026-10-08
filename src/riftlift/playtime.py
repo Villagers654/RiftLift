@@ -89,7 +89,7 @@ def _update(
         operation(record)
         value["version"] = _VERSION
         _write(paths, value)
-        # Closing the descriptor releases either OS's lock, including on error.
+        # Closing the descriptor releases either OS lock, including on errors.
 
 
 def playtime(paths: Paths, slug: str) -> Playtime:

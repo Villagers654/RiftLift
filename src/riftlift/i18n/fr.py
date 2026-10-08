@@ -1,6 +1,18 @@
 """French strings. Structure must mirror src/riftlift/i18n/en.py exactly."""
 
 STRINGS = {
+    "shell": {
+        "steam_shortcuts_unavailable": "La mise à jour des raccourcis Steam n'est pas disponible dans cette version Windows.",
+        "steam_import_unavailable": "L'importation des jeux Steam n'est pas disponible dans cette version Windows.",
+        "steam_status_unknown": "État du raccourci Steam indisponible",
+        "steam_already_added": "Déjà ajouté à Steam",
+        "game_actions": "Actions du jeu",
+        "search": "Rechercher dans ta bibliothèque",
+        "no_matches": "Aucun jeu trouvé. Essaie un autre titre.",
+        "welcome": "Ta bibliothèque",
+        "welcome_hint": "Connecte-toi pour voir tes jeux Meta Rift.",
+        "activity_status": "Activité de la bibliothèque",
+    },
     "app": {
         "name": "RiftLift",
     },
@@ -56,7 +68,7 @@ STRINGS = {
         ),
     },
     "game": {
-        "launch": "Lancer en VR",
+        "launch": "Lancer",
         "install": "Installer",
         "files": "Fichiers",
         "launch_options": "Options de lancement",
@@ -77,6 +89,7 @@ STRINGS = {
         "signed_in": "Connecté à Meta",
         "signed_out": "Déconnecté de Meta",
         "busy": "Une autre opération est déjà en cours",
+        "now_playing": "En cours de jeu",
     },
     "task": {
         "checking_system": "Vérification du système",
@@ -125,6 +138,16 @@ STRINGS = {
         "confirm_install": "Installer {name} ?",
         "add_to_steam": "Ajouter à Steam une fois terminé",
         "starting_install": "Démarrage de l'installation…",
+        "pause_download": "Suspendre",
+        "pausing_download": "Suspension du téléchargement…",
+        "resume_download": "Reprendre",
+        "download_paused": "Téléchargement suspendu. Les fichiers terminés sont conservés.",
+        "retry_download": "Réessayer",
+        "finishing_install": "Finalisation de l'installation…",
+        "sign_in_required": "Reconnectez-vous depuis votre bibliothèque, puis réessayez. Les fichiers terminés sont conservés.",
+        "download_failed": "Échec du téléchargement. Vérifiez votre connexion et réessayez. Les fichiers terminés sont conservés.",
+        "worker_failed": "Le téléchargement s'est arrêté. Réessayez pour reprendre.",
+        "steam_sync_failed": "Installé. Les raccourcis Steam n'ont pas été mis à jour. Réessayez depuis les paramètres.",
         "phase_preparing_segments": "Préparation des segments",
         "phase_downloading": "Téléchargement",
         "phase_assembling_files": "Assemblage des fichiers",
@@ -195,6 +218,10 @@ STRINGS = {
         "signed_out": "Déconnecté. Ouvre ton navigateur par défaut quand tu es prêt.",
     },
     "settings": {
+        "windows_system_check_explanation": "Vérifie le runtime VR Windows et affiche un rapport dans Activité.",
+        "windows_debug_logging_tooltip": "Inclure les diagnostics du lanceur Windows et du pont VR dans Activité.",
+        "windows_runtime_heading": "Runtime VR Windows",
+        "windows_runtime_explanation": "Vérifie et restaure le pont VR natif. Gardez votre runtime OpenXR disponible et votre casque connecté.",
         "title": "Paramètres",
         "language": "Langue",
         "debug_logging": "Journalisation détaillée",
