@@ -348,13 +348,15 @@ def test_header_button_toggles_between_settings_and_library(
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
 
-    assert window.settings_button.text() == "Settings"
+    assert not window.settings_button.isChecked()
     window.settings_button.click()
     assert window.view_stack.currentIndex() == 1
-    assert window.settings_button.text() == "Library"
-    window.settings_button.click()
+    assert window.settings_button.isChecked()
+    assert window.sidebar.isHidden()
+    window.back_to_library.click()
     assert window.view_stack.currentIndex() == 0
-    assert window.settings_button.text() == "Settings"
+    assert not window.settings_button.isChecked()
+    assert not window.sidebar.isHidden()
 
     window.close()
     app.processEvents()
@@ -373,7 +375,9 @@ def test_settings_page_is_wrapped_in_a_scroll_area(tmp_path: Path) -> None:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
 
-    scroll = window.settings_page.parentWidget().parentWidget()
+    scroll = window.settings_page.parentWidget()
+    while scroll is not None and not isinstance(scroll, QtWidgets.QScrollArea):
+        scroll = scroll.parentWidget()
     assert isinstance(scroll, QtWidgets.QScrollArea)
     assert scroll.widgetResizable()
     assert scroll is window.view_stack.widget(1)
@@ -503,6 +507,7 @@ def test_setup_banner_button_runs_setup_and_hides_once_done(
     app.processEvents()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows installs ship the runtime")
 def test_settings_page_runs_setup(tmp_path: Path, monkeypatch) -> None:
     paths = Paths(
         tmp_path / "data",

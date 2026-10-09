@@ -38,7 +38,7 @@ from .metadata import (
     fetch_steam_catalog_metadata,
     populate_game_metadata,
 )
-from .native_shell import NativePresentation
+from .native_shell import NativePresentation, placeholder_icon, rounded_icon
 from .native_theme import STYLE
 from .pages.settings import SettingsPage
 from .playtime import format_playtime, playtime
@@ -294,13 +294,21 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
             self.show_settings()
 
     def show_settings(self):
+        # Settings is its own place: it takes the whole window.
+        self.sidebar.hide()
         self.view_stack.setCurrentIndex(1)
-        self.settings_button.setText(LIBRARY("title"))
+        self.settings_button.setChecked(True)
         self._check_system_status()
 
+    def _return_to_library(self, item, _column=0):
+        # Picking a game from the sidebar while Settings is open shows that game.
+        if self.view_stack.currentIndex() == 1 and item.parent() is not None:
+            self._leave_settings()
+
     def _leave_settings(self):
+        self.sidebar.show()
         self.view_stack.setCurrentIndex(0)
-        self.settings_button.setText(NAV("settings"))
+        self.settings_button.setChecked(False)
         (self.tree if self.tree.currentItem() else self.search).setFocus()
 
     def _confirm_language_change(self, code: str) -> bool:
@@ -338,6 +346,8 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
     def _add_category(self, label_key: str) -> QtWidgets.QTreeWidgetItem:
         item = QtWidgets.QTreeWidgetItem([""])
         item.setFlags(QtCore.Qt.ItemIsEnabled)
+        # Compact header rows; game rows get their height from the icons.
+        item.setSizeHint(0, QtCore.QSize(0, 30))
         self.tree.addTopLevelItem(item)
         self._categories.append((item, label_key))
         return item
@@ -359,7 +369,7 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
         count = item.childCount()
         item.setHidden(count == 0)
         arrow = "▾" if item.isExpanded() else "▸"
-        item.setText(0, f"{arrow} {label} ({count})")
+        item.setText(0, f"{arrow}  {label}")
 
     def refresh(self, preferred=None):
         if preferred:
@@ -430,9 +440,8 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
         )
         item.setToolTip(0, game.name + version_line)
         item.setData(0, QtCore.Qt.UserRole, game)
-        icon = QtGui.QIcon(game.artwork.get("icon", ""))
-        if not icon.isNull():
-            item.setIcon(0, icon)
+        icon = rounded_icon(game.artwork.get("icon", ""), 34, 8)
+        item.setIcon(0, placeholder_icon(game.name) if icon.isNull() else icon)
         return item
 
     def _render_tree(self):
@@ -456,9 +465,8 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
         for app in not_installed:
             item = QtWidgets.QTreeWidgetItem([app.name])
             item.setData(0, QtCore.Qt.UserRole, app)
-            icon_path = icons.get(app.app_id)
-            if icon_path:
-                item.setIcon(0, QtGui.QIcon(icon_path))
+            icon = rounded_icon(icons.get(app.app_id) or "", 34, 8)
+            item.setIcon(0, placeholder_icon(app.name) if icon.isNull() else icon)
             self._owned_category.addChild(item)
         self._set_category_text(self._owned_category, LIBRARY("not_installed"))
         self.tree.blockSignals(False)
@@ -556,7 +564,7 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
             details.append(fallback[game.source])
         details.append(_playtime_text(playtime(self.paths, game.slug)))
         self.meta.setText(" • ".join(details))
-        self.hero.set_artwork(game.artwork.get("hero", ""))
+        self.hero.set_artwork(game.artwork.get("grid") or game.artwork.get("hero", ""))
         self._set_description(game.description)
         if game.source != "local" and game.description_lang != current_language():
             self._refresh_game_description(game)

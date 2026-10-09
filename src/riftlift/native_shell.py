@@ -11,7 +11,7 @@ from importlib.resources import files
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .i18n import namespace
-from .native_theme import STYLE
+from .native_theme import BLUE_LIGHT, CONTROL_HOVER, STYLE, TEXT_SOFT
 
 NAV = namespace("nav")
 GAME = namespace("game")
@@ -23,32 +23,117 @@ def brand_icon() -> QtGui.QIcon:
     return QtGui.QIcon(str(files("riftlift").joinpath("assets/mark.svg")))
 
 
+def rounded_icon(path: str, size: int = 40, radius: float = 9) -> QtGui.QIcon:
+    """Library artwork as a rounded tile, rendered for high-DPI screens."""
+    source = QtGui.QPixmap(path)
+    if source.isNull():
+        return QtGui.QIcon()
+    scale = 3
+    tile = QtGui.QPixmap(size * scale, size * scale)
+    tile.fill(QtCore.Qt.transparent)
+    painter = QtGui.QPainter(tile)
+    painter.setRenderHint(QtGui.QPainter.Antialiasing)
+    painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
+    clip = QtGui.QPainterPath()
+    clip.addRoundedRect(QtCore.QRectF(tile.rect()), radius * scale, radius * scale)
+    painter.setClipPath(clip)
+    scaled = source.scaled(
+        tile.size(),
+        QtCore.Qt.KeepAspectRatioByExpanding,
+        QtCore.Qt.SmoothTransformation,
+    )
+    painter.drawPixmap(
+        (tile.width() - scaled.width()) // 2,
+        (tile.height() - scaled.height()) // 2,
+        scaled,
+    )
+    painter.end()
+    tile.setDevicePixelRatio(scale)
+    return QtGui.QIcon(tile)
+
+
+def placeholder_icon(name: str, size: int = 34, radius: float = 8) -> QtGui.QIcon:
+    """A tile with the game's initial, keeping rows aligned when art is missing."""
+    scale = 3
+    tile = QtGui.QPixmap(size * scale, size * scale)
+    tile.fill(QtCore.Qt.transparent)
+    painter = QtGui.QPainter(tile)
+    painter.setRenderHint(QtGui.QPainter.Antialiasing)
+    painter.setPen(QtCore.Qt.NoPen)
+    painter.setBrush(QtGui.QColor(CONTROL_HOVER))
+    painter.drawRoundedRect(QtCore.QRectF(tile.rect()), radius * scale, radius * scale)
+    font = QtGui.QFont("Segoe UI")
+    font.setPixelSize(int(size * scale * 0.45))
+    font.setWeight(QtGui.QFont.DemiBold)
+    painter.setFont(font)
+    painter.setPen(QtGui.QColor(TEXT_SOFT))
+    initial = next((c for c in name if c.isalnum()), "?").upper()
+    painter.drawText(tile.rect(), QtCore.Qt.AlignCenter, initial)
+    painter.end()
+    tile.setDevicePixelRatio(scale)
+    return QtGui.QIcon(tile)
+
+
+def key_art(pixmap: QtGui.QPixmap) -> QtGui.QPixmap:
+    """Recover the clean 16:9 key art from a Steam-style composite banner.
+
+    Composite banners (metadata._composite) centre the original at 94% height over
+    a blurred copy of itself; showing them whole looks smeared in the app.
+    """
+    if pixmap.isNull() or (pixmap.width(), pixmap.height()) != (1920, 620):
+        return pixmap
+    height = int(620 * 0.94)
+    width = round(height * 16 / 9)
+    return pixmap.copy((1920 - width) // 2, (620 - height) // 2, width, height)
+
+
+def _top_rounded(rect: QtCore.QRectF, radius: float) -> QtGui.QPainterPath:
+    path = QtGui.QPainterPath()
+    path.moveTo(rect.left(), rect.bottom())
+    path.lineTo(rect.left(), rect.top() + radius)
+    path.arcTo(rect.left(), rect.top(), radius * 2, radius * 2, 180, -90)
+    path.lineTo(rect.right() - radius, rect.top())
+    path.arcTo(rect.right() - radius * 2, rect.top(), radius * 2, radius * 2, 90, -90)
+    path.lineTo(rect.right(), rect.bottom())
+    path.closeSubpath()
+    return path
+
+
 class Artwork(QtWidgets.QWidget):
     """Artwork surface with a quiet original portal fallback; no network fetches."""
 
     def __init__(self):
         super().__init__()
         self.hero = QtGui.QPixmap()
-        self.setMinimumHeight(210)
-        self.setMaximumHeight(330)
-        self.setSizePolicy(
-            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
+        policy = QtWidgets.QSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred
         )
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        # Banner proportions that keep the key art recognisable at any width.
+        return int(min(max(width * 0.4, 220), 380))
+
+    def sizeHint(self):
+        return QtCore.QSize(800, self.heightForWidth(800))
 
     def set_artwork(self, path: str) -> None:
-        self.hero = QtGui.QPixmap(path)
+        self.hero = key_art(QtGui.QPixmap(path))
         self.update()
 
     def paintEvent(self, _event):
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
         painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
-        clip = QtGui.QPainterPath()
-        clip.addRoundedRect(QtCore.QRectF(self.rect()), 18, 18)
+        clip = _top_rounded(QtCore.QRectF(self.rect()), 15)
         painter.setClipPath(clip)
         background = QtGui.QLinearGradient(0, 0, self.width(), self.height())
-        background.setColorAt(0, QtGui.QColor("#142526"))
-        background.setColorAt(1, QtGui.QColor("#212b45"))
+        background.setColorAt(0, QtGui.QColor("#0d1a36"))
+        background.setColorAt(1, QtGui.QColor("#13306a"))
         painter.fillRect(self.rect(), background)
         if not self.hero.isNull():
             pixmap = self.hero.scaled(
@@ -67,7 +152,7 @@ class Artwork(QtWidgets.QWidget):
             for index in range(6, 0, -1):
                 scale = 30 + index * 22
                 painter.setPen(
-                    QtGui.QPen(QtGui.QColor(117, 223, 203, 30 + index * 9), 2)
+                    QtGui.QPen(QtGui.QColor(90, 169, 255, 30 + index * 9), 2)
                 )
                 painter.setBrush(QtCore.Qt.NoBrush)
                 painter.drawRoundedRect(
@@ -76,9 +161,10 @@ class Artwork(QtWidgets.QWidget):
                     scale * 0.65,
                 )
         painter.resetTransform()
-        shade = QtGui.QLinearGradient(0, 0, self.width(), 0)
-        shade.setColorAt(0, QtGui.QColor(12, 18, 24, 90))
-        shade.setColorAt(1, QtGui.QColor(12, 18, 24, 0))
+        # Settle the artwork into the page and give the card a crisp edge.
+        shade = QtGui.QLinearGradient(0, self.height() * 0.55, 0, self.height())
+        shade.setColorAt(0, QtGui.QColor(12, 17, 26, 0))
+        shade.setColorAt(1, QtGui.QColor(12, 17, 26, 150))
         painter.fillRect(self.rect(), shade)
 
 
@@ -122,32 +208,11 @@ class NativePresentation:
         self.resize(1200, 790)
         self.setStyleSheet(STYLE)
         root = QtWidgets.QWidget()
+        root.setObjectName("root")
         self.setCentralWidget(root)
         outer = QtWidgets.QVBoxLayout(root)
-        outer.setContentsMargins(24, 20, 24, 14)
-        outer.setSpacing(18)
-
-        header = QtWidgets.QHBoxLayout()
-        mark = QtWidgets.QLabel()
-        mark.setPixmap(brand_icon().pixmap(38, 38))
-        header.addWidget(mark)
-        header.addSpacing(6)
-        header.addWidget(self.label("RiftLift", "brand"))
-        header.addSpacing(16)
-        self.now_playing_icon = QtWidgets.QLabel()
-        self.now_playing_icon.setFixedSize(24, 24)
-        self.now_playing_icon.hide()
-        header.addWidget(self.now_playing_icon)
-        self.now_playing_label = self.label("", "muted")
-        self.now_playing_label.setTextFormat(QtCore.Qt.RichText)
-        self.now_playing_label.hide()
-        header.addWidget(self.now_playing_label)
-        header.addStretch()
-        self.settings_button = self.button(NAV("settings"), self._toggle_settings)
-        self.signin = self.button(NAV("sign_in"), self.show_auth)
-        header.addWidget(self.settings_button)
-        header.addWidget(self.signin)
-        outer.addLayout(header)
+        outer.setContentsMargins(18, 18, 18, 18)
+        outer.setSpacing(16)
 
         self.setup_banner = QtWidgets.QWidget()
         self.setup_banner.setObjectName("setup_banner")
@@ -161,41 +226,59 @@ class NativePresentation:
         self.setup_banner.hide()
         outer.addWidget(self.setup_banner)
 
-        self.view_stack = QtWidgets.QStackedWidget()
-        main_view = QtWidgets.QWidget()
-        content = QtWidgets.QHBoxLayout(main_view)
+        # Two columns: the sidebar carries the brand, library and navigation;
+        # the right column shows the selected game or Settings.
+        content = QtWidgets.QHBoxLayout()
         content.setContentsMargins(0, 0, 0, 0)
-        content.setSpacing(24)
-        sidebar = QtWidgets.QWidget()
-        sidebar.setMinimumWidth(210)
-        sidebar.setMaximumWidth(275)
+        content.setSpacing(16)
+        sidebar = self.sidebar = QtWidgets.QWidget()
+        sidebar.setObjectName("sidebar")
+        sidebar.setAttribute(QtCore.Qt.WA_StyledBackground, True)
+        sidebar.setMinimumWidth(250)
+        sidebar.setMaximumWidth(320)
         left = QtWidgets.QVBoxLayout(sidebar)
-        left.setContentsMargins(0, 0, 0, 0)
-        left.setSpacing(12)
+        left.setContentsMargins(14, 16, 14, 12)
+        left.setSpacing(10)
+
+        brand_row = QtWidgets.QHBoxLayout()
+        brand_row.setContentsMargins(4, 0, 0, 0)
+        brand_row.setSpacing(10)
+        mark = QtWidgets.QLabel()
+        mark.setPixmap(brand_icon().pixmap(30, 30))
+        brand_row.addWidget(mark)
+        brand = QtWidgets.QLabel(f"Rift<span style='color:{BLUE_LIGHT}'>Lift</span>")
+        brand.setObjectName("brand")
+        brand.setTextFormat(QtCore.Qt.RichText)
+        brand.setAccessibleName("RiftLift")
+        brand_row.addWidget(brand)
+        brand_row.addStretch()
+        left.addLayout(brand_row)
+        left.addSpacing(6)
+
         heading = QtWidgets.QHBoxLayout()
-        heading.addWidget(self.label(LIBRARY("title"), "section"))
-        heading.addStretch()
+        heading.setSpacing(8)
         self.refresh_button = self.button("↻", self.refresh_all)
         self.refresh_button.setObjectName("refresh")
-        self.refresh_button.setFixedSize(36, 36)
+        self.refresh_button.setFixedSize(40, 40)
         self.refresh_button.setAccessibleName(LIBRARY("refresh_tooltip"))
         self.refresh_button.setToolTip(LIBRARY("refresh_tooltip"))
-        heading.addWidget(self.refresh_button)
-        left.addLayout(heading)
         self.search = QtWidgets.QLineEdit()
         self.search.setPlaceholderText(SHELL("search"))
         self.search.setAccessibleName(SHELL("search"))
         self.search.setClearButtonEnabled(True)
-        left.addWidget(self.search)
+        heading.addWidget(self.search, 1)
+        heading.addWidget(self.refresh_button)
+        left.addLayout(heading)
         self.tree = QtWidgets.QTreeWidget()
         self.tree.setAccessibleName(LIBRARY("title"))
         self.tree.setHeaderHidden(True)
-        self.tree.setIconSize(QtCore.QSize(36, 36))
+        self.tree.setIconSize(QtCore.QSize(34, 34))
         self.tree.setIndentation(0)
         self.tree.setRootIsDecorated(False)
         self.tree.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.tree.currentItemChanged.connect(self._tree_item_changed)
         self.tree.itemClicked.connect(self._category_clicked)
+        self.tree.itemClicked.connect(self._return_to_library)
         self.tree.itemExpanded.connect(self._category_toggled)
         self.tree.itemCollapsed.connect(self._category_toggled)
         self._categories = []
@@ -213,11 +296,45 @@ class NativePresentation:
         self.addbtn = self.button(NAV("add_game"), lambda: self.add_dialog())
         left.addWidget(self.steam_games)
         left.addWidget(self.addbtn)
+
+        now_playing = QtWidgets.QHBoxLayout()
+        now_playing.setContentsMargins(4, 4, 0, 0)
+        now_playing.setSpacing(10)
+        self.now_playing_icon = QtWidgets.QLabel()
+        self.now_playing_icon.setFixedSize(24, 24)
+        self.now_playing_icon.hide()
+        now_playing.addWidget(self.now_playing_icon)
+        self.now_playing_label = self.label("", "muted")
+        self.now_playing_label.setTextFormat(QtCore.Qt.RichText)
+        self.now_playing_label.hide()
+        now_playing.addWidget(self.now_playing_label, 1)
+        left.addLayout(now_playing)
+
+        divider = QtWidgets.QFrame()
+        divider.setObjectName("divider")
+        divider.setFixedHeight(1)
+        left.addSpacing(2)
+        left.addWidget(divider)
+        assets = files("riftlift").joinpath("assets")
+        self.settings_button = self.button(NAV("settings"), self._toggle_settings)
+        self.settings_button.setCheckable(True)
+        self.signin = self.button(NAV("sign_in"), self.show_auth)
+        for widget, icon in (
+            (self.settings_button, "settings"),
+            (self.signin, "account"),
+        ):
+            widget.setObjectName("nav")
+            widget.setIcon(QtGui.QIcon(str(assets.joinpath(f"{icon}.svg"))))
+            widget.setIconSize(QtCore.QSize(20, 20))
+            left.addWidget(widget)
         content.addWidget(sidebar, 1)
 
         self.stack = QtWidgets.QStackedWidget()
+        self.stack.setObjectName("content")
+        self.stack.setAttribute(QtCore.Qt.WA_StyledBackground, True)
         empty = QtWidgets.QWidget()
         empty_layout = QtWidgets.QVBoxLayout(empty)
+        empty_layout.setContentsMargins(36, 32, 36, 32)
         empty_layout.addStretch()
         empty_layout.addWidget(self.label(SHELL("welcome"), "game"))
         hint = self.label(SHELL("welcome_hint"), "description")
@@ -237,15 +354,34 @@ class NativePresentation:
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         scroll.setWidget(self.stack)
-        content.addWidget(scroll, 3)
-        self.view_stack.addWidget(main_view)
+        self.view_stack = QtWidgets.QStackedWidget()
+        self.view_stack.addWidget(scroll)
         settings = QtWidgets.QScrollArea()
         settings.setWidgetResizable(True)
         settings.setFrameShape(QtWidgets.QFrame.NoFrame)
+        # A centred column with a way back, since the sidebar hides here.
+        page = QtWidgets.QWidget()
+        centred = QtWidgets.QHBoxLayout(page)
+        centred.setContentsMargins(0, 0, 0, 0)
+        column = QtWidgets.QWidget()
+        column.setMaximumWidth(760)
+        column_layout = QtWidgets.QVBoxLayout(column)
+        column_layout.setContentsMargins(0, 8, 0, 0)
+        column_layout.setSpacing(4)
+        self.back_to_library = self.button(
+            f"←  {LIBRARY('title')}", self._leave_settings
+        )
+        self.back_to_library.setObjectName("link")
+        column_layout.addWidget(self.back_to_library, alignment=QtCore.Qt.AlignLeft)
         self.settings_page = self._make_settings()
-        settings.setWidget(self.settings_page)
+        column_layout.addWidget(self.settings_page)
+        centred.addStretch(1)
+        centred.addWidget(column, 4)
+        centred.addStretch(1)
+        settings.setWidget(page)
         self.view_stack.addWidget(settings)
-        outer.addWidget(self.view_stack, 1)
+        content.addWidget(self.view_stack, 3)
+        outer.addLayout(content, 1)
 
         # Task handlers retain their status text internally without a footer.
         self.status = self.label(namespace("status")("ready"), "muted")
@@ -265,16 +401,20 @@ class NativePresentation:
     def _native_detail(self):
         page = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        # The page is a panel like the sidebar: artwork across the top edge,
+        # details padded beneath it.
+        layout.setContentsMargins(1, 1, 1, 0)
+        layout.setSpacing(0)
         self.hero = Artwork()
-        layout.addWidget(self.hero, 1)
+        layout.addWidget(self.hero)
+        body = QtWidgets.QVBoxLayout()
+        body.setContentsMargins(28, 20, 28, 24)
+        body.setSpacing(12)
+        layout.addLayout(body, 1)
         self.game_name = self.label("", "game")
         self.game_name.setWordWrap(False)
-        title_row = QtWidgets.QHBoxLayout()
-        title_row.setSpacing(8)
-        title_row.addWidget(self.game_name)
-        layout.addLayout(title_row)
+        body.addSpacing(6)
+        body.addWidget(self.game_name)
         self.meta_row = QtWidgets.QHBoxLayout()
         self.meta = self.label("", "muted")
         self.meta.setWordWrap(True)
@@ -283,10 +423,13 @@ class NativePresentation:
         self.meta_skeleton = Placeholder()
         for widget in (self.meta, self.meta_detail, self.meta_skeleton):
             self.meta_row.addWidget(widget)
-        layout.addLayout(self.meta_row)
+        body.addLayout(self.meta_row)
         actions = QtWidgets.QHBoxLayout()
+        actions.setSpacing(10)
         self.launch = self.button(GAME("launch"), self.launch_game, True)
         self.install_here = self.button(GAME("install"), self.install_owned, True)
+        for primary in (self.launch, self.install_here):
+            primary.setProperty("size", "large")
         actions.addWidget(self.launch)
         actions.addWidget(self.install_here)
         self.files_button = QtWidgets.QToolButton()
@@ -296,17 +439,15 @@ class NativePresentation:
         self.files_button.setIconSize(QtCore.QSize(22, 22))
         self.files_button.setAccessibleName(GAME("files"))
         self.files_button.setToolTip(GAME("files"))
-        self.files_button.setObjectName("quiet")
+        self.files_button.setObjectName("square")
         self.files_button.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.files_button.clicked.connect(self.open_folder)
-        title_row.addWidget(self.files_button, 0, QtCore.Qt.AlignVCenter)
-        title_row.addStretch()
-        actions.addStretch()
+        actions.addWidget(self.files_button)
         self.more_button = QtWidgets.QToolButton()
         self.more_button.setText("•••")
         self.more_button.setAccessibleName(SHELL("game_actions"))
         self.more_button.setToolTip(SHELL("game_actions"))
-        self.more_button.setObjectName("quiet")
+        self.more_button.setObjectName("square")
         self.more_button.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.more_button.setPopupMode(QtWidgets.QToolButton.InstantPopup)
         self.game_menu = QtWidgets.QMenu(self.more_button)
@@ -326,18 +467,22 @@ class NativePresentation:
         self.steam_status_action.setVisible(False)
         self.more_button.setMenu(self.game_menu)
         actions.addWidget(self.more_button)
-        layout.addLayout(actions)
+        actions.addStretch()
+        body.addSpacing(4)
+        body.addLayout(actions)
+        body.addSpacing(6)
         self.description_heading = self.label(GAME("about"), "section")
         self.description_heading.setParent(page)
         self.description_heading.hide()
         self.description_label = self.label("", "description")
         self.description_label.setWordWrap(True)
+        self.description_label.setMaximumWidth(760)
         self.description_label.setTextInteractionFlags(
             QtCore.Qt.TextSelectableByMouse | QtCore.Qt.TextSelectableByKeyboard
         )
-        layout.addWidget(self.description_label)
+        body.addWidget(self.description_label)
         self.description_skeleton = Placeholder()
-        layout.addWidget(self.description_skeleton)
+        body.addWidget(self.description_skeleton)
         self.description_skeleton.hide()
         links = QtWidgets.QHBoxLayout()
         self.store_link = self.button(GAME("open_rift_store"), self.open_store)
@@ -349,8 +494,8 @@ class NativePresentation:
         self.add_steam_button.setObjectName("link")
         links.addWidget(self.add_steam_button)
         links.addStretch()
-        layout.addLayout(links)
-        layout.addStretch()
+        body.addLayout(links)
+        body.addStretch()
         return page
 
     def _filter_library(self, text=""):

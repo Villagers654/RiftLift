@@ -2,7 +2,6 @@
 
 STRINGS = {
     "shell": {
-        "steam_shortcuts_unavailable": "La mise à jour des raccourcis Steam n'est pas disponible dans cette version Windows.",
         "steam_status_unknown": "État du raccourci Steam indisponible",
         "steam_already_added": "Déjà ajouté à Steam",
         "game_actions": "Actions du jeu",
@@ -221,6 +220,7 @@ STRINGS = {
         "windows_debug_logging_tooltip": "Inclure les diagnostics du lanceur Windows et du pont VR dans Activité.",
         "title": "Paramètres",
         "language": "Langue",
+        "troubleshooting": "Dépannage",
         "debug_logging": "Journalisation détaillée",
         "debug_logging_tooltip": (
             "Capture les diagnostics Proton, Wine XR/Steam/Vulkan, DXVK, VKD3D, "

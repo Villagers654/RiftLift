@@ -59,7 +59,7 @@ The Windows installer workflow builds and checks the standalone distribution.
 
 ### 2. Check your setup and sign in
 
-Open **RiftLift** and click **System** to verify the setup.
+Open **RiftLift** and click **Settings** to see whether your setup is ready.
 
 Click **Sign In** and complete Meta's hosted sign-in page. Passwords and
 security codes go only to Meta.
@@ -76,7 +76,8 @@ Copy the URL of a game you own from the Meta **Rift / PC VR** store. Click
 
 ![RiftLift Add Game window](docs/images/riftlift-add-game.png)
 
-Leave **Add to Steam when finished** checked and click **Install**.
+Click **Install**. On Linux, leave **Add to Steam when finished** checked to
+also get a Steam shortcut.
 
 > A Quest-only purchase is not a Windows PC game. The store page must offer a
 > Rift or PC VR build. Cross-buy titles work when the PC version is present on
@@ -84,22 +85,24 @@ Leave **Add to Steam when finished** checked and click **Install**.
 
 ### 4. Play
 
-Select the game and click **Launch in VR**, or use its Steam shortcut. RiftLift
+Select the game and click **Launch**, or use its Steam shortcut on Linux. RiftLift
 tracks playtime locally.
 
 ## Everyday use
 
 The desktop app is the recommended way to use RiftLift:
 
-- **System** checks whether RiftLift and your OpenXR setup are ready.
+- **Settings** shows whether RiftLift and your VR runtime are ready, and can
+  generate a diagnostic report.
 - **Sign In** opens Meta's sign-in flow.
-- **Add Game** downloads an owned Rift game and optionally adds it to Steam.
+- **Add Game** downloads an owned Rift game (and, on Linux, can add it to Steam).
 - **Add a local game…** inside **Add Game** registers an existing Windows VR
   game without moving or copying it.
-- **Steam Games** finds installed Steam titles with a compatible Oculus mode.
-- **Launch in VR** starts the selected game through your active OpenXR runtime.
+- **Steam Games** (Linux) finds installed Steam titles with a compatible Oculus
+  mode.
+- **Launch** starts the selected game through your VR runtime.
 - Game details show the playtime RiftLift has tracked locally.
-- The **⟳** button reloads games added elsewhere and refreshes store details
+- The **↻** button reloads games added elsewhere and refreshes store details
   and artwork.
 - **View Activity** shows download, setup, launch, and diagnostic messages.
 
@@ -107,7 +110,8 @@ Steam may restart once when RiftLift adds or updates shortcuts.
 
 ## Troubleshooting
 
-Start with **System** in the desktop app, or run `riftlift doctor`.
+Start with **Settings → Generate a diagnostic report** in the desktop app, or
+run `riftlift doctor`.
 
 Doctor checks the graphics/XR stack, RiftLift components, games, and recent
 launch evidence. It creates a redacted public paste; use `riftlift doctor
@@ -120,8 +124,8 @@ Common fixes:
   retry.
 - **A game is missing from Steam:** close Steam, run `riftlift steam-sync`, and
   reopen it.
-- **A game fails to launch:** enable **Debug logging** in the top bar, reproduce
-  the problem once, then click **System**. RiftLift captures Proton, targeted
+- **A game fails to launch:** enable **Debug logging** in **Settings**, reproduce
+  the problem once, then click **Generate a diagnostic report**. RiftLift captures Proton, targeted
   Wine XR/Steam/Vulkan channels, DXVK, VKD3D, loader and crash diagnostics.
   Doctor correlates those files with game, Steam/XR, journal, kernel GPU and
   coredump evidence, then puts its likely cause and next steps before the raw
@@ -200,10 +204,10 @@ RiftLift only adds the compatible launch path.
 ### Add an installed Steam game
 
 1. Install the Windows VR game normally in Steam.
-2. Open RiftLift and choose **Steam Games** at the top of the window.
+2. Open RiftLift and choose **Steam Games** below the library.
 3. Wait for the scan to finish, select the game, and choose **Add to RiftLift**.
    No game files are copied or downloaded.
-4. Select the game in RiftLift's library and choose **Launch in VR**.
+4. Select the game in RiftLift's library and choose **Launch**.
 
 ![RiftLift finding installed Steam games with an Oculus mode](docs/images/riftlift-steam-games.png)
 
