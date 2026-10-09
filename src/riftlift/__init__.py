@@ -1,3 +1,3 @@
-"""RiftLift: a Linux bridge for owned Meta Rift games."""
+"""RiftLift: run owned Meta Rift games on Linux and Windows."""
 
-__version__ = "0.10.2.5"
+__version__ = "0.11.0"
