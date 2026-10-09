@@ -232,7 +232,7 @@ def test_windows_optional_steam_sync_does_not_block_install_or_removal(
     for dialog in (StoreGameDialog(window.paths, lambda: None), LocalGameDialog()):
         assert not dialog.steam.isChecked()
         assert not dialog.steam.isEnabled()
-        assert "Windows" in dialog.steam.toolTip()
+        assert dialog.steam.isHidden()
         dialog.close()
         dialog.deleteLater()
 

@@ -2,7 +2,6 @@
 
 STRINGS = {
     "shell": {
-        "steam_shortcuts_unavailable": "Steam shortcut updates are not available in this Windows build.",
         "steam_status_unknown": "Steam shortcut status unavailable",
         "steam_already_added": "Already added to Steam",
         "game_actions": "Game actions",

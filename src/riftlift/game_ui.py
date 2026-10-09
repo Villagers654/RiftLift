@@ -191,8 +191,8 @@ class StoreGameDialog(QtWidgets.QDialog):
         self.steam = QtWidgets.QCheckBox(ADD_GAME("add_to_steam"))
         self.steam.setChecked(supports_steam_shortcuts())
         self.steam.setEnabled(supports_steam_shortcuts())
-        if not supports_steam_shortcuts():
-            self.steam.setToolTip(namespace("shell")("steam_shortcuts_unavailable"))
+        # Shown only where Steam shortcuts work; it stays unchecked elsewhere.
+        self.steam.setVisible(supports_steam_shortcuts())
         layout.addWidget(self.steam)
         self.progress = QtWidgets.QProgressBar()
         self.progress.hide()
@@ -443,8 +443,8 @@ class LocalGameDialog(QtWidgets.QDialog):
         self.steam = QtWidgets.QCheckBox(ADD_GAME("add_to_steam"))
         self.steam.setChecked(supports_steam_shortcuts())
         self.steam.setEnabled(supports_steam_shortcuts())
-        if not supports_steam_shortcuts():
-            self.steam.setToolTip(namespace("shell")("steam_shortcuts_unavailable"))
+        # Shown only where Steam shortcuts work; it stays unchecked elsewhere.
+        self.steam.setVisible(supports_steam_shortcuts())
         layout.addWidget(self.steam)
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Cancel)
         cancel_button = buttons.button(QtWidgets.QDialogButtonBox.Cancel)
