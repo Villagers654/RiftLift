@@ -6,6 +6,8 @@
 // writing lines to %LOCALAPPDATA%\RiftLift\touchsim.txt, which the driver
 // consumes:  "<left|right> <input> <value>"  where input is one of
 //   a b x y system trigger grip stickx sticky stickclick thumbrest
+// or posx posy posz (metres from the resting hand position, headset-relative)
+// and pitch (degrees, positive tilts the controller up).
 // Values persist until changed, e.g. "right trigger 1" then "right trigger 0".
 #include <openvr_driver.h>
 
@@ -166,9 +168,29 @@ private:
 			for (int axis = 0; axis < 3; ++axis)
 				pose.vecWorldFromDriverTranslation[axis] = m.m[axis][3];
 		}
-		pose.vecPosition[0] = m_Left ? -0.2 : 0.2;
-		pose.vecPosition[1] = -0.3;
-		pose.vecPosition[2] = -0.35;
+		// posx/posy/posz move the controller from its rest point, in metres
+		// relative to the headset (for example arms out: posx -0.5 / 0.5).
+		float offset[3] = {};
+		float pitch = 0.0f;
+		{
+			std::lock_guard<std::mutex> guard(m_Lock);
+			auto tilt = m_Values.find("pitch");
+			if (tilt != m_Values.end())
+				pitch = tilt->second;
+			const char* names[3] = {"posx", "posy", "posz"};
+			for (int axis = 0; axis < 3; ++axis)
+			{
+				auto it = m_Values.find(names[axis]);
+				if (it != m_Values.end())
+					offset[axis] = it->second;
+			}
+		}
+		// pitch tilts the controller up (positive) or down, in degrees.
+		const double half = pitch * 3.14159265358979 / 360.0;
+		pose.qRotation = {std::cos(half), std::sin(half), 0, 0};
+		pose.vecPosition[0] = (m_Left ? -0.2 : 0.2) + offset[0];
+		pose.vecPosition[1] = -0.3 + offset[1];
+		pose.vecPosition[2] = -0.35 + offset[2];
 		pose.poseIsValid = true;
 		pose.result = vr::TrackingResult_Running_OK;
 		pose.deviceIsConnected = true;

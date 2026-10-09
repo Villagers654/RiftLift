@@ -32,5 +32,8 @@ python scripts/steamvr-touch-sim.py unregister build/touchsim/riftlift_touchsim
 ```
 
 Inputs: `a b x y system trigger grip stickx sticky stickclick thumbrest`.
+`posx posy posz` move a controller from its rest point, in metres relative to
+the headset (`set left posx -0.5` holds the left arm out). `pitch` tilts a
+controller up (positive) or down, in degrees, for aiming at menus.
 Commands go through `%LOCALAPPDATA%\RiftLift\touchsim.txt`, which the driver
 reads and deletes.
