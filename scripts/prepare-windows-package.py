@@ -5,11 +5,18 @@ import sys
 from pathlib import Path
 
 from riftlift.util import sha256
-from riftlift.windows import FILES, PLATFORM_FILES, SDK_RUNTIME_SHA256
+from riftlift.windows import (
+    FILES,
+    OPENXR_LAYER_FILE,
+    PLATFORM_FILES,
+    SDK_RUNTIME_SHA256,
+)
 
 runtime, icon = map(Path, sys.argv[1:])
 missing = sorted(
-    name for name in FILES | PLATFORM_FILES if not (runtime / name).is_file()
+    name
+    for name in FILES | PLATFORM_FILES | {OPENXR_LAYER_FILE}
+    if not (runtime / name).is_file()
 )
 if missing:
     raise SystemExit("Incomplete native runtime: " + ", ".join(missing))

@@ -180,6 +180,7 @@ def test_detail_actions_are_keyboard_accessible_without_button_clutter(app, wind
 
     QtCore.QTimer.singleShot(30, inspect_menu)
     QtTest.QTest.keyClick(window.more_button, QtCore.Qt.Key_Space)
+    QtTest.QTest.qWait(50)
     assert checked == [True]
     window.files_button.click()
     assert "Open files" in window.status.text()

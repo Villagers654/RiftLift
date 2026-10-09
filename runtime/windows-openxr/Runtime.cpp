@@ -21,9 +21,11 @@ const char* Runtime::s_required_extensions[] = {
 // extension. Requesting the Windows D3D12 or Vulkan extensions at the same
 // time therefore produces duplicate XR_KHR_vulkan_enable names for runtimes
 // such as SteamVR, which correctly reject the instance create request. D3D12
-// Oculus clients are selected for the OpenVR bridge by the launcher instead.
-// OpenGL remains distinct after Wine's translation and can coexist here.
+// Keep that restriction under Wine only; native Windows clients such as Echo VR
+// need the D3D12 extension for their command queue and swapchains.
 const char* Runtime::s_optional_extensions[] = {
+	"XR_KHR_D3D12_enable",
+	"XR_KHR_vulkan_enable",
 	"XR_KHR_opengl_enable",
 	XR_MND_HEADLESS_EXTENSION_NAME,
 	XR_KHR_VISIBILITY_MASK_EXTENSION_NAME,
@@ -70,12 +72,18 @@ ovrResult Runtime::CreateInstance(XrInstance* out_Instance, const ovrInitParams*
 	CHK_XR(xrEnumerateInstanceExtensionProperties(nullptr, (uint32_t)properties.size(), &size, properties.data()));
 
 	m_extensions.clear();
+	const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+	const bool isWine = ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
 
 	for (const char* extension : s_required_extensions)
 		m_extensions.push_back(extension);
 
 	for (const char* extension : s_optional_extensions)
 	{
+		if (isWine &&
+			(strcmp(extension, "XR_KHR_D3D12_enable") == 0 ||
+			 strcmp(extension, "XR_KHR_vulkan_enable") == 0))
+			continue;
 		auto findExtension = [extension](XrExtensionProperties props)
 		{
 			return strcmp(props.extensionName, extension) == 0;

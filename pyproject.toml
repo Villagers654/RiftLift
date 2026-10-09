@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "riftlift"
 dynamic = ["version"]
-description = "Meta Rift games for Linux and Windows VR runtimes"
+description = "Meta Rift games for OpenXR runtimes on Linux and Windows"
 readme = "README.md"
 requires-python = ">=3.10.12"
 license = "MIT"
 authors = [{name = "Villagers654"}]
-keywords = ["linux", "meta", "monado", "oculus", "openxr", "rift", "vr"]
+keywords = ["linux", "windows", "meta", "monado", "oculus", "openxr", "rift", "vr"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Console",
@@ -34,13 +34,12 @@ xrizer = "https://github.com/Villagers654/xrizer"
 
 [project.scripts]
 riftlift = "riftlift.cli:main"
+
+[project.gui-scripts]
 riftlift-gui = "riftlift.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-riftlift = ["assets/*.svg"]
 
 [tool.setuptools.dynamic]
 version = {attr = "riftlift.__version__"}

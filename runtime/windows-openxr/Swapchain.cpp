@@ -60,7 +60,42 @@ ovrResult ovrTextureSwapChainData::Init(XrSession session, const ovrTextureSwapC
 	createInfo.faceCount = desc->Type == ovrTexture_Cube ? desc->ArraySize : 1;
 	createInfo.arraySize = desc->Type == ovrTexture_Cube ? 1 : desc->ArraySize;
 	createInfo.mipCount = desc->MipLevels;
-	CHK_XR(xrCreateSwapchain(session, &createInfo, &Swapchain));
+	TraceOculusValue("xrCreateSwapchain.ovrFormat", desc->Format);
+	TraceOculusValue("xrCreateSwapchain.format", format);
+	TraceOculusValue("xrCreateSwapchain.usageFlags", createInfo.usageFlags);
+	TraceOculusValue("xrCreateSwapchain.createFlags", createInfo.createFlags);
+	TraceOculusValue("xrCreateSwapchain.mipCount", createInfo.mipCount);
+	TraceOculusValue("xrCreateSwapchain.width", createInfo.width);
+	TraceOculusValue("xrCreateSwapchain.height", createInfo.height);
+	TraceOculusValue("xrCreateSwapchain.arraySize", createInfo.arraySize);
+	TraceOculusValue("xrCreateSwapchain.sampleCount", createInfo.sampleCount);
+	// Runtimes differ in what they accept: SteamVR, for example, rejects
+	// mipmapped swapchains and transfer-only ones that Oculus allowed. Retry
+	// with progressively plainer requests instead of failing the session; the
+	// first attempt is exactly what the application asked for.
+	XrResult created = xrCreateSwapchain(session, &createInfo, &Swapchain);
+	if (XR_FAILED(created) && createInfo.mipCount > 1)
+	{
+		TraceXrResult("xrCreateSwapchain(mipmapped)", created);
+		createInfo.mipCount = 1;
+		created = xrCreateSwapchain(session, &createInfo, &Swapchain);
+	}
+	if (XR_FAILED(created) && (createInfo.createFlags & XR_SWAPCHAIN_CREATE_STATIC_IMAGE_BIT))
+	{
+		// Static swapchains are optional; a regular one released once behaves the same.
+		TraceXrResult("xrCreateSwapchain(static)", created);
+		createInfo.createFlags &= ~XR_SWAPCHAIN_CREATE_STATIC_IMAGE_BIT;
+		created = xrCreateSwapchain(session, &createInfo, &Swapchain);
+	}
+	if (XR_FAILED(created) && !(createInfo.usageFlags & (XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
+		XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)))
+	{
+		TraceXrResult("xrCreateSwapchain(transfer-only)", created);
+		createInfo.usageFlags |= XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+		created = xrCreateSwapchain(session, &createInfo, &Swapchain);
+	}
+	CHK_XR(created);
+	TraceOculusValue("xrCreateSwapchain.createdMipCount", createInfo.mipCount);
 
 	XrSwapchainImageAcquireInfo acqInfo = XR_TYPE(SWAPCHAIN_IMAGE_ACQUIRE_INFO);
 	CHK_XR(xrAcquireSwapchainImage(Swapchain, &acqInfo, &CurrentIndex));
@@ -103,10 +138,7 @@ DXGI_FORMAT ovrTextureSwapChainData::TextureFormatToDXGIFormat(ovrTextureFormat 
 
 		// Depth formats
 	case OVR_FORMAT_D16_UNORM:            return DXGI_FORMAT_D16_UNORM;
-	// WineOpenXR maps D24S8 to VK_FORMAT_D24_UNORM_S8_UINT, which is not
-	// universally advertised by Monado's Vulkan device. D32S8 preserves stencil
-	// and maps to the broadly supported VK_FORMAT_D32_SFLOAT_S8_UINT.
-	case OVR_FORMAT_D24_UNORM_S8_UINT:    return DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+	case OVR_FORMAT_D24_UNORM_S8_UINT:    return DXGI_FORMAT_D24_UNORM_S8_UINT;
 	case OVR_FORMAT_D32_FLOAT:            return DXGI_FORMAT_D32_FLOAT;
 	case OVR_FORMAT_D32_FLOAT_S8X24_UINT: return DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
 
@@ -148,6 +180,11 @@ DXGI_FORMAT ovrTextureSwapChainData::NegotiateFormat(ovrSession session, DXGI_FO
 {
 	if (session->SupportsFormat(format))
 		return format;
+	// Preserve native D24S8 when available; Wine/Monado may require D32S8.
+	if (format == DXGI_FORMAT_D24_UNORM_S8_UINT && session->SupportsFormat(DXGI_FORMAT_D32_FLOAT_S8X24_UINT))
+		return DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+	if (format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT && session->SupportsFormat(DXGI_FORMAT_D24_UNORM_S8_UINT))
+		return DXGI_FORMAT_D24_UNORM_S8_UINT;
 
 	// Upgrade R11G11B10F to RGBA16F if it's available
 	if (format == DXGI_FORMAT_R11G11B10_FLOAT && session->SupportsFormat(DXGI_FORMAT_R16G16B16A16_FLOAT))
@@ -159,9 +196,19 @@ DXGI_FORMAT ovrTextureSwapChainData::NegotiateFormat(ovrSession session, DXGI_FO
 
 	// No runtime supports 8-bit formats without alpha, but easy to convert to one with alpha
 	if (format == DXGI_FORMAT_B8G8R8X8_UNORM)
-		return DXGI_FORMAT_B8G8R8A8_UNORM;
+		format = DXGI_FORMAT_B8G8R8A8_UNORM;
 	else if (format == DXGI_FORMAT_B8G8R8X8_UNORM_SRGB)
-		return DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+		format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+
+	// Some runtimes (SteamVR) only offer RGBA channel order. Games render into
+	// swapchains through views of the negotiated format, so the stored colors
+	// are unchanged.
+	if (format == DXGI_FORMAT_B8G8R8A8_UNORM && !session->SupportsFormat(format) &&
+		session->SupportsFormat(DXGI_FORMAT_R8G8B8A8_UNORM))
+		return DXGI_FORMAT_R8G8B8A8_UNORM;
+	if (format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB && !session->SupportsFormat(format) &&
+		session->SupportsFormat(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB))
+		return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 
 	return format;
 }

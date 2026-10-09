@@ -203,6 +203,7 @@ def test_missing_runtime_stops_before_launch(paths, monkeypatch):
     for name in windows.FILES:
         (runtime / name).touch()
     monkeypatch.setattr(windows, "runtime_ready", lambda backend: False)
+    monkeypatch.setattr(windows, "steamvr_openxr_manifest", lambda: None)
     monkeypatch.setattr(
         windows.subprocess, "run", lambda *a, **k: pytest.fail("started process")
     )
@@ -247,7 +248,7 @@ def test_gui_constructs_without_linux_imports(paths, monkeypatch):
     assert Window.__module__ == "riftlift.main_window"
     assert window.signin.isEnabled()
     assert window.settings_page.debug_logging.isEnabled()
-    assert not window.steam_games.isEnabled()
+    assert window.steam_games.isHidden()
     assert window._installed_category.childCount() == 0
     window.close()
     app.processEvents()
@@ -350,6 +351,7 @@ def test_windows_browser_uses_os_default_without_owning_process(paths, monkeypat
     from riftlift import auth_browser
 
     opened = []
+    monkeypatch.setattr(auth_browser, "_windows_default_browser", lambda: None)
     monkeypatch.setattr(
         auth_browser.webbrowser, "open", lambda url: opened.append(url) or True
     )
@@ -361,11 +363,38 @@ def test_windows_browser_uses_os_default_without_owning_process(paths, monkeypat
     assert opened == ["https://auth.meta.com/"]
 
 
+def test_windows_edge_login_uses_an_owned_profile(paths, monkeypatch):
+    from riftlift import auth_browser
+
+    edge = auth_browser.Browser("edge", "Microsoft Edge", "chromium", ("msedge",))
+    launched = []
+    monkeypatch.setattr(auth_browser, "_windows_default_browser", lambda: edge)
+    monkeypatch.setattr(
+        auth_browser.subprocess,
+        "Popen",
+        lambda command, **_options: launched.append(command) or object(),
+    )
+
+    assert auth_browser.default_browser() == edge
+    auth_browser.launch_browser_login(paths, edge, "https://auth.meta.com/")
+
+    assert any(argument.startswith("--user-data-dir=") for argument in launched[0])
+    preferences = json.loads(
+        (
+            auth_browser.browser_home(paths, edge) / "profile/Default/Preferences"
+        ).read_text()
+    )
+    assert preferences["protocol_handler"]["allowed_origin_protocol_pairs"][
+        "https://auth.meta.com"
+    ] == {"oculus": True, "oculus-client": True}
+
+
 def test_windows_login_preserves_browser_profiles_and_protocol_preferences(
     paths, monkeypatch
 ):
     from riftlift import auth_browser
 
+    monkeypatch.setattr(auth_browser, "_windows_default_browser", lambda: None)
     opened = []
     monkeypatch.setattr(
         auth_browser.webbrowser,
@@ -422,3 +451,81 @@ def test_windows_download_preserves_manifest_and_enables_offline_compat(
     assert game.app_key == "publisher.test"
     assert game.arguments == ["two words"]
     assert game.platform_shim and game.platform_offline
+
+
+def test_ovrplugin_layer_and_steamvr_openxr_are_per_process(
+    paths, tmp_path, monkeypatch
+):
+    steamvr = tmp_path / "SteamVR"
+    steamvr.mkdir()
+    (steamvr / "steamxr_win64.json").write_text("{}")
+    runtime = windows.runtime_dir(paths)
+    runtime.mkdir(parents=True)
+    (runtime / windows.OPENXR_LAYER_FILE).touch()
+    monkeypatch.setattr(windows, "active_openxr", lambda: None)
+    monkeypatch.setattr(windows, "active_openvr", lambda: steamvr)
+
+    updates = windows.openxr_environment(paths, {"XR_ENABLE_API_LAYERS": "Other"})
+
+    assert updates["XR_RUNTIME_JSON"] == str(steamvr / "steamxr_win64.json")
+    assert updates["XR_ENABLE_API_LAYERS"] == (
+        windows.OPENXR_LAYER_NAME + __import__("os").pathsep + "Other"
+    )
+    manifest = Path(updates["XR_API_LAYER_PATH"]) / "riftlift-openxr-layer.json"
+    layer = json.loads(manifest.read_text())["api_layer"]
+    assert layer["name"] == windows.OPENXR_LAYER_NAME
+    assert layer["library_path"] == str(runtime / windows.OPENXR_LAYER_FILE)
+
+
+def test_registered_openxr_runtime_is_not_overridden(paths, tmp_path, monkeypatch):
+    registered = tmp_path / "runtime.json"
+    monkeypatch.setattr(windows, "active_openxr", lambda: registered)
+    monkeypatch.setattr(windows, "active_openvr", lambda: tmp_path)
+    (tmp_path / "steamxr_win64.json").write_text("{}")
+    # The pinned source payload predates the layer: launch without it.
+    assert windows.openxr_environment(paths, {}) == {}
+
+
+def test_steamvr_sees_the_game_name_when_the_launcher_supports_it(paths):
+    game = windows.add_local(paths, sys.executable, "Probe Game")
+    runtime = windows.runtime_dir(paths)
+    runtime.mkdir(parents=True)
+    for name in windows.FILES:
+        (runtime / name).touch()
+    # The pinned source payload's launcher has no /manifest option.
+    assert "/manifest" not in windows.launch_command(paths, game, "openvr")
+    (runtime / "RiftLiftLauncher.exe").write_bytes("/manifest".encode("utf-16-le"))
+    argv = windows.launch_command(paths, game, "openvr")
+    manifest = Path(argv[argv.index("/manifest") + 1])
+    assert argv.index("/manifest") < argv.index(str(game.executable_path.resolve()))
+    application = json.loads(manifest.read_text())["applications"][0]
+    assert application["app_key"] == "riftlift.app." + game.app_key
+    assert application["strings"]["en_us"]["name"] == "Probe Game"
+    assert "/manifest" not in windows.launch_command(paths, game, "openxr")
+
+
+def test_openxr_backend_can_use_steamvr_when_nothing_is_registered(
+    paths, tmp_path, monkeypatch
+):
+    from riftlift import windows_process
+
+    steamvr = tmp_path / "SteamVR"
+    steamvr.mkdir()
+    (steamvr / "steamxr_win64.json").write_text("{}")
+    game = windows.add_local(paths, sys.executable, "Probe")
+    monkeypatch.setenv("LOCALAPPDATA", str(paths.data))
+    monkeypatch.setattr(windows, "active_openxr", lambda: None)
+    monkeypatch.setattr(windows, "active_openvr", lambda: steamvr)
+    monkeypatch.setattr(windows, "launch_command", lambda *args: ["fixture.exe"])
+    monkeypatch.setattr(windows, "install_sdk_runtime", lambda paths: paths.tools)
+    captured = []
+    monkeypatch.setattr(
+        windows_process,
+        "run_game",
+        lambda command, **kwargs: captured.append(kwargs["env"]) or 0,
+    )
+    # Automatic selection keeps SteamVR on its OpenVR interface...
+    assert windows.select_backend(game) == "openvr"
+    # ...while an explicit OpenXR launch reaches SteamVR's OpenXR runtime.
+    assert windows.launch(paths, game, "openxr") == 0
+    assert captured[0]["XR_RUNTIME_JSON"] == str(steamvr / "steamxr_win64.json")

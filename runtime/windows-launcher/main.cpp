@@ -131,6 +131,7 @@ int wmain(int argc, wchar_t *argv[]) {
 	bool identifyOpenVRApplication = false;
 	std::vector<std::string> dlls;
 	std::string appKey;
+	std::string appManifest;
 	std::wstring workingDirOverride;
 	int targetIndex = -1;
 	for (int i = 1; i < argc; i++)
@@ -169,6 +170,15 @@ int wmain(int argc, wchar_t *argv[]) {
 			}
 			appKey = "riftlift.app." + key;
 			Log("Parsed OpenVR application key\n");
+		}
+		else if (wcscmp(argv[i], L"/manifest") == 0)
+		{
+			if (++i >= argc || !WideToUtf8(argv[i], appManifest))
+			{
+				Log("Missing or invalid value for /manifest\n");
+				return -1;
+			}
+			Log("Parsed OpenVR application manifest\n");
 		}
 		else if (wcscmp(argv[i], L"/debug") == 0)
 		{
@@ -284,6 +294,14 @@ int wmain(int argc, wchar_t *argv[]) {
 		vr::VR_Init(&err, vr::VRApplication_Utility);
 		if (err == vr::VRInitError_None)
 		{
+			// A temporary manifest gives SteamVR the game's name and artwork
+			// instead of the executable name; it lasts until SteamVR restarts.
+			if (!appManifest.empty())
+			{
+				vr::EVRApplicationError added =
+					vr::VRApplications()->AddApplicationManifest(appManifest.c_str(), true);
+				Log("Registered OpenVR application manifest (%d)\n", static_cast<int>(added));
+			}
 			if (vr::VRApplications()->IdentifyApplication(pi.dwProcessId, appKey.c_str()) == vr::VRApplicationError_None)
 				Log("Identified application as: %s\n", appKey.c_str());
 			vr::VR_Shutdown();

@@ -19,6 +19,26 @@
 
 #define REV_DEFAULT_TIMEOUT 10000
 
+static bool SimulatedControllersEnabled()
+{
+	const char* simulator = getenv("RIFTLIFT_SIMULATOR");
+	const char* controllers = getenv("RIFTLIFT_SIMULATED_CONTROLLERS");
+	return simulator && strcmp(simulator, "1") == 0 &&
+		controllers && strcmp(controllers, "1") == 0;
+}
+
+static void AddSimulatedHands(ovrTrackingState& state)
+{
+	for (int hand = 0; hand < ovrHand_Count; ++hand)
+	{
+		state.HandPoses[hand] = {};
+		state.HandPoses[hand].ThePose = OVR::Posef(state.HeadPose.ThePose) *
+			OVR::Posef(OVR::Quatf::Identity(), OVR::Vector3f(hand ? 0.25f : -0.25f, -0.25f, -0.45f));
+		state.HandPoses[hand].TimeInSeconds = state.HeadPose.TimeInSeconds;
+		state.HandStatusFlags[hand] = state.StatusFlags;
+	}
+}
+
 HMODULE g_D3D11 = nullptr;
 unsigned int g_MinorVersion = OVR_MINOR_VERSION;
 vr::EVRInitError g_InitError = vr::VRInitError_Init_NotInitialized;
@@ -109,7 +129,7 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_Initialize(const ovrInitParams* params)
 	MicroProfileSetForceMetaCounters(true);
 	MicroProfileWebServerStart();
 
-	g_MinorVersion = params->RequestedMinorVersion;
+	g_MinorVersion = params ? params->RequestedMinorVersion : OVR_MINOR_VERSION;
 
 	DetachDetours();
 
@@ -117,7 +137,11 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_Initialize(const ovrInitParams* params)
 
 	AttachDetours();
 
-	uint32_t timeout = params->ConnectionTimeoutMS;
+	TraceOculusValue("ovr_Initialize.openvrError", g_InitError);
+	if (g_InitError != vr::VRInitError_None)
+		return InitErrorToOvrError(g_InitError);
+
+	uint32_t timeout = params ? params->ConnectionTimeoutMS : 0;
 	if (timeout == 0)
 		timeout = REV_DEFAULT_TIMEOUT;
 
@@ -309,6 +333,15 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetSessionStatus(ovrSession session, ovrSessi
 	sessionStatus->IsVisible =
 		(RunningUnderWine() || vr::VRCompositor()->CanRenderScene()) && !first_call;
 	first_call = false;
+	// The explicitly selected desktop simulator has no proximity sensor.
+	// Keep its virtual headset mounted so games can exercise the frame loop.
+	const char* simulator = getenv("RIFTLIFT_SIMULATOR");
+	if (simulator && strcmp(simulator, "1") == 0)
+	{
+		sessionStatus->HmdMounted = true;
+		sessionStatus->IsVisible = true;
+		sessionStatus->HasInputFocus = true;
+	}
 
 	static const bool do_sleep = session->UseHack(HACK_SLEEP_IN_SESSION_STATUS);
 	if (do_sleep)
@@ -403,6 +436,33 @@ OVR_PUBLIC_FUNCTION(ovrTrackingState) ovr_GetTrackingState(ovrSession session, d
 		return state;
 
 	session->Input->GetTrackingState(session, &state, absTime);
+	if (SimulatedControllersEnabled())
+	{
+		// The null headset has no movement; its current pose also serves early
+		// queries made before the compositor has a predicted-frame history.
+		if (!state.StatusFlags)
+			session->Input->GetTrackingState(session, &state, 0);
+		if (!state.StatusFlags)
+		{
+			// SteamVR's null driver can have a raw pose before a seated origin
+			// exists. Use that pose for the static simulator only.
+			vr::TrackedDevicePose_t pose = {};
+			vr::VRSystem()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, &pose, 1);
+			if (pose.bPoseIsValid && pose.bDeviceIsConnected)
+			{
+				const REV::Matrix4f matrix(pose.mDeviceToAbsoluteTracking);
+				state.HeadPose.ThePose = OVR::Posef(OVR::Quatf(matrix), matrix.GetTranslation());
+				state.HeadPose.TimeInSeconds = absTime;
+				state.StatusFlags = ovrStatus_OrientationValid | ovrStatus_PositionValid |
+					ovrStatus_OrientationTracked | ovrStatus_PositionTracked;
+			}
+		}
+		// The null driver's origin is at the floor. Eye-level games supply
+		// their own player height; floor-level games expect it in the pose.
+		if (vr::VRCompositor()->GetTrackingSpace() == vr::TrackingUniverseStanding)
+			state.HeadPose.ThePose.Position.y += 1.65f;
+		AddSimulatedHands(state);
+	}
 	return state;
 }
 
@@ -413,6 +473,23 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetDevicePoses(ovrSession session, ovrTracked
 	if (!session)
 		return ovrError_InvalidSession;
 
+	if (deviceCount < 0 || (deviceCount > 0 && (!deviceTypes || !outDevicePoses)))
+		return ovrError_InvalidParameter;
+	if (SimulatedControllersEnabled())
+	{
+		ovrTrackingState state = ovr_GetTrackingState(session, absTime, false);
+		for (int i = 0; i < deviceCount; ++i)
+		{
+			if (deviceTypes[i] == ovrTrackedDevice_HMD) outDevicePoses[i] = state.HeadPose;
+			else if (deviceTypes[i] == ovrTrackedDevice_LTouch) outDevicePoses[i] = state.HandPoses[ovrHand_Left];
+			else if (deviceTypes[i] == ovrTrackedDevice_RTouch) outDevicePoses[i] = state.HandPoses[ovrHand_Right];
+			else {
+				ovrResult result = session->Input->GetDevicePoses(session, &deviceTypes[i], 1, absTime, &outDevicePoses[i]);
+				if (OVR_FAILURE(result)) return result;
+			}
+		}
+		return ovrSuccess;
+	}
 	return session->Input->GetDevicePoses(session, deviceTypes, deviceCount, absTime, outDevicePoses);
 }
 
@@ -551,6 +628,25 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetInputState(ovrSession session, ovrControll
 
 	ovrInputState state = { 0 };
 	ovrResult result = session->Input->GetInputState(session, controllerType, &state);
+	if (SimulatedControllersEnabled() && (controllerType & ovrControllerType_Touch))
+	{
+		state.ControllerType = static_cast<ovrControllerType>(state.ControllerType | (controllerType & ovrControllerType_Touch));
+		state.TimeInSeconds = ovr_GetTimeInSeconds();
+		// A test harness may supply button bits through a launch-scoped file.
+		// This does not synthesize Windows keyboard or mouse input.
+		if (const char* path = getenv("RIFTLIFT_SIMULATED_INPUT"))
+		{
+			FILE* input = nullptr;
+			if (fopen_s(&input, path, "r") == 0)
+			{
+				unsigned buttons = 0;
+				if (fscanf_s(input, "%u", &buttons) == 1)
+					state.Buttons |= buttons & (ovrButton_A | ovrButton_B | ovrButton_X | ovrButton_Y | ovrButton_Enter);
+				fclose(input);
+			}
+		}
+		result = ovrSuccess;
+	}
 
 	// We need to make sure we don't write outside of the bounds of the struct
 	// when the client expects a pre-1.7 version of LibOVR.
@@ -574,7 +670,7 @@ OVR_PUBLIC_FUNCTION(unsigned int) ovr_GetConnectedControllerTypes(ovrSession ses
 	// XR runtimes may publish interaction profiles after session creation.
 	// Query the current OpenVR roles instead of returning a startup-time cache.
 	session->Input->UpdateConnectedControllers();
-	return session->Input->ConnectedControllers;
+	return session->Input->ConnectedControllers | (SimulatedControllersEnabled() ? ovrControllerType_Touch : 0);
 }
 
 OVR_PUBLIC_FUNCTION(ovrTouchHapticsDesc) ovr_GetTouchHapticsDesc(ovrSession session, ovrControllerType controllerType)
@@ -733,13 +829,21 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetBoundaryGeometry(ovrSession session, ovrBo
 {
 	REV_TRACE(ovr_GetBoundaryGeometry);
 
-	vr::HmdQuad_t playRect;
+	if (!outFloorPointsCount || (outFloorPoints && *outFloorPointsCount < 0))
+		return ovrError_InvalidParameter;
+	vr::HmdQuad_t playRect = {};
 	bool valid = vr::VRChaperone()->GetPlayAreaRect(&playRect);
+	const int capacity = outFloorPoints ? *outFloorPointsCount : 0;
+	*outFloorPointsCount = valid ? 4 : 0;
+	// A missing play area reports zero points. Never copy into the caller's
+	// zero-sized buffer on its second query (the null headset has no bounds).
+	if (!valid)
+		return ovrSuccess_BoundaryInvalid;
+	if (outFloorPoints && capacity < 4)
+		return ovrError_InsufficientArraySize;
 	if (outFloorPoints)
 		memcpy(outFloorPoints, playRect.vCorners, 4 * sizeof(ovrVector3f));
-	if (outFloorPointsCount)
-		*outFloorPointsCount = valid ? 4 : 0;
-	return valid ? ovrSuccess : ovrSuccess_BoundaryInvalid;
+	return ovrSuccess;
 }
 
 OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetBoundaryDimensions(ovrSession session, ovrBoundaryType boundaryType, ovrVector3f* outDimensions)

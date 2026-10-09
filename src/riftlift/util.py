@@ -142,6 +142,7 @@ def download(url: str, target: Path, expected_sha256: str = "") -> Path:
                 break
             except (OSError, urllib.error.URLError, TimeoutError) as error:
                 if attempt == 3:
+                    stream.close()
                     temporary.unlink(missing_ok=True)
                     raise RiftLiftError(
                         f"could not download {target.name} after 4 attempts: {error}"

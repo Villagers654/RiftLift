@@ -146,6 +146,7 @@ def add(
         arguments=launch_arguments,
         version=build.version,
         platform_offline=True,
+        platform_shim=True,
         source="meta",
     )
     if on_finalizing is not None:

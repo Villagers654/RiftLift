@@ -3,7 +3,6 @@
 STRINGS = {
     "shell": {
         "steam_shortcuts_unavailable": "Steam shortcut updates are not available in this Windows build.",
-        "steam_import_unavailable": "Steam game import is not available in this Windows build.",
         "steam_status_unknown": "Steam shortcut status unavailable",
         "steam_already_added": "Already added to Steam",
         "game_actions": "Game actions",
@@ -215,8 +214,6 @@ STRINGS = {
     "settings": {
         "windows_system_check_explanation": "Checks the Windows VR runtime and writes a diagnostic report to Activity.",
         "windows_debug_logging_tooltip": "Include Windows launcher and VR bridge diagnostics in Activity.",
-        "windows_runtime_heading": "Windows VR runtime",
-        "windows_runtime_explanation": "Checks and restores the native VR bridge. Keep your OpenXR runtime available and your headset connected.",
         "title": "Settings",
         "language": "Language",
         "debug_logging": "Debug logging",

@@ -20,7 +20,7 @@ from meta_pcvr_downloader.download import DownloadError
 from . import __version__
 from .config import Game, Paths, debug_logging_enabled, games
 from .detection import is_pe64
-from .util import RiftLiftError, atomic_write_bytes, download, sha256
+from .util import RiftLiftError, atomic_write_bytes, atomic_write_text, download, sha256
 
 RELEASE = "v0.10.2.2"
 PAYLOAD_SHA256 = "90f9b1b5b26ba85a25ad2dcb3707b7a17540b0d40d310148dd98fa76c3a619eb"
@@ -41,6 +41,11 @@ PLATFORM_FILES = {
     "LibOVRRT64_1.dll",
 }
 SDK_RUNTIME_SHA256 = "f6941275692026b18666bb856d71fe1b19462017b2b2e556fe8df82461f493f5"
+# OVRPlugin (Unity/Unreal Oculus integrations) talks OpenXR directly and refuses
+# runtimes that do not identify as Oculus. Packaged builds always carry this
+# layer; the pinned source payload predates it, so launches only add it when present.
+OPENXR_LAYER_FILE = "RiftLiftOpenXRLayer.dll"
+OPENXR_LAYER_NAME = "XR_APILAYER_RIFTLIFT_ovr_compat"
 
 
 def install_sdk_runtime(paths: Paths) -> Path:
@@ -194,6 +199,60 @@ def active_openvr() -> Path | None:
     return None
 
 
+def steamvr_openxr_manifest() -> Path | None:
+    vr = active_openvr()
+    manifest = vr / "steamxr_win64.json" if vr else None
+    return manifest if manifest and manifest.is_file() else None
+
+
+def openxr_environment(paths: Paths, environment: dict[str, str]) -> dict[str, str]:
+    """Per-process OpenXR settings for the game; never touches the registry."""
+    updates: dict[str, str] = {}
+    # SteamVR users often never press "Set as OpenXR runtime". OpenVR-backed
+    # games do not care, but OVRPlugin titles go straight to OpenXR.
+    if (
+        "XR_RUNTIME_JSON" not in environment
+        and active_openxr() is None
+        and (steamvr := steamvr_openxr_manifest())
+    ):
+        updates["XR_RUNTIME_JSON"] = str(steamvr)
+    library = runtime_dir(paths) / OPENXR_LAYER_FILE
+    if library.is_file():
+        directory = paths.cache / "openxr-layer"
+        manifest = directory / "riftlift-openxr-layer.json"
+        payload = (
+            json.dumps(
+                {
+                    "file_format_version": "1.0.0",
+                    "api_layer": {
+                        "name": OPENXR_LAYER_NAME,
+                        # Older loaders bundled in games mis-resolve relative paths.
+                        "library_path": str(library),
+                        "api_version": "1.0",
+                        "implementation_version": "1",
+                        "description": "RiftLift OVRPlugin compatibility",
+                    },
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        try:
+            current = manifest.read_text(encoding="utf-8")
+        except OSError:
+            current = None
+        if current != payload:
+            directory.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(manifest, payload)
+        for name, value in (
+            ("XR_API_LAYER_PATH", str(directory)),
+            ("XR_ENABLE_API_LAYERS", OPENXR_LAYER_NAME),
+        ):
+            existing = environment.get(name)
+            updates[name] = f"{value}{os.pathsep}{existing}" if existing else value
+    return updates
+
+
 def runtime_ready(backend: str) -> bool:
     if backend not in {"openxr", "openvr"}:
         raise RiftLiftError("Unknown native backend")
@@ -295,6 +354,42 @@ def add_local(
     return game
 
 
+def _launcher_accepts_manifest(launcher: Path) -> bool:
+    # The pinned source payload's launcher would treat /manifest as the game.
+    return "/manifest".encode("utf-16-le") in launcher.read_bytes()
+
+
+def steamvr_manifest(paths: Paths, game: Game) -> Path:
+    """SteamVR app identity, so the dashboard shows the game rather than its .exe."""
+    image = next(
+        (
+            game.artwork[name]
+            for name in ("grid", "hero", "portrait")
+            if name in game.artwork and Path(game.artwork[name]).is_file()
+        ),
+        None,
+    )
+    application = {
+        "app_key": f"riftlift.app.{game.app_key}",
+        "launch_type": "binary",
+        "binary_path_windows": str(game.executable_path),
+        "strings": {"en_us": {"name": game.name}},
+        **({"image_path": image} if image else {}),
+    }
+    manifest = paths.cache / "steamvr" / f"{game.slug}.vrmanifest"
+    payload = (
+        json.dumps({"source": "user", "applications": [application]}, indent=2) + "\n"
+    )
+    try:
+        current = manifest.read_text(encoding="utf-8")
+    except OSError:
+        current = None
+    if current != payload:
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(manifest, payload)
+    return manifest
+
+
 def launch_command(
     paths: Paths, game: Game, backend: str, extra: list[str] | None = None
 ) -> list[str]:
@@ -315,14 +410,21 @@ def launch_command(
         raise RiftLiftError(
             "Game executable must be an existing x64 PE inside its game folder"
         )
+    launcher = native / "RiftLiftLauncher.exe"
+    identity = (
+        ["/manifest", str(steamvr_manifest(paths, game))]
+        if backend == "openvr" and _launcher_accepts_manifest(launcher)
+        else []
+    )
     return [
-        str(native / "RiftLiftLauncher.exe"),
+        str(launcher),
         f"/{backend}",
         "/wait",
         "/app",
         game.app_key,
         "/cwd",
         str(game.game_dir),
+        *identity,
         str(executable),
         *game.arguments,
         *game.launch_options,
@@ -341,7 +443,11 @@ def launch(
     if dry_run:
         print(subprocess.list2cmdline(command))
         return 0
-    if not runtime_ready(backend):
+    # openxr_environment points the game at SteamVR's OpenXR runtime when no
+    # other OpenXR runtime is registered, so that fallback counts as ready too.
+    if not runtime_ready(backend) and not (
+        backend == "openxr" and steamvr_openxr_manifest()
+    ):
         raise RiftLiftError(
             f"Configure a Windows {backend} runtime and connect the headset first"
         )
@@ -360,6 +466,7 @@ def launch(
         environment["LIBOVR_DLL_DIR"] = str(native) + os.sep
         if game.platform_offline:
             environment["RIFTLIFT_PLATFORM_OFFLINE"] = "1"
+    environment.update(openxr_environment(paths, environment))
     if debug_logging_enabled(paths):
         environment["RIFTLIFT_RUNTIME_TRACE"] = "1"
     log = paths.data / "logs" / f"{game.slug}.log"

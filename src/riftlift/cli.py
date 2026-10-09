@@ -5,21 +5,23 @@ import os
 import sys
 from dataclasses import replace
 
-from meta_pcvr_downloader.api import MetaApiError
-from meta_pcvr_downloader.auth import AuthenticationError
-from meta_pcvr_downloader.download import DownloadError
-
 from . import __version__
-from .auth import complete_login, login, runtime_access_token
-from .config import Game, Paths, games
-from .desktop_services import doctor, launch, setup
-from .entitlements import list_owned_pcvr_apps
-from .library import add, add_local, remove
-from .metadata import populate_game_metadata
-from .playtime import playtime, playtime_label
-from .steam import sync_with_restart
-from .steam_oculus import steam_oculus_game, steam_oculus_games
-from .util import RiftLiftError
+
+if os.name != "nt":
+    from meta_pcvr_downloader.api import MetaApiError
+    from meta_pcvr_downloader.auth import AuthenticationError
+    from meta_pcvr_downloader.download import DownloadError
+
+    from .auth import complete_login, login, runtime_access_token
+    from .config import Game, Paths, games
+    from .desktop_services import doctor, launch, setup
+    from .entitlements import list_owned_pcvr_apps
+    from .library import add, add_local, remove
+    from .metadata import populate_game_metadata
+    from .playtime import playtime, playtime_label
+    from .steam import sync_with_restart
+    from .steam_oculus import steam_oculus_game, steam_oculus_games
+    from .util import RiftLiftError
 
 
 def parser() -> argparse.ArgumentParser:

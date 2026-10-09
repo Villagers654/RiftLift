@@ -182,12 +182,19 @@ public:
 	ovrResult GetControllerVibrationState(ovrSession session, ovrControllerType controllerType, ovrHapticsPlaybackState* outState);
 
 	void GetTrackingState(ovrSession session, ovrTrackingState* outState, double absTime);
+
+	// Held while polling OpenVR events too: vrclient applies binding updates
+	// from inside PollNextEvent, which races action-state updates.
+	std::recursive_mutex& Lock() { return m_Lock; }
 	ovrResult GetDevicePoses(ovrSession session, ovrTrackedDeviceType* deviceTypes, int deviceCount, double absTime, ovrPoseStatef* outDevicePoses);
 
 protected:
 	std::vector<InputDevice*> m_InputDevices;
 
 private:
+	// IVRInput is not safe for concurrent use, and games poll input, poses and
+	// haptics from several threads while frame submission updates action state.
+	std::recursive_mutex m_Lock;
 	vr::EVRInputError m_LastError;
 	bool m_InputReady;
 	ovrPoseStatef m_LastPoses[vr::k_unMaxTrackedDeviceCount];

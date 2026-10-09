@@ -3,7 +3,6 @@
 STRINGS = {
     "shell": {
         "steam_shortcuts_unavailable": "La mise à jour des raccourcis Steam n'est pas disponible dans cette version Windows.",
-        "steam_import_unavailable": "L'importation des jeux Steam n'est pas disponible dans cette version Windows.",
         "steam_status_unknown": "État du raccourci Steam indisponible",
         "steam_already_added": "Déjà ajouté à Steam",
         "game_actions": "Actions du jeu",
@@ -220,8 +219,6 @@ STRINGS = {
     "settings": {
         "windows_system_check_explanation": "Vérifie le runtime VR Windows et affiche un rapport dans Activité.",
         "windows_debug_logging_tooltip": "Inclure les diagnostics du lanceur Windows et du pont VR dans Activité.",
-        "windows_runtime_heading": "Runtime VR Windows",
-        "windows_runtime_explanation": "Vérifie et restaure le pont VR natif. Gardez votre runtime OpenXR disponible et votre casque connecté.",
         "title": "Paramètres",
         "language": "Langue",
         "debug_logging": "Journalisation détaillée",

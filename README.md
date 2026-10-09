@@ -1,8 +1,8 @@
 # RiftLift
 
-**Play your Meta Rift (Oculus Rift) PC VR games on Linux.**
+**Play your Meta Rift (Oculus Rift) PC VR games on Linux and Windows.**
 
-RiftLift is a Linux compatibility app for Meta Rift PC VR games. Its desktop
+RiftLift is a compatibility app for Meta Rift PC VR games. Its desktop
 GUI handles Meta sign-in, owned-game downloads, Steam shortcuts, local playtime,
 and launching through your existing VR headset setup. It supports Rift Store
 releases and compatible Steam games that include an Oculus mode. RiftLift can
@@ -13,13 +13,13 @@ use SteamVR directly or a Monado-based OpenXR setup.
 > [!WARNING]
 > **RiftLift is alpha software.** Game compatibility is still expanding.
 
-See the [compatibility wiki](docs/COMPATIBILITY.md) for games tested with real VR output.
+See the [compatibility wiki](docs/COMPATIBILITY.md) for Windows and Linux results.
 
 ## Quick start
 
 Before you start, you need:
 
-- a 64-bit Linux PC;
+- a 64-bit Linux or Windows PC;
 - Steam;
 - a VR headset that already works through SteamVR or Monado/OpenXR; and
 - a Meta account that owns a **Rift / PC VR** game.
@@ -29,7 +29,15 @@ drivers or Monado.
 
 ### 1. Install RiftLift
 
-Download `riftlift-installer.sh` from the latest GitHub release, then run:
+**Windows:** Windows builds produce `RiftLift-Setup-<version>-x64.exe`.
+Open the installer, choose **Install**, then launch **RiftLift** from the Start
+menu. Python, Git, administrator access, and a separate runtime download are
+not required. The installer is not code-signed yet, so Windows SmartScreen may
+say it "protected your PC"; choose **More info → Run anyway**. A desktop shortcut is optional. RiftLift selects your VR runtime
+automatically. Re-running the installer updates the app; Windows **Installed
+apps** can uninstall it while preserving your games and settings.
+
+**Linux:** Download `riftlift-installer.sh` from the latest GitHub release, then run:
 
 ```bash
 bash riftlift-installer.sh
@@ -43,12 +51,21 @@ Source installs use the checkout and selected payloads directly; release
 artifact hashes are enforced by the generated all-in-one installer, not baked
 into the application source.
 
+For Windows source development, run `./install-windows.ps1` with Python 3.12 and
+Git installed, then open `RiftLift.cmd`. To package a native build, install
+PyInstaller 6.22.0 and Inno Setup 6, then run
+`./scripts/build-windows.ps1 -RuntimeDirectory <complete-native-runtime-directory>`.
+The Windows installer workflow builds and checks the standalone distribution.
+
 ### 2. Check your setup and sign in
 
 Open **RiftLift** and click **System** to verify the setup.
 
 Click **Sign In** and complete Meta's hosted sign-in page. Passwords and
 security codes go only to Meta.
+On Windows, Edge or Chrome uses a RiftLift browser profile. The first sign-in
+there may ask for your Meta credentials again; later retries reuse that session
+until you choose **Sign out and reset**.
 
 ![RiftLift Meta account screen after browser sign-in](docs/images/riftlift-account.png)
 

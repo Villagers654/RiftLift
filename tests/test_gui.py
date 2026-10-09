@@ -1454,7 +1454,7 @@ def test_auth_dialog_detects_browser_completion_and_returns(
     app.processEvents()
 
 
-def test_auth_dialog_preserves_browser_after_login_error(
+def test_auth_dialog_stops_owned_windows_browser_after_login_error(
     tmp_path: Path, monkeypatch
 ) -> None:
     paths = Paths(
@@ -1478,7 +1478,7 @@ def test_auth_dialog_preserves_browser_after_login_error(
 
     dialog.show_error("Meta rejected the token")
 
-    assert not stopped
+    assert stopped == ([True] if os.name == "nt" else [])
     assert dialog.process is None
     assert dialog.status.text() == "Meta rejected the token"
     dialog.close()

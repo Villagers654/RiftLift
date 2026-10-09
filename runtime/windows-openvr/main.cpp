@@ -2,9 +2,12 @@
 #include <stdio.h>
 #include <dxgi.h>
 #include <Shlwapi.h>
+#include <DbgHelp.h>
 #include <string>
 #include <vector>
 #include <detours/detours.h>
+#include "../PlatformCompat.h"
+#include "Common.h"
 
 #include "Extras\OVR_CAPI_Util.h"
 #include "OVR_Version.h"
@@ -146,6 +149,8 @@ bool IsOvrRuntimeName(LPCWSTR lpModuleName)
 
 HMODULE WINAPI HookLoadLibraryA(LPCSTR lpFileName)
 {
+	if (const char* platform = PlatformRedirect(lpFileName))
+		return TrueLoadLibraryA(platform);
 	LPCSTR name = PathFindFileNameA(lpFileName);
 	LPCSTR ext = PathFindExtensionA(name);
 	size_t length = ext - name;
@@ -156,6 +161,9 @@ HMODULE WINAPI HookLoadLibraryA(LPCSTR lpFileName)
 
 HMODULE WINAPI HookLoadLibraryExA(LPCSTR lpFileName, HANDLE file, DWORD flags)
 {
+	if (!(flags & (LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE)))
+	if (const char* platform = PlatformRedirect(lpFileName))
+		return TrueLoadLibraryA(platform);
 	LPCSTR name = PathFindFileNameA(lpFileName);
 	LPCSTR ext = PathFindExtensionA(name);
 	size_t length = ext - name;
@@ -166,6 +174,8 @@ HMODULE WINAPI HookLoadLibraryExA(LPCSTR lpFileName, HANDLE file, DWORD flags)
 
 HMODULE WINAPI HookLoadLibraryW(LPCWSTR lpFileName)
 {
+	if (const char* platform = PlatformRedirect(lpFileName))
+		return TrueLoadLibraryA(platform);
 	LPCWSTR name = PathFindFileNameW(lpFileName);
 	LPCWSTR ext = PathFindExtensionW(name);
 	size_t length = ext - name;
@@ -179,6 +189,9 @@ HMODULE WINAPI HookLoadLibraryW(LPCWSTR lpFileName)
 
 HMODULE WINAPI HookLoadLibraryExW(LPCWSTR lpLibFileName, HANDLE hFile, DWORD dwFlags)
 {
+	if (!(dwFlags & (LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE)))
+	if (const char* platform = PlatformRedirect(lpLibFileName))
+		return TrueLoadLibraryA(platform);
 	LPCWSTR name = PathFindFileNameW(lpLibFileName);
 	LPCWSTR ext = PathFindExtensionW(name);
 	size_t length = ext - name;
@@ -228,7 +241,7 @@ void AttachDetours()
 	DetourAttach((PVOID*)&TrueGetModuleHandleExW, HookGetModuleHandleExW);
 	DetourAttach((PVOID*)&TrueOpenEvent, HookOpenEvent);
 	DetourAttach((PVOID*)&TrueDXGIFactory, HookDXGIFactory);
-	DetourTransactionCommit();
+	TraceOculusValue("DetourTransactionCommit", DetourTransactionCommit());
 }
 
 void DetachDetours()
@@ -245,7 +258,40 @@ void DetachDetours()
 	DetourDetach((PVOID*)&TrueGetModuleHandleExW, HookGetModuleHandleExW);
 	DetourDetach((PVOID*)&TrueOpenEvent, HookOpenEvent);
 	DetourDetach((PVOID*)&TrueDXGIFactory, HookDXGIFactory);
-	DetourTransactionCommit();
+	TraceOculusValue("DetourTransactionCommit", DetourTransactionCommit());
+}
+
+// With RiftLift's debug logging enabled, keep minidumps of fatal
+// exceptions in %TEMP%. Some crashes only reproduce without a debugger attached.
+static LONG CALLBACK WriteCrashDump(PEXCEPTION_POINTERS info)
+{
+	// Engines may handle some access violations themselves; keep a few dumps.
+	static volatile LONG written = 0;
+	DWORD code = info->ExceptionRecord->ExceptionCode;
+	if (code != EXCEPTION_ACCESS_VIOLATION && code != 0xC0000374 && code != 0xC0000409)
+		return EXCEPTION_CONTINUE_SEARCH;
+	LONG index = InterlockedIncrement(&written);
+	if (index > 3)
+		return EXCEPTION_CONTINUE_SEARCH;
+	typedef BOOL(WINAPI* WriteDump)(HANDLE, DWORD, HANDLE, MINIDUMP_TYPE,
+		PMINIDUMP_EXCEPTION_INFORMATION, PMINIDUMP_USER_STREAM_INFORMATION, PMINIDUMP_CALLBACK_INFORMATION);
+	HMODULE dbghelp = LoadLibraryW(L"dbghelp.dll");
+	auto write = dbghelp ? reinterpret_cast<WriteDump>(GetProcAddress(dbghelp, "MiniDumpWriteDump")) : nullptr;
+	wchar_t path[MAX_PATH];
+	DWORD length = GetTempPathW(MAX_PATH, path);
+	if (!write || !length || length > MAX_PATH - 64)
+		return EXCEPTION_CONTINUE_SEARCH;
+	swprintf(path + length, MAX_PATH - length, L"riftlift-crash-%lu-%ld.dmp", GetCurrentProcessId(), index);
+	HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (file != INVALID_HANDLE_VALUE)
+	{
+		MINIDUMP_EXCEPTION_INFORMATION exception = { GetCurrentThreadId(), info, FALSE };
+		write(GetCurrentProcess(), GetCurrentProcessId(), file,
+			static_cast<MINIDUMP_TYPE>(MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithThreadInfo),
+			&exception, NULL, NULL);
+		CloseHandle(file);
+	}
+	return EXCEPTION_CONTINUE_SEARCH;
 }
 
 BOOL APIENTRY DllMain(HANDLE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
@@ -267,6 +313,8 @@ BOOL APIENTRY DllMain(HANDLE hModule, DWORD ul_reason_for_call, LPVOID lpReserve
 			sprintf_s(ovrModuleNameA, MAX_PATH, "LibOVRRT%s_%d.dll", pBitDepth, OVR_MAJOR_VERSION);
 			swprintf(ovrModuleName, MAX_PATH, L"LibOVRRT%hs_%d.dll", pBitDepth, OVR_MAJOR_VERSION);
 
+			if (getenv("RIFTLIFT_RUNTIME_TRACE"))
+				AddVectoredExceptionHandler(1, WriteCrashDump);
 			DetourRestoreAfterWith();
 			AttachDetours();
 			PatchMainExecutableImports();

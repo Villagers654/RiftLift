@@ -116,6 +116,7 @@ bool ovrHmdStruct::UseHack(Hack hack) const
 
 void ovrHmdStruct::UpdateStatus()
 {
+	std::lock_guard<std::recursive_mutex> guard(Input->Lock());
 	vr::VREvent_t vrEvent;
 	while (vr::VRSystem()->PollNextEvent(&vrEvent, sizeof(vrEvent)))
 	{

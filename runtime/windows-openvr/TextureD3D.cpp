@@ -1,6 +1,7 @@
 #include "TextureD3D.h"
 #include "Common.h"
 #include "OVR_CAPI.h"
+#include "../FrameCapture.h"
 
 #include <openvr.h>
 #include <d3d11.h>
@@ -37,6 +38,8 @@ void TextureD3D::ToVRTexture(vr::Texture_t& texture)
 
 	if (m_pDevice12)
 	{
+		if (m_pDevice11on12)
+			CaptureApplicationFrame(m_pTexture.Get(), m_pDevice11on12.Get());
 		if (m_pResolveList)
 			m_pQueue->ExecuteCommandLists(1, (ID3D12CommandList**)m_pResolveList.GetAddressOf());
 
@@ -45,6 +48,7 @@ void TextureD3D::ToVRTexture(vr::Texture_t& texture)
 	}
 	else
 	{
+		CaptureApplicationFrame(m_pTexture.Get());
 		texture.eType = vr::TextureType_DirectX;
 		texture.handle = m_pTexture.Get();
 	}

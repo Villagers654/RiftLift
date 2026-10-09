@@ -1,19 +1,65 @@
+import hashlib
+import os
 import shutil
 import struct
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from meta_pcvr_downloader.api import Build
+from meta_pcvr_downloader.download import Downloader, DownloadError, _safe_destination
 
 from riftlift.config import Game, Paths
 from riftlift.library import (
     _best_executable,
+    _download_path,
     _launch_arguments,
     add_local,
     default_download_workers,
     parse_download_progress,
     remove,
 )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows extended-length paths")
+def test_download_long_temporary_filename_and_resume(tmp_path, monkeypatch):
+    root = tmp_path / "game"
+    cache = tmp_path / "segments"
+    cache.mkdir()
+    relative = "x" * (251 - len(str(root)) - len(".bundle") - 1) + ".bundle"
+    assert len(str(root / relative)) == 251
+    assert len(str(root / (relative + f".{os.getpid()}.part"))) >= 260
+    payload = b"cached game segment"
+    digest = hashlib.sha256(payload).hexdigest()
+    (cache / digest).write_bytes(payload)
+    manifest = {
+        "files": {
+            relative: {
+                "size": len(payload),
+                "sha256": digest,
+                "segments": [[0, digest]],
+            }
+        }
+    }
+
+    def no_network(*args, **kwargs):
+        raise AssertionError("Cached recovery must not access the network")
+
+    monkeypatch.setattr("urllib.request.urlopen", no_network)
+    output = _download_path(root)
+    downloader = Downloader(
+        "", Build("1", "Test", "2", "1", 1), output, _download_path(cache), 1
+    )
+    downloader.run(manifest)
+    target = output / relative
+    assert target.read_bytes() == payload
+    modified = target.stat().st_mtime_ns
+    downloader.run(manifest)
+    assert target.stat().st_mtime_ns == modified
+    assert (cache / digest).read_bytes() == payload
+    assert _download_path(output) == output
+    with pytest.raises(DownloadError, match="Unsafe path"):
+        _safe_destination(output, "../escape")
 
 
 def test_finalization_is_acknowledged_before_install_record_and_metadata(

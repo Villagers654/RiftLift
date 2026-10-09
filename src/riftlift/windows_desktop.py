@@ -1,14 +1,36 @@
-"""Windows taskbar identity and one library window per data directory."""
+"""Windows taskbar identity, dark title bars and one library window per data directory."""
 
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import sys
 from pathlib import Path
 
-from PySide6 import QtGui, QtNetwork
+from PySide6 import QtCore, QtGui, QtNetwork
 
 from .config import Paths
+
+
+class _DarkTitleBars(QtCore.QObject):
+    """Match the native caption to RiftLift's dark theme on every top-level window."""
+
+    def eventFilter(self, watched, event):
+        if (
+            event.type() == QtCore.QEvent.Show
+            and getattr(watched, "isWindow", lambda: False)()
+            and not watched.property("riftlift_dark_caption")
+        ):
+            watched.setProperty("riftlift_dark_caption", True)
+            enabled = ctypes.c_int(1)
+            # DWMWA_USE_IMMERSIVE_DARK_MODE; ignored by Windows builds without it.
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                ctypes.c_void_p(int(watched.winId())),
+                20,
+                ctypes.byref(enabled),
+                ctypes.sizeof(enabled),
+            )
+        return False
 
 
 def activate_existing(app) -> bool:
@@ -45,6 +67,8 @@ def activate_existing(app) -> bool:
 
     server.newConnection.connect(activate)
     app._riftlift_server = server
+    app._riftlift_title_bars = _DarkTitleBars(app)
+    app.installEventFilter(app._riftlift_title_bars)
     if getattr(sys, "frozen", False):
         icon = Path(sys._MEIPASS) / "assets/riftlift.ico"
         app.setWindowIcon(QtGui.QIcon(str(icon)))

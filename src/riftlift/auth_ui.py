@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from concurrent.futures import Future, ThreadPoolExecutor
 
 from PySide6 import QtCore, QtWidgets
 
-from .auth import is_signed_in, save_access_token, sign_out
-from .auth_browser import default_browser, launch_browser_login
+from .auth import clear_login, is_signed_in, save_access_token, sign_out
+from .auth_browser import default_browser, launch_browser_login, stop_browser
 from .config import Paths
 from .i18n import namespace
 from .meta_auth import MetaAuthSession
@@ -41,7 +42,12 @@ class AuthDialog(QtWidgets.QDialog):
         title = QtWidgets.QLabel(AUTH("heading"))
         title.setObjectName("game")
         layout.addWidget(title)
-        explanation = QtWidgets.QLabel(AUTH("explanation"))
+        explanation = QtWidgets.QLabel(
+            "RiftLift opens your browser and returns here when Meta finishes. "
+            "Your password and security codes go only to Meta."
+            if os.name == "nt"
+            else AUTH("explanation")
+        )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
 
@@ -76,7 +82,7 @@ class AuthDialog(QtWidgets.QDialog):
         self.process = None
         try:
             browser = default_browser()
-            sign_out(self.paths)
+            clear_login(self.paths)
         except Exception as error:
             self.show_error(error)
             return
@@ -136,12 +142,12 @@ class AuthDialog(QtWidgets.QDialog):
             self.pending = None
             self.completed = True
             self.status.setText(AUTH("signed_in_returning"))
-            self.process = None
+            self._stop_browser()
             QtCore.QTimer.singleShot(500, self.accept)
 
     def show_error(self, error):
         self.timer.stop()
-        self.process = None
+        self._stop_browser()
         self.pending = None
         self.operation = "idle"
         self.status.setText(str(error))
@@ -152,7 +158,7 @@ class AuthDialog(QtWidgets.QDialog):
 
     def reset_login(self):
         self.timer.stop()
-        self.process = None
+        self._stop_browser()
         sign_out(self.paths)
         self.browser = None
         self.session = None
@@ -168,12 +174,17 @@ class AuthDialog(QtWidgets.QDialog):
 
     def accept(self):
         self.timer.stop()
-        self.process = None
+        self._stop_browser()
         self.executor.shutdown(wait=False, cancel_futures=True)
         super().accept()
 
     def reject(self):
         self.timer.stop()
-        self.process = None
+        self._stop_browser()
         self.executor.shutdown(wait=False, cancel_futures=True)
         super().reject()
+
+    def _stop_browser(self):
+        if os.name == "nt" and self.process is not None and self.browser is not None:
+            stop_browser(self.paths, self.browser, self.process)
+        self.process = None

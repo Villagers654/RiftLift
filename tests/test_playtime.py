@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from riftlift.config import Paths
@@ -34,7 +35,8 @@ def test_playtime_accumulates_across_launches(tmp_path: Path) -> None:
     assert tracked.seconds == 3665.5
     assert tracked.launches == 2
     assert tracked.last_played_at == "2026-08-11T13:00:00+00:00"
-    assert (paths.data / "playtime.json").stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert (paths.data / "playtime.json").stat().st_mode & 0o777 == 0o600
 
 
 def test_session_records_exact_final_interval(tmp_path: Path) -> None:

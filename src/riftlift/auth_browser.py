@@ -1,12 +1,14 @@
-"""Default-browser discovery and launch for Meta authentication."""
+"""Default-browser discovery and isolated profiles for Meta authentication."""
 
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import webbrowser
 from dataclasses import dataclass
@@ -183,6 +185,9 @@ def _desktop_browser(desktop_id: str) -> Browser:
 
 def default_browser() -> Browser:
     if os.name == "nt":
+        browser = _windows_default_browser()
+        if browser is not None:
+            return browser
         return Browser("windows", "your default browser", "native", ())
     override = os.environ.get("RIFTLIFT_AUTH_BROWSER", "").strip().lower()
     if override:
@@ -212,22 +217,205 @@ def default_browser() -> Browser:
     return _desktop_browser(desktop_id)
 
 
+def _windows_default_browser() -> Browser | None:
+    """Use an owned profile when the Windows default is a Chromium browser.
+
+    Chromium can silently discard Meta's custom-scheme redirect in a normal
+    profile. An owned profile lets us allow that redirect for auth.meta.com.
+    """
+    import winreg
+
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice",
+        ) as key:
+            prog_id = winreg.QueryValueEx(key, "ProgId")[0].lower()
+    except OSError:
+        return None
+    browsers = {
+        "msedgehtm": (
+            "edge",
+            "Microsoft Edge",
+            "msedge.exe",
+            "Microsoft/Edge/Application",
+        ),
+        "chromehtml": (
+            "chrome",
+            "Google Chrome",
+            "chrome.exe",
+            "Google/Chrome/Application",
+        ),
+    }
+    match = browsers.get(prog_id)
+    if match is None:
+        return None
+    key, name, executable, suffix = match
+    roots = (
+        os.environ.get("PROGRAMFILES(X86)"),
+        os.environ.get("PROGRAMFILES"),
+        os.environ.get("LOCALAPPDATA"),
+    )
+    for root in roots:
+        if root and (candidate := Path(root) / suffix / executable).is_file():
+            return Browser(key, name, "chromium", (str(candidate),))
+    if command := shutil.which(executable):
+        return Browser(key, name, "chromium", (command,))
+    return None
+
+
 def browser_home(paths: Paths, browser: Browser) -> Path:
     return paths.config / "auth" / browser.key
+
+
+def _snap_application(command: tuple[str, ...]) -> str:
+    for index, token in enumerate(command):
+        if (
+            Path(token).name == "snap"
+            and index + 2 < len(command)
+            and command[index + 1] == "run"
+        ):
+            return command[index + 2]
+        if "/snap/bin/" in token:
+            return Path(token).name
+    return ""
+
+
+def _prepare_firefox_profile(profile: Path) -> None:
+    """Disable Firefox onboarding inside RiftLift's disposable profile."""
+    preferences = {
+        "browser.aboutwelcome.enabled": False,
+        "browser.shell.checkDefaultBrowser": False,
+        "browser.startup.firstrunSkipsHomepage": True,
+        "browser.startup.homepage_override.mstone": "ignore",
+        "datareporting.policy.dataSubmissionPolicyBypassNotification": True,
+        "datareporting.policy.firstRunURL": "",
+        "network.protocol-handler.external.oculus": True,
+        "network.protocol-handler.external.oculus-client": True,
+        "network.protocol-handler.warn-external.oculus": False,
+        "network.protocol-handler.warn-external.oculus-client": False,
+        "trailhead.firstrun.didSeeAboutWelcome": True,
+    }
+    lines = []
+    for name, value in preferences.items():
+        literal = str(value).lower() if isinstance(value, bool) else f'"{value}"'
+        lines.append(f'user_pref("{name}", {literal});')
+    (profile / "user.js").write_text("\n".join(lines) + "\n")
+
+
+def _prepare_chromium_profile(profile: Path) -> None:
+    target = profile / "Default/Preferences"
+    try:
+        preferences = json.loads(target.read_text())
+    except (FileNotFoundError, json.JSONDecodeError, UnicodeError):
+        preferences = {}
+    protocol_handler = preferences.setdefault("protocol_handler", {})
+    allowed = protocol_handler.setdefault("allowed_origin_protocol_pairs", {})
+    allowed["https://auth.meta.com"] = {"oculus": True, "oculus-client": True}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(preferences, separators=(",", ":")))
 
 
 def launch_browser_login(
     paths: Paths, browser: Browser, url: str = META_LOGIN_URL
 ) -> subprocess.Popen[bytes] | None:
-    if os.name == "nt":
+    """Open Meta's hosted login in the platform's browser."""
+    if os.name != "nt":
+        return subprocess.Popen(
+            [*browser.command, url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    if browser.family == "native":
         if not webbrowser.open(url):
             raise RiftLiftError("Could not open the Windows default browser")
         return None
+    home = browser_home(paths, browser)
+    home.mkdir(parents=True, exist_ok=True, mode=0o700)
+    home.chmod(0o700)
+    if snap_application := _snap_application(browser.command):
+        profile = (
+            Path.home()
+            / "snap"
+            / snap_application
+            / "common/riftlift-auth"
+            / browser.key
+        )
+        profile.mkdir(parents=True, exist_ok=True, mode=0o700)
+        marker = home / "external-profile"
+        marker.unlink(missing_ok=True)
+        marker.symlink_to(profile, target_is_directory=True)
+    else:
+        profile = home / "profile"
+        profile.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    launch_command = list(browser.command)
+    flatpak_run = next(
+        (
+            index
+            for index, token in enumerate(launch_command[:-1])
+            if Path(token).name == "flatpak" and launch_command[index + 1] == "run"
+        ),
+        None,
+    )
+    if flatpak_run is not None:
+        launch_command.insert(flatpak_run + 2, f"--filesystem={home}")
+    if browser.family == "chromium":
+        _prepare_chromium_profile(profile)
+        arguments = [
+            f"--user-data-dir={profile}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--new-window",
+            url,
+        ]
+    else:
+        _prepare_firefox_profile(profile)
+        arguments = ["--no-remote", "--profile", str(profile), url]
     return subprocess.Popen(
-        [*browser.command, url],
+        [*launch_command, *arguments],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
+    )
+
+
+def stop_browser(paths: Paths, browser: Browser, process) -> None:
+    """Stop only browser processes using RiftLift's isolated auth profile."""
+    if os.name != "nt" or browser.family != "chromium":
+        return
+    if process is not None and process.poll() is None:
+        process.terminate()
+    home = browser_home(paths, browser)
+    marker = home / "external-profile"
+    try:
+        profile = (
+            marker.resolve(strict=True) if marker.is_symlink() else home / "profile"
+        )
+    except OSError:
+        profile = home / "profile"
+    for pid in _profile_processes(profile):
+        with contextlib.suppress(OSError, ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
+
+
+def _profile_processes(profile: Path):
+    encoded_profile = os.fsencode(profile)
+    for command_line in Path("/proc").glob("[0-9]*/cmdline"):
+        try:
+            arguments = command_line.read_bytes().split(b"\0")
+            pid = int(command_line.parent.name)
+        except (OSError, ValueError):
+            continue
+        if _command_uses_profile(arguments, encoded_profile):
+            yield pid
+
+
+def _command_uses_profile(arguments: list[bytes], profile: bytes) -> bool:
+    return any(
+        argument == profile or argument.endswith(b"=" + profile)
+        for argument in arguments
     )
 
 
