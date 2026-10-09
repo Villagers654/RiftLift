@@ -270,7 +270,7 @@ class NativePresentation:
         self.hero = Artwork()
         layout.addWidget(self.hero, 1)
         self.game_name = self.label("", "game")
-        self.game_name.setWordWrap(True)
+        self.game_name.setWordWrap(False)
         title_row = QtWidgets.QHBoxLayout()
         title_row.setSpacing(8)
         title_row.addWidget(self.game_name)
