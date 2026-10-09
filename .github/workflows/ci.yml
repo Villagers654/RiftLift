@@ -288,6 +288,12 @@ jobs:
           cmake -S windows-openvr/tests -B windows-openvr/tests/build -A x64 -DOVR_INCLUDE_DIR="$pwd/Externals/LibOVR/Include"
           cmake --build windows-openvr/tests/build --config Release
           ctest --test-dir windows-openvr/tests/build -C Release --output-on-failure
+      - name: Build the simulated Touch controller test driver
+        shell: pwsh
+        run: |
+          cmake -S tests/steamvr-touch-sim -B tests/steamvr-touch-sim/build -A x64
+          cmake --build tests/steamvr-touch-sim/build --config Release
+          if (-not (Test-Path tests/steamvr-touch-sim/build/riftlift_touchsim/bin/win64/driver_riftlift_touchsim.dll)) { throw 'Touch simulator driver missing' }
       - name: Install native dependencies
         shell: pwsh
         run: |

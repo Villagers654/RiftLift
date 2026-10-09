@@ -443,7 +443,11 @@ def launch(
     if dry_run:
         print(subprocess.list2cmdline(command))
         return 0
-    if not runtime_ready(backend):
+    # openxr_environment points the game at SteamVR's OpenXR runtime when no
+    # other OpenXR runtime is registered, so that fallback counts as ready too.
+    if not runtime_ready(backend) and not (
+        backend == "openxr" and steamvr_openxr_manifest()
+    ):
         raise RiftLiftError(
             f"Configure a Windows {backend} runtime and connect the headset first"
         )

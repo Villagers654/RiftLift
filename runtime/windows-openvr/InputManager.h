@@ -188,6 +188,9 @@ protected:
 	std::vector<InputDevice*> m_InputDevices;
 
 private:
+	// IVRInput is not safe for concurrent use, and games poll input, poses and
+	// haptics from several threads while frame submission updates action state.
+	std::recursive_mutex m_Lock;
 	vr::EVRInputError m_LastError;
 	bool m_InputReady;
 	ovrPoseStatef m_LastPoses[vr::k_unMaxTrackedDeviceCount];

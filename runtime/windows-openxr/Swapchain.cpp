@@ -68,7 +68,26 @@ ovrResult ovrTextureSwapChainData::Init(XrSession session, const ovrTextureSwapC
 	TraceOculusValue("xrCreateSwapchain.height", createInfo.height);
 	TraceOculusValue("xrCreateSwapchain.arraySize", createInfo.arraySize);
 	TraceOculusValue("xrCreateSwapchain.sampleCount", createInfo.sampleCount);
-	CHK_XR(xrCreateSwapchain(session, &createInfo, &Swapchain));
+	// Runtimes differ in what they accept: SteamVR, for example, rejects
+	// mipmapped swapchains and transfer-only ones that Oculus allowed. Retry
+	// with progressively plainer requests instead of failing the session; the
+	// first attempt is exactly what the application asked for.
+	XrResult created = xrCreateSwapchain(session, &createInfo, &Swapchain);
+	if (XR_FAILED(created) && createInfo.mipCount > 1)
+	{
+		TraceXrResult("xrCreateSwapchain(mipmapped)", created);
+		createInfo.mipCount = 1;
+		created = xrCreateSwapchain(session, &createInfo, &Swapchain);
+	}
+	if (XR_FAILED(created) && !(createInfo.usageFlags & (XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
+		XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)))
+	{
+		TraceXrResult("xrCreateSwapchain(transfer-only)", created);
+		createInfo.usageFlags |= XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+		created = xrCreateSwapchain(session, &createInfo, &Swapchain);
+	}
+	CHK_XR(created);
+	TraceOculusValue("xrCreateSwapchain.createdMipCount", createInfo.mipCount);
 
 	XrSwapchainImageAcquireInfo acqInfo = XR_TYPE(SWAPCHAIN_IMAGE_ACQUIRE_INFO);
 	CHK_XR(xrAcquireSwapchainImage(Swapchain, &acqInfo, &CurrentIndex));

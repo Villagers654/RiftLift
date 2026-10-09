@@ -1,0 +1,7 @@
+{
+  "alwaysActivate": true,
+  "name": "riftlift_touchsim",
+  "directory": "",
+  "resourceOnly": false,
+  "hmd_presence": []
+}

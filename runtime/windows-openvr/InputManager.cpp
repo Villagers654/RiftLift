@@ -121,6 +121,7 @@ bool InputManager::LoadActionManifest()
 
 bool InputManager::EnsureInputReady()
 {
+	std::lock_guard<std::recursive_mutex> guard(m_Lock);
 	if (m_InputReady)
 		return true;
 	m_InputReady = LoadActionManifest();
@@ -131,6 +132,7 @@ bool InputManager::EnsureInputReady()
 
 void InputManager::UpdateInputState()
 {
+	std::lock_guard<std::recursive_mutex> guard(m_Lock);
 	// Some OpenVR-to-OpenXR runtimes expose IVRInput before their graphics
 	// session is ready to accept action sets. Do not permanently disable input
 	// because that first registration raced session creation; retry from the
@@ -154,6 +156,7 @@ void InputManager::UpdateInputState()
 
 void InputManager::UpdateConnectedControllers()
 {
+	std::lock_guard<std::recursive_mutex> guard(m_Lock);
 	EnsureInputReady();
 	uint32_t types = 0;
 	for (InputDevice* device : m_InputDevices)
@@ -166,6 +169,7 @@ void InputManager::UpdateConnectedControllers()
 
 ovrResult InputManager::SetControllerVibration(ovrSession session, ovrControllerType controllerType, float frequency, float amplitude)
 {
+	std::lock_guard<std::recursive_mutex> guard(m_Lock);
 	// Clamp the input
 	frequency = std::min(std::max(frequency, 0.0f), 1.0f);
 	amplitude = std::min(std::max(amplitude, 0.0f), 1.0f);
@@ -181,6 +185,7 @@ ovrResult InputManager::SetControllerVibration(ovrSession session, ovrController
 
 ovrResult InputManager::GetInputState(ovrSession session, ovrControllerType controllerType, ovrInputState* inputState)
 {
+	std::lock_guard<std::recursive_mutex> guard(m_Lock);
 	memset(inputState, 0, sizeof(ovrInputState));
 	// Legacy Oculus SDK applications may poll input without using the newer
 	// frame-wait API. Let that polling path drive deferred manifest setup too.
@@ -209,6 +214,7 @@ ovrResult InputManager::GetInputState(ovrSession session, ovrControllerType cont
 
 ovrResult InputManager::SubmitControllerVibration(ovrSession session, ovrControllerType controllerType, const ovrHapticsBuffer* buffer)
 {
+	std::lock_guard<std::recursive_mutex> guard(m_Lock);
 	for (InputDevice* device : m_InputDevices)
 	{
 		if (controllerType & device->GetType() && ConnectedControllers & device->GetType())
@@ -220,6 +226,7 @@ ovrResult InputManager::SubmitControllerVibration(ovrSession session, ovrControl
 
 ovrResult InputManager::GetControllerVibrationState(ovrSession session, ovrControllerType controllerType, ovrHapticsPlaybackState* outState)
 {
+	std::lock_guard<std::recursive_mutex> guard(m_Lock);
 	memset(outState, 0, sizeof(ovrHapticsPlaybackState));
 
 	for (InputDevice* device : m_InputDevices)
@@ -272,6 +279,7 @@ ovrPoseStatef InputManager::TrackedDevicePoseToOVRPose(vr::TrackedDevicePose_t p
 
 void InputManager::GetTrackingState(ovrSession session, ovrTrackingState* outState, double absTime)
 {
+	std::lock_guard<std::recursive_mutex> guard(m_Lock);
 	// Pose polling is common to old and new Oculus SDK clients, so it is the
 	// final lifecycle-independent opportunity to complete deferred actions.
 	EnsureInputReady();
@@ -323,6 +331,7 @@ void InputManager::GetTrackingState(ovrSession session, ovrTrackingState* outSta
 
 ovrResult InputManager::GetDevicePoses(ovrSession session, ovrTrackedDeviceType* deviceTypes, int deviceCount, double absTime, ovrPoseStatef* outDevicePoses)
 {
+	std::lock_guard<std::recursive_mutex> guard(m_Lock);
 	if (absTime <= 0.0)
 		absTime = ovr_GetTimeInSeconds();
 	// Get the device poses

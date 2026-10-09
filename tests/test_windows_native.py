@@ -203,6 +203,7 @@ def test_missing_runtime_stops_before_launch(paths, monkeypatch):
     for name in windows.FILES:
         (runtime / name).touch()
     monkeypatch.setattr(windows, "runtime_ready", lambda backend: False)
+    monkeypatch.setattr(windows, "steamvr_openxr_manifest", lambda: None)
     monkeypatch.setattr(
         windows.subprocess, "run", lambda *a, **k: pytest.fail("started process")
     )
@@ -501,3 +502,30 @@ def test_steamvr_sees_the_game_name_when_the_launcher_supports_it(paths):
     assert application["app_key"] == "riftlift.app." + game.app_key
     assert application["strings"]["en_us"]["name"] == "Probe Game"
     assert "/manifest" not in windows.launch_command(paths, game, "openxr")
+
+
+def test_openxr_backend_can_use_steamvr_when_nothing_is_registered(
+    paths, tmp_path, monkeypatch
+):
+    from riftlift import windows_process
+
+    steamvr = tmp_path / "SteamVR"
+    steamvr.mkdir()
+    (steamvr / "steamxr_win64.json").write_text("{}")
+    game = windows.add_local(paths, sys.executable, "Probe")
+    monkeypatch.setenv("LOCALAPPDATA", str(paths.data))
+    monkeypatch.setattr(windows, "active_openxr", lambda: None)
+    monkeypatch.setattr(windows, "active_openvr", lambda: steamvr)
+    monkeypatch.setattr(windows, "launch_command", lambda *args: ["fixture.exe"])
+    monkeypatch.setattr(windows, "install_sdk_runtime", lambda paths: paths.tools)
+    captured = []
+    monkeypatch.setattr(
+        windows_process,
+        "run_game",
+        lambda command, **kwargs: captured.append(kwargs["env"]) or 0,
+    )
+    # Automatic selection keeps SteamVR on its OpenVR interface...
+    assert windows.select_backend(game) == "openvr"
+    # ...while an explicit OpenXR launch reaches SteamVR's OpenXR runtime.
+    assert windows.launch(paths, game, "openxr") == 0
+    assert captured[0]["XR_RUNTIME_JSON"] == str(steamvr / "steamxr_win64.json")
