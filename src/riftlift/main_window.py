@@ -1011,15 +1011,6 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
                 )
                 self._render_tree()
 
-    def closeEvent(self, event):
-        if self.busy:
-            event.ignore()
-            self.status.setText(
-                f"{self.busy_label} is still running; minimize RiftLift instead"
-            )
-            return
-        super().closeEvent(event)
-
     def _append_log(self, value):
         self.log = (self.log + value)[-30000:]
         for view in list(self.log_views):
