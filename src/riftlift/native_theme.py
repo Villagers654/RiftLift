@@ -76,6 +76,10 @@ QToolButton#quiet {{ background: transparent; border: 1px solid transparent; bor
  color: {TEXT_MUTED}; font-size: 20px; padding: 3px 10px; }}
 QToolButton#quiet:hover {{ background: {CONTROL}; color: {TEXT}; }}
 QToolButton#quiet:focus {{ border: 2px solid {FOCUS}; }}
+QToolButton#square {{ background: {CONTROL}; border: 1px solid {BORDER}; border-radius: 12px;
+ color: {TEXT_SOFT}; font-size: 15px; min-width: 40px; min-height: 40px; max-width: 40px; max-height: 40px; }}
+QToolButton#square:hover {{ background: {CONTROL_HOVER}; border-color: {BORDER_STRONG}; color: {TEXT}; }}
+QToolButton#square:focus {{ border: 2px solid {FOCUS}; }}
 QToolButton::menu-indicator {{ image: none; }}
 QMenu {{ background: {CONTROL}; border: 1px solid {BORDER_STRONG}; border-radius: 10px; padding: 6px; }}
 QMenu::item {{ padding: 9px 22px; border-radius: 6px; }}

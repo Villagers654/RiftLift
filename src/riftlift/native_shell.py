@@ -23,20 +23,62 @@ def brand_icon() -> QtGui.QIcon:
     return QtGui.QIcon(str(files("riftlift").joinpath("assets/mark.svg")))
 
 
+def rounded_icon(path: str, size: int = 40, radius: float = 9) -> QtGui.QIcon:
+    """Library artwork as a rounded tile, rendered for high-DPI screens."""
+    source = QtGui.QPixmap(path)
+    if source.isNull():
+        return QtGui.QIcon()
+    scale = 3
+    tile = QtGui.QPixmap(size * scale, size * scale)
+    tile.fill(QtCore.Qt.transparent)
+    painter = QtGui.QPainter(tile)
+    painter.setRenderHint(QtGui.QPainter.Antialiasing)
+    painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
+    clip = QtGui.QPainterPath()
+    clip.addRoundedRect(QtCore.QRectF(tile.rect()), radius * scale, radius * scale)
+    painter.setClipPath(clip)
+    scaled = source.scaled(
+        tile.size(),
+        QtCore.Qt.KeepAspectRatioByExpanding,
+        QtCore.Qt.SmoothTransformation,
+    )
+    painter.drawPixmap(
+        (tile.width() - scaled.width()) // 2,
+        (tile.height() - scaled.height()) // 2,
+        scaled,
+    )
+    painter.end()
+    tile.setDevicePixelRatio(scale)
+    return QtGui.QIcon(tile)
+
+
+def key_art(pixmap: QtGui.QPixmap) -> QtGui.QPixmap:
+    """Recover the clean 16:9 key art from a Steam-style composite banner.
+
+    Composite banners (metadata._composite) centre the original at 94% height over
+    a blurred copy of itself; showing them whole looks smeared in the app.
+    """
+    if pixmap.isNull() or (pixmap.width(), pixmap.height()) != (1920, 620):
+        return pixmap
+    height = int(620 * 0.94)
+    width = round(height * 16 / 9)
+    return pixmap.copy((1920 - width) // 2, (620 - height) // 2, width, height)
+
+
 class Artwork(QtWidgets.QWidget):
     """Artwork surface with a quiet original portal fallback; no network fetches."""
 
     def __init__(self):
         super().__init__()
         self.hero = QtGui.QPixmap()
-        self.setMinimumHeight(210)
-        self.setMaximumHeight(330)
+        self.setMinimumHeight(220)
+        self.setMaximumHeight(360)
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
         )
 
     def set_artwork(self, path: str) -> None:
-        self.hero = QtGui.QPixmap(path)
+        self.hero = key_art(QtGui.QPixmap(path))
         self.update()
 
     def paintEvent(self, _event):
@@ -76,10 +118,17 @@ class Artwork(QtWidgets.QWidget):
                     scale * 0.65,
                 )
         painter.resetTransform()
-        shade = QtGui.QLinearGradient(0, 0, self.width(), 0)
-        shade.setColorAt(0, QtGui.QColor(10, 14, 22, 90))
-        shade.setColorAt(1, QtGui.QColor(10, 14, 22, 0))
+        # Settle the artwork into the page and give the card a crisp edge.
+        shade = QtGui.QLinearGradient(0, self.height() * 0.55, 0, self.height())
+        shade.setColorAt(0, QtGui.QColor(12, 17, 26, 0))
+        shade.setColorAt(1, QtGui.QColor(12, 17, 26, 150))
         painter.fillRect(self.rect(), shade)
+        painter.setClipping(False)
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 18), 1))
+        painter.setBrush(QtCore.Qt.NoBrush)
+        painter.drawRoundedRect(
+            QtCore.QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 20, 20
+        )
 
 
 class Placeholder(QtWidgets.QFrame):
@@ -199,7 +248,7 @@ class NativePresentation:
         self.tree = QtWidgets.QTreeWidget()
         self.tree.setAccessibleName(LIBRARY("title"))
         self.tree.setHeaderHidden(True)
-        self.tree.setIconSize(QtCore.QSize(36, 36))
+        self.tree.setIconSize(QtCore.QSize(40, 40))
         self.tree.setIndentation(0)
         self.tree.setRootIsDecorated(False)
         self.tree.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
@@ -280,10 +329,8 @@ class NativePresentation:
         layout.addWidget(self.hero, 1)
         self.game_name = self.label("", "game")
         self.game_name.setWordWrap(False)
-        title_row = QtWidgets.QHBoxLayout()
-        title_row.setSpacing(8)
-        title_row.addWidget(self.game_name)
-        layout.addLayout(title_row)
+        layout.addSpacing(6)
+        layout.addWidget(self.game_name)
         self.meta_row = QtWidgets.QHBoxLayout()
         self.meta = self.label("", "muted")
         self.meta.setWordWrap(True)
@@ -294,6 +341,7 @@ class NativePresentation:
             self.meta_row.addWidget(widget)
         layout.addLayout(self.meta_row)
         actions = QtWidgets.QHBoxLayout()
+        actions.setSpacing(10)
         self.launch = self.button(GAME("launch"), self.launch_game, True)
         self.install_here = self.button(GAME("install"), self.install_owned, True)
         for primary in (self.launch, self.install_here):
@@ -307,17 +355,15 @@ class NativePresentation:
         self.files_button.setIconSize(QtCore.QSize(22, 22))
         self.files_button.setAccessibleName(GAME("files"))
         self.files_button.setToolTip(GAME("files"))
-        self.files_button.setObjectName("quiet")
+        self.files_button.setObjectName("square")
         self.files_button.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.files_button.clicked.connect(self.open_folder)
-        title_row.addWidget(self.files_button, 0, QtCore.Qt.AlignVCenter)
-        title_row.addStretch()
-        actions.addStretch()
+        actions.addWidget(self.files_button)
         self.more_button = QtWidgets.QToolButton()
         self.more_button.setText("•••")
         self.more_button.setAccessibleName(SHELL("game_actions"))
         self.more_button.setToolTip(SHELL("game_actions"))
-        self.more_button.setObjectName("quiet")
+        self.more_button.setObjectName("square")
         self.more_button.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.more_button.setPopupMode(QtWidgets.QToolButton.InstantPopup)
         self.game_menu = QtWidgets.QMenu(self.more_button)
@@ -337,12 +383,16 @@ class NativePresentation:
         self.steam_status_action.setVisible(False)
         self.more_button.setMenu(self.game_menu)
         actions.addWidget(self.more_button)
+        actions.addStretch()
+        layout.addSpacing(4)
         layout.addLayout(actions)
+        layout.addSpacing(6)
         self.description_heading = self.label(GAME("about"), "section")
         self.description_heading.setParent(page)
         self.description_heading.hide()
         self.description_label = self.label("", "description")
         self.description_label.setWordWrap(True)
+        self.description_label.setMaximumWidth(760)
         self.description_label.setTextInteractionFlags(
             QtCore.Qt.TextSelectableByMouse | QtCore.Qt.TextSelectableByKeyboard
         )

@@ -38,7 +38,7 @@ from .metadata import (
     fetch_steam_catalog_metadata,
     populate_game_metadata,
 )
-from .native_shell import NativePresentation
+from .native_shell import NativePresentation, rounded_icon
 from .native_theme import STYLE
 from .pages.settings import SettingsPage
 from .playtime import format_playtime, playtime
@@ -359,7 +359,7 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
         count = item.childCount()
         item.setHidden(count == 0)
         arrow = "▾" if item.isExpanded() else "▸"
-        item.setText(0, f"{arrow} {label} ({count})")
+        item.setText(0, f"{arrow}  {label.upper()}  ·  {count}")
 
     def refresh(self, preferred=None):
         if preferred:
@@ -430,7 +430,7 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
         )
         item.setToolTip(0, game.name + version_line)
         item.setData(0, QtCore.Qt.UserRole, game)
-        icon = QtGui.QIcon(game.artwork.get("icon", ""))
+        icon = rounded_icon(game.artwork.get("icon", ""))
         if not icon.isNull():
             item.setIcon(0, icon)
         return item
@@ -458,7 +458,7 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
             item.setData(0, QtCore.Qt.UserRole, app)
             icon_path = icons.get(app.app_id)
             if icon_path:
-                item.setIcon(0, QtGui.QIcon(icon_path))
+                item.setIcon(0, rounded_icon(icon_path))
             self._owned_category.addChild(item)
         self._set_category_text(self._owned_category, LIBRARY("not_installed"))
         self.tree.blockSignals(False)
@@ -556,7 +556,7 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
             details.append(fallback[game.source])
         details.append(_playtime_text(playtime(self.paths, game.slug)))
         self.meta.setText(" • ".join(details))
-        self.hero.set_artwork(game.artwork.get("hero", ""))
+        self.hero.set_artwork(game.artwork.get("grid") or game.artwork.get("hero", ""))
         self._set_description(game.description)
         if game.source != "local" and game.description_lang != current_language():
             self._refresh_game_description(game)
