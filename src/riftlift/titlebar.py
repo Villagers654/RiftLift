@@ -9,7 +9,7 @@ def wrap_dialog(
     margins: tuple[int, int, int, int] = (26, 24, 26, 24),
 ) -> QtWidgets.QVBoxLayout:
     dialog.setWindowTitle(title)
-    dialog.setWindowFlags(dialog.windowFlags() & ~QtCore.Qt.FramelessWindowHint)
+    dialog.setWindowFlag(QtCore.Qt.FramelessWindowHint, False)
     layout = QtWidgets.QVBoxLayout(dialog)
     layout.setContentsMargins(*margins)
     return layout

@@ -48,6 +48,22 @@ def test_actual_window_fixture_does_not_start_account_or_runtime(app, monkeypatc
     widget.deleteLater()
 
 
+def test_native_title_bars_keep_close_buttons(app, window):
+    from riftlift.titlebar import wrap_dialog
+
+    dialog = QtWidgets.QDialog(window)
+    wrap_dialog(dialog, "Fixture dialog")
+    for widget in (window, dialog):
+        flags = widget.windowFlags()
+        assert flags & QtCore.Qt.WindowCloseButtonHint
+        assert not flags & QtCore.Qt.FramelessWindowHint
+        widget.show()
+        app.processEvents()
+        assert widget.close()
+        assert not widget.isVisible()
+    dialog.deleteLater()
+
+
 def test_repeated_filter_reset_and_empty_recovery(window, app):
     for _ in range(5):
         window.search.setText("ASTER")

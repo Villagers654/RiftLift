@@ -116,7 +116,7 @@ class NativePresentation:
         return widget
 
     def _build(self):
-        self.setWindowFlags(self.windowFlags() & ~QtCore.Qt.FramelessWindowHint)
+        self.setWindowFlag(QtCore.Qt.FramelessWindowHint, False)
         self.setWindowIcon(brand_icon())
         self.setMinimumSize(800, 600)
         self.resize(1200, 790)
