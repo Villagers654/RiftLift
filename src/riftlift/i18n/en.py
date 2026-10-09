@@ -215,6 +215,7 @@ STRINGS = {
         "windows_debug_logging_tooltip": "Include Windows launcher and VR bridge diagnostics in Activity.",
         "title": "Settings",
         "language": "Language",
+        "troubleshooting": "Troubleshooting",
         "debug_logging": "Debug logging",
         "debug_logging_tooltip": (
             "Capture Proton, Wine XR/Steam/Vulkan, DXVK, VKD3D, loader, and "

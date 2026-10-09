@@ -1,6 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect x="2" y="2" width="60" height="60" rx="16" fill="#142724"/>
-  <path d="M15 44V28c0-10 6-16 14-16h5v9h-5c-4 0-5 3-5 7v16Z" fill="#a1e9d6"/>
-  <path d="M49 20v16c0 10-6 16-14 16h-5v-9h5c4 0 5-3 5-7V20Z" fill="#a1e9d6"/>
-  <path d="m27 34 5-7 5 7h-3v7h-4v-7Z" fill="#fff"/>
+  <defs><linearGradient id="riftlift-blue" x1="0.15" y1="0.85" x2="0.85" y2="0.15"><stop offset="0" stop-color="#0057E7"/><stop offset="0.55" stop-color="#0A7CFF"/><stop offset="1" stop-color="#2FB3FF"/></linearGradient></defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#riftlift-blue)"/>
+  <path d="M34.83 18.24A17 17 0 0 0 26.07 50.93ZM37.93 13.07A17 17 0 0 1 29.17 45.76Z" fill="#FFFFFF"/>
 </svg>

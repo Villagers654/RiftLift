@@ -220,6 +220,7 @@ STRINGS = {
         "windows_debug_logging_tooltip": "Inclure les diagnostics du lanceur Windows et du pont VR dans Activité.",
         "title": "Paramètres",
         "language": "Langue",
+        "troubleshooting": "Dépannage",
         "debug_logging": "Journalisation détaillée",
         "debug_logging_tooltip": (
             "Capture les diagnostics Proton, Wine XR/Steam/Vulkan, DXVK, VKD3D, "

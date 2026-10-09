@@ -503,6 +503,7 @@ def test_setup_banner_button_runs_setup_and_hides_once_done(
     app.processEvents()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows installs ship the runtime")
 def test_settings_page_runs_setup(tmp_path: Path, monkeypatch) -> None:
     paths = Paths(
         tmp_path / "data",

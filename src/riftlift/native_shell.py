@@ -11,7 +11,7 @@ from importlib.resources import files
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .i18n import namespace
-from .native_theme import STYLE
+from .native_theme import BLUE_LIGHT, STYLE
 
 NAV = namespace("nav")
 GAME = namespace("game")
@@ -44,11 +44,11 @@ class Artwork(QtWidgets.QWidget):
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
         painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
         clip = QtGui.QPainterPath()
-        clip.addRoundedRect(QtCore.QRectF(self.rect()), 18, 18)
+        clip.addRoundedRect(QtCore.QRectF(self.rect()), 20, 20)
         painter.setClipPath(clip)
         background = QtGui.QLinearGradient(0, 0, self.width(), self.height())
-        background.setColorAt(0, QtGui.QColor("#142526"))
-        background.setColorAt(1, QtGui.QColor("#212b45"))
+        background.setColorAt(0, QtGui.QColor("#0d1a36"))
+        background.setColorAt(1, QtGui.QColor("#13306a"))
         painter.fillRect(self.rect(), background)
         if not self.hero.isNull():
             pixmap = self.hero.scaled(
@@ -67,7 +67,7 @@ class Artwork(QtWidgets.QWidget):
             for index in range(6, 0, -1):
                 scale = 30 + index * 22
                 painter.setPen(
-                    QtGui.QPen(QtGui.QColor(117, 223, 203, 30 + index * 9), 2)
+                    QtGui.QPen(QtGui.QColor(90, 169, 255, 30 + index * 9), 2)
                 )
                 painter.setBrush(QtCore.Qt.NoBrush)
                 painter.drawRoundedRect(
@@ -77,8 +77,8 @@ class Artwork(QtWidgets.QWidget):
                 )
         painter.resetTransform()
         shade = QtGui.QLinearGradient(0, 0, self.width(), 0)
-        shade.setColorAt(0, QtGui.QColor(12, 18, 24, 90))
-        shade.setColorAt(1, QtGui.QColor(12, 18, 24, 0))
+        shade.setColorAt(0, QtGui.QColor(10, 14, 22, 90))
+        shade.setColorAt(1, QtGui.QColor(10, 14, 22, 0))
         painter.fillRect(self.rect(), shade)
 
 
@@ -122,6 +122,7 @@ class NativePresentation:
         self.resize(1200, 790)
         self.setStyleSheet(STYLE)
         root = QtWidgets.QWidget()
+        root.setObjectName("root")
         self.setCentralWidget(root)
         outer = QtWidgets.QVBoxLayout(root)
         outer.setContentsMargins(24, 20, 24, 14)
@@ -129,10 +130,14 @@ class NativePresentation:
 
         header = QtWidgets.QHBoxLayout()
         mark = QtWidgets.QLabel()
-        mark.setPixmap(brand_icon().pixmap(38, 38))
+        mark.setPixmap(brand_icon().pixmap(36, 36))
         header.addWidget(mark)
-        header.addSpacing(6)
-        header.addWidget(self.label("RiftLift", "brand"))
+        header.addSpacing(4)
+        brand = QtWidgets.QLabel(f"Rift<span style='color:{BLUE_LIGHT}'>Lift</span>")
+        brand.setObjectName("brand")
+        brand.setTextFormat(QtCore.Qt.RichText)
+        brand.setAccessibleName("RiftLift")
+        header.addWidget(brand)
         header.addSpacing(16)
         self.now_playing_icon = QtWidgets.QLabel()
         self.now_playing_icon.setFixedSize(24, 24)
@@ -145,6 +150,8 @@ class NativePresentation:
         header.addStretch()
         self.settings_button = self.button(NAV("settings"), self._toggle_settings)
         self.signin = self.button(NAV("sign_in"), self.show_auth)
+        self.settings_button.setObjectName("ghost")
+        self.signin.setObjectName("ghost")
         header.addWidget(self.settings_button)
         header.addWidget(self.signin)
         outer.addLayout(header)
@@ -167,10 +174,12 @@ class NativePresentation:
         content.setContentsMargins(0, 0, 0, 0)
         content.setSpacing(24)
         sidebar = QtWidgets.QWidget()
-        sidebar.setMinimumWidth(210)
-        sidebar.setMaximumWidth(275)
+        sidebar.setObjectName("sidebar")
+        sidebar.setAttribute(QtCore.Qt.WA_StyledBackground, True)
+        sidebar.setMinimumWidth(250)
+        sidebar.setMaximumWidth(320)
         left = QtWidgets.QVBoxLayout(sidebar)
-        left.setContentsMargins(0, 0, 0, 0)
+        left.setContentsMargins(14, 14, 14, 14)
         left.setSpacing(12)
         heading = QtWidgets.QHBoxLayout()
         heading.addWidget(self.label(LIBRARY("title"), "section"))
@@ -287,6 +296,8 @@ class NativePresentation:
         actions = QtWidgets.QHBoxLayout()
         self.launch = self.button(GAME("launch"), self.launch_game, True)
         self.install_here = self.button(GAME("install"), self.install_owned, True)
+        for primary in (self.launch, self.install_here):
+            primary.setProperty("size", "large")
         actions.addWidget(self.launch)
         actions.addWidget(self.install_here)
         self.files_button = QtWidgets.QToolButton()
