@@ -10,6 +10,7 @@ Compatibility results are listed separately for Windows and Linux. Results can v
 | --- | --- | --- | --- | --- | --- |
 | [Aircar](https://store.steampowered.com/app/1073390/Aircar/) | Steam Oculus mode | Untested | ✅ | No | — |
 | Echo VR | Windows: original 34.4.636386.0; Linux: community PCVR installation | ✅ | ✅ | Yes, originally | Windows renders the original client's shutdown notice with hands. Online play requires the community installer and patch; follow the [Echo VR setup guide](https://gist.github.com/Villagers654/d5bf4d11f56fc60d1eab91e7bf3f41c5). Community client untested on Windows. |
+| [Epic Roller Coasters](https://www.meta.com/experiences/pcvr/epic-roller-coasters/1477883658957255/) | Meta Rift Store; Windows: 8.11.2 | ✅ | Untested | No | Windows: stereo coaster scene through OVRPlugin's OpenXR path; needs the bundled compatibility layer (installer builds). |
 | [Five Nights at Freddy's: Help Wanted](https://store.steampowered.com/app/732690/FIVE_NIGHTS_AT_FREDDYS_HELP_WANTED/) | Steam Oculus mode | Untested | ✅ | No | — |
 | [Keep Talking and Nobody Explodes](https://store.steampowered.com/app/341800/Keep_Talking_and_Nobody_Explodes/) | Steam Oculus mode | Untested | ✅ | No | — |
 | [Lone Echo](https://www.youtube.com/watch?v=2pmV2mwAV9k) | Meta Rift Store; Windows: 3.17.4 | ✅ | ✅ | Yes | Windows: stereo main menu and hands. |
@@ -21,7 +22,7 @@ Compatibility results are listed separately for Windows and Linux. Results can v
 | [The Thrill of the Fight](https://store.steampowered.com/app/494150/The_Thrill_of_the_Fight__VR_Boxing/) | Meta Rift Store | Untested | ✅ | No | Requires RiftLift 0.10.2.3 or newer for automatic legacy Unity runtime selection. |
 | [Vader Immortal: Episode I](https://www.playstation.com/en-us/games/vader-immortal-a-star-wars-vr-series/) | Meta Rift Store; Windows: 1.1.0 | ✅ | ✅ | Yes | Windows: VR settings menu and hands; simulated button input advances setup. |
 
-Windows results use the local `windows-native` development build with a simulated headset. Images were inspected from game render textures while the desktop was locked; headset presentation and full interactive gameplay remain unverified. These results do not establish compatibility for the pinned release.
+Windows results (2026-10-08) use the CI-built `windows-native` installer on SteamVR's null headset without controllers: each title presents stereo frames through the SteamVR compositor and reaches its first controller-gated screen (Vader Immortal, Lone Echo and Stormland then ask for Touch controllers). Physical-headset tracking, controller input and full gameplay remain unverified. These results do not establish compatibility for the pinned release.
 
 ## What “Oculus exclusive” means here
 

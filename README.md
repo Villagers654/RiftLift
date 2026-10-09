@@ -32,7 +32,8 @@ drivers or Monado.
 **Windows:** Windows builds produce `RiftLift-Setup-<version>-x64.exe`.
 Open the installer, choose **Install**, then launch **RiftLift** from the Start
 menu. Python, Git, administrator access, and a separate runtime download are
-not required. A desktop shortcut is optional. RiftLift selects your VR runtime
+not required. The installer is not code-signed yet, so Windows SmartScreen may
+say it "protected your PC"; choose **More info → Run anyway**. A desktop shortcut is optional. RiftLift selects your VR runtime
 automatically. Re-running the installer updates the app; Windows **Installed
 apps** can uninstall it while preserving your games and settings.
 
