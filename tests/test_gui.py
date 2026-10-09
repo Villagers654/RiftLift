@@ -375,7 +375,9 @@ def test_settings_page_is_wrapped_in_a_scroll_area(tmp_path: Path) -> None:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
 
-    scroll = window.settings_page.parentWidget().parentWidget()
+    scroll = window.settings_page.parentWidget()
+    while scroll is not None and not isinstance(scroll, QtWidgets.QScrollArea):
+        scroll = scroll.parentWidget()
     assert isinstance(scroll, QtWidgets.QScrollArea)
     assert scroll.widgetResizable()
     assert scroll is window.view_stack.widget(1)
