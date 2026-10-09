@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <dxgi.h>
 #include <Shlwapi.h>
+#include <DbgHelp.h>
 #include <string>
 #include <vector>
 #include <detours/detours.h>
@@ -260,6 +261,39 @@ void DetachDetours()
 	TraceOculusValue("DetourTransactionCommit", DetourTransactionCommit());
 }
 
+// With RiftLift's debug logging enabled, keep minidumps of fatal
+// exceptions in %TEMP%. Some crashes only reproduce without a debugger attached.
+static LONG CALLBACK WriteCrashDump(PEXCEPTION_POINTERS info)
+{
+	// Engines may handle some access violations themselves; keep a few dumps.
+	static volatile LONG written = 0;
+	DWORD code = info->ExceptionRecord->ExceptionCode;
+	if (code != EXCEPTION_ACCESS_VIOLATION && code != 0xC0000374 && code != 0xC0000409)
+		return EXCEPTION_CONTINUE_SEARCH;
+	LONG index = InterlockedIncrement(&written);
+	if (index > 3)
+		return EXCEPTION_CONTINUE_SEARCH;
+	typedef BOOL(WINAPI* WriteDump)(HANDLE, DWORD, HANDLE, MINIDUMP_TYPE,
+		PMINIDUMP_EXCEPTION_INFORMATION, PMINIDUMP_USER_STREAM_INFORMATION, PMINIDUMP_CALLBACK_INFORMATION);
+	HMODULE dbghelp = LoadLibraryW(L"dbghelp.dll");
+	auto write = dbghelp ? reinterpret_cast<WriteDump>(GetProcAddress(dbghelp, "MiniDumpWriteDump")) : nullptr;
+	wchar_t path[MAX_PATH];
+	DWORD length = GetTempPathW(MAX_PATH, path);
+	if (!write || !length || length > MAX_PATH - 64)
+		return EXCEPTION_CONTINUE_SEARCH;
+	swprintf(path + length, MAX_PATH - length, L"riftlift-crash-%lu-%ld.dmp", GetCurrentProcessId(), index);
+	HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (file != INVALID_HANDLE_VALUE)
+	{
+		MINIDUMP_EXCEPTION_INFORMATION exception = { GetCurrentThreadId(), info, FALSE };
+		write(GetCurrentProcess(), GetCurrentProcessId(), file,
+			static_cast<MINIDUMP_TYPE>(MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithThreadInfo),
+			&exception, NULL, NULL);
+		CloseHandle(file);
+	}
+	return EXCEPTION_CONTINUE_SEARCH;
+}
+
 BOOL APIENTRY DllMain(HANDLE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
 	if (DetourIsHelperProcess())
@@ -279,6 +313,8 @@ BOOL APIENTRY DllMain(HANDLE hModule, DWORD ul_reason_for_call, LPVOID lpReserve
 			sprintf_s(ovrModuleNameA, MAX_PATH, "LibOVRRT%s_%d.dll", pBitDepth, OVR_MAJOR_VERSION);
 			swprintf(ovrModuleName, MAX_PATH, L"LibOVRRT%hs_%d.dll", pBitDepth, OVR_MAJOR_VERSION);
 
+			if (getenv("RIFTLIFT_RUNTIME_TRACE"))
+				AddVectoredExceptionHandler(1, WriteCrashDump);
 			DetourRestoreAfterWith();
 			AttachDetours();
 			PatchMainExecutableImports();

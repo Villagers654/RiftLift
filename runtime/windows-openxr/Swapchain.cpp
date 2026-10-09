@@ -63,6 +63,7 @@ ovrResult ovrTextureSwapChainData::Init(XrSession session, const ovrTextureSwapC
 	TraceOculusValue("xrCreateSwapchain.ovrFormat", desc->Format);
 	TraceOculusValue("xrCreateSwapchain.format", format);
 	TraceOculusValue("xrCreateSwapchain.usageFlags", createInfo.usageFlags);
+	TraceOculusValue("xrCreateSwapchain.createFlags", createInfo.createFlags);
 	TraceOculusValue("xrCreateSwapchain.mipCount", createInfo.mipCount);
 	TraceOculusValue("xrCreateSwapchain.width", createInfo.width);
 	TraceOculusValue("xrCreateSwapchain.height", createInfo.height);
@@ -77,6 +78,13 @@ ovrResult ovrTextureSwapChainData::Init(XrSession session, const ovrTextureSwapC
 	{
 		TraceXrResult("xrCreateSwapchain(mipmapped)", created);
 		createInfo.mipCount = 1;
+		created = xrCreateSwapchain(session, &createInfo, &Swapchain);
+	}
+	if (XR_FAILED(created) && (createInfo.createFlags & XR_SWAPCHAIN_CREATE_STATIC_IMAGE_BIT))
+	{
+		// Static swapchains are optional; a regular one released once behaves the same.
+		TraceXrResult("xrCreateSwapchain(static)", created);
+		createInfo.createFlags &= ~XR_SWAPCHAIN_CREATE_STATIC_IMAGE_BIT;
 		created = xrCreateSwapchain(session, &createInfo, &Swapchain);
 	}
 	if (XR_FAILED(created) && !(createInfo.usageFlags & (XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
@@ -188,9 +196,19 @@ DXGI_FORMAT ovrTextureSwapChainData::NegotiateFormat(ovrSession session, DXGI_FO
 
 	// No runtime supports 8-bit formats without alpha, but easy to convert to one with alpha
 	if (format == DXGI_FORMAT_B8G8R8X8_UNORM)
-		return DXGI_FORMAT_B8G8R8A8_UNORM;
+		format = DXGI_FORMAT_B8G8R8A8_UNORM;
 	else if (format == DXGI_FORMAT_B8G8R8X8_UNORM_SRGB)
-		return DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+		format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+
+	// Some runtimes (SteamVR) only offer RGBA channel order. Games render into
+	// swapchains through views of the negotiated format, so the stored colors
+	// are unchanged.
+	if (format == DXGI_FORMAT_B8G8R8A8_UNORM && !session->SupportsFormat(format) &&
+		session->SupportsFormat(DXGI_FORMAT_R8G8B8A8_UNORM))
+		return DXGI_FORMAT_R8G8B8A8_UNORM;
+	if (format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB && !session->SupportsFormat(format) &&
+		session->SupportsFormat(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB))
+		return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 
 	return format;
 }
