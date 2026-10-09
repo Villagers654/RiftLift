@@ -38,6 +38,7 @@ QWidget {{ background: transparent; color: {TEXT}; font: 14px 'Segoe UI'; }}
 QMainWindow {{ background: {BACKGROUND}; }}
 QDialog {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {GLOW}, stop:0.3 {BACKGROUND}, stop:1 {BACKGROUND}); }}
 QWidget#root {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {GLOW}, stop:0.3 {BACKGROUND}, stop:1 {BACKGROUND}); }}
+QStackedWidget#content {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 16px; }}
 QWidget#sidebar {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 16px; }}
 QToolTip {{ background: {CONTROL}; color: {TEXT}; border: 1px solid {BORDER_STRONG};
  border-radius: 6px; padding: 6px 8px; }}
@@ -107,10 +108,11 @@ QCheckBox::indicator:checked {{ background: {BLUE}; border-color: {BLUE}; image:
 QCheckBox::indicator:disabled {{ background: {PANEL}; border-color: {BORDER}; }}
 
 QTreeWidget {{ background: transparent; border: 2px solid transparent; outline: 0; }}
-QTreeWidget::item {{ border: 1px solid transparent; border-radius: 10px; padding: 10px 8px; margin: 2px 0; }}
+QTreeWidget::item {{ border: 1px solid transparent; border-radius: 8px; padding: 6px 6px; margin: 1px 0; }}
 QTreeWidget::item:hover {{ background: {CONTROL}; }}
 QTreeWidget::item:selected {{ background: {SELECTION}; border-color: {SELECTION_BORDER}; color: #ffffff; }}
-QTreeWidget::item:has-children {{ color: {TEXT_MUTED}; font-size: 11px; font-weight: 600; padding-top: 12px; }}
+QTreeWidget::item:has-children {{ color: {TEXT_MUTED}; font-size: 12px; font-weight: 600; padding: 10px 6px 4px 6px; }}
+QTreeWidget::item:has-children:hover {{ background: transparent; color: {TEXT_SOFT}; }}
 
 QScrollArea, QStackedWidget {{ border: 0; background: transparent; }}
 QScrollBar:vertical {{ background: transparent; width: 8px; margin: 2px; }}

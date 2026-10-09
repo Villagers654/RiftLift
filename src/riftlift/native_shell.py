@@ -11,7 +11,7 @@ from importlib.resources import files
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .i18n import namespace
-from .native_theme import BLUE_LIGHT, STYLE
+from .native_theme import BLUE_LIGHT, CONTROL_HOVER, STYLE, TEXT_SOFT
 
 NAV = namespace("nav")
 GAME = namespace("game")
@@ -52,6 +52,28 @@ def rounded_icon(path: str, size: int = 40, radius: float = 9) -> QtGui.QIcon:
     return QtGui.QIcon(tile)
 
 
+def placeholder_icon(name: str, size: int = 34, radius: float = 8) -> QtGui.QIcon:
+    """A tile with the game's initial, keeping rows aligned when art is missing."""
+    scale = 3
+    tile = QtGui.QPixmap(size * scale, size * scale)
+    tile.fill(QtCore.Qt.transparent)
+    painter = QtGui.QPainter(tile)
+    painter.setRenderHint(QtGui.QPainter.Antialiasing)
+    painter.setPen(QtCore.Qt.NoPen)
+    painter.setBrush(QtGui.QColor(CONTROL_HOVER))
+    painter.drawRoundedRect(QtCore.QRectF(tile.rect()), radius * scale, radius * scale)
+    font = QtGui.QFont("Segoe UI")
+    font.setPixelSize(int(size * scale * 0.45))
+    font.setWeight(QtGui.QFont.DemiBold)
+    painter.setFont(font)
+    painter.setPen(QtGui.QColor(TEXT_SOFT))
+    initial = next((c for c in name if c.isalnum()), "?").upper()
+    painter.drawText(tile.rect(), QtCore.Qt.AlignCenter, initial)
+    painter.end()
+    tile.setDevicePixelRatio(scale)
+    return QtGui.QIcon(tile)
+
+
 def key_art(pixmap: QtGui.QPixmap) -> QtGui.QPixmap:
     """Recover the clean 16:9 key art from a Steam-style composite banner.
 
@@ -65,17 +87,39 @@ def key_art(pixmap: QtGui.QPixmap) -> QtGui.QPixmap:
     return pixmap.copy((1920 - width) // 2, (620 - height) // 2, width, height)
 
 
+def _top_rounded(rect: QtCore.QRectF, radius: float) -> QtGui.QPainterPath:
+    path = QtGui.QPainterPath()
+    path.moveTo(rect.left(), rect.bottom())
+    path.lineTo(rect.left(), rect.top() + radius)
+    path.arcTo(rect.left(), rect.top(), radius * 2, radius * 2, 180, -90)
+    path.lineTo(rect.right() - radius, rect.top())
+    path.arcTo(rect.right() - radius * 2, rect.top(), radius * 2, radius * 2, 90, -90)
+    path.lineTo(rect.right(), rect.bottom())
+    path.closeSubpath()
+    return path
+
+
 class Artwork(QtWidgets.QWidget):
     """Artwork surface with a quiet original portal fallback; no network fetches."""
 
     def __init__(self):
         super().__init__()
         self.hero = QtGui.QPixmap()
-        self.setMinimumHeight(220)
-        self.setMaximumHeight(360)
-        self.setSizePolicy(
-            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
+        policy = QtWidgets.QSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred
         )
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        # Banner proportions that keep the key art recognisable at any width.
+        return int(min(max(width * 0.4, 220), 380))
+
+    def sizeHint(self):
+        return QtCore.QSize(800, self.heightForWidth(800))
 
     def set_artwork(self, path: str) -> None:
         self.hero = key_art(QtGui.QPixmap(path))
@@ -85,8 +129,7 @@ class Artwork(QtWidgets.QWidget):
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
         painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
-        clip = QtGui.QPainterPath()
-        clip.addRoundedRect(QtCore.QRectF(self.rect()), 20, 20)
+        clip = _top_rounded(QtCore.QRectF(self.rect()), 15)
         painter.setClipPath(clip)
         background = QtGui.QLinearGradient(0, 0, self.width(), self.height())
         background.setColorAt(0, QtGui.QColor("#0d1a36"))
@@ -123,12 +166,6 @@ class Artwork(QtWidgets.QWidget):
         shade.setColorAt(0, QtGui.QColor(12, 17, 26, 0))
         shade.setColorAt(1, QtGui.QColor(12, 17, 26, 150))
         painter.fillRect(self.rect(), shade)
-        painter.setClipping(False)
-        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 18), 1))
-        painter.setBrush(QtCore.Qt.NoBrush)
-        painter.drawRoundedRect(
-            QtCore.QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 20, 20
-        )
 
 
 class Placeholder(QtWidgets.QFrame):
@@ -248,7 +285,7 @@ class NativePresentation:
         self.tree = QtWidgets.QTreeWidget()
         self.tree.setAccessibleName(LIBRARY("title"))
         self.tree.setHeaderHidden(True)
-        self.tree.setIconSize(QtCore.QSize(40, 40))
+        self.tree.setIconSize(QtCore.QSize(34, 34))
         self.tree.setIndentation(0)
         self.tree.setRootIsDecorated(False)
         self.tree.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
@@ -274,8 +311,11 @@ class NativePresentation:
         content.addWidget(sidebar, 1)
 
         self.stack = QtWidgets.QStackedWidget()
+        self.stack.setObjectName("content")
+        self.stack.setAttribute(QtCore.Qt.WA_StyledBackground, True)
         empty = QtWidgets.QWidget()
         empty_layout = QtWidgets.QVBoxLayout(empty)
+        empty_layout.setContentsMargins(36, 32, 36, 32)
         empty_layout.addStretch()
         empty_layout.addWidget(self.label(SHELL("welcome"), "game"))
         hint = self.label(SHELL("welcome_hint"), "description")
@@ -323,14 +363,20 @@ class NativePresentation:
     def _native_detail(self):
         page = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        # The page is a panel like the sidebar: artwork across the top edge,
+        # details padded beneath it.
+        layout.setContentsMargins(1, 1, 1, 0)
+        layout.setSpacing(0)
         self.hero = Artwork()
-        layout.addWidget(self.hero, 1)
+        layout.addWidget(self.hero)
+        body = QtWidgets.QVBoxLayout()
+        body.setContentsMargins(28, 20, 28, 24)
+        body.setSpacing(12)
+        layout.addLayout(body, 1)
         self.game_name = self.label("", "game")
         self.game_name.setWordWrap(False)
-        layout.addSpacing(6)
-        layout.addWidget(self.game_name)
+        body.addSpacing(6)
+        body.addWidget(self.game_name)
         self.meta_row = QtWidgets.QHBoxLayout()
         self.meta = self.label("", "muted")
         self.meta.setWordWrap(True)
@@ -339,7 +385,7 @@ class NativePresentation:
         self.meta_skeleton = Placeholder()
         for widget in (self.meta, self.meta_detail, self.meta_skeleton):
             self.meta_row.addWidget(widget)
-        layout.addLayout(self.meta_row)
+        body.addLayout(self.meta_row)
         actions = QtWidgets.QHBoxLayout()
         actions.setSpacing(10)
         self.launch = self.button(GAME("launch"), self.launch_game, True)
@@ -384,9 +430,9 @@ class NativePresentation:
         self.more_button.setMenu(self.game_menu)
         actions.addWidget(self.more_button)
         actions.addStretch()
-        layout.addSpacing(4)
-        layout.addLayout(actions)
-        layout.addSpacing(6)
+        body.addSpacing(4)
+        body.addLayout(actions)
+        body.addSpacing(6)
         self.description_heading = self.label(GAME("about"), "section")
         self.description_heading.setParent(page)
         self.description_heading.hide()
@@ -396,9 +442,9 @@ class NativePresentation:
         self.description_label.setTextInteractionFlags(
             QtCore.Qt.TextSelectableByMouse | QtCore.Qt.TextSelectableByKeyboard
         )
-        layout.addWidget(self.description_label)
+        body.addWidget(self.description_label)
         self.description_skeleton = Placeholder()
-        layout.addWidget(self.description_skeleton)
+        body.addWidget(self.description_skeleton)
         self.description_skeleton.hide()
         links = QtWidgets.QHBoxLayout()
         self.store_link = self.button(GAME("open_rift_store"), self.open_store)
@@ -410,8 +456,8 @@ class NativePresentation:
         self.add_steam_button.setObjectName("link")
         links.addWidget(self.add_steam_button)
         links.addStretch()
-        layout.addLayout(links)
-        layout.addStretch()
+        body.addLayout(links)
+        body.addStretch()
         return page
 
     def _filter_library(self, text=""):

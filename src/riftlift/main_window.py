@@ -38,7 +38,7 @@ from .metadata import (
     fetch_steam_catalog_metadata,
     populate_game_metadata,
 )
-from .native_shell import NativePresentation, rounded_icon
+from .native_shell import NativePresentation, placeholder_icon, rounded_icon
 from .native_theme import STYLE
 from .pages.settings import SettingsPage
 from .playtime import format_playtime, playtime
@@ -359,7 +359,7 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
         count = item.childCount()
         item.setHidden(count == 0)
         arrow = "▾" if item.isExpanded() else "▸"
-        item.setText(0, f"{arrow}  {label.upper()}  ·  {count}")
+        item.setText(0, f"{arrow}  {label}  ·  {count}")
 
     def refresh(self, preferred=None):
         if preferred:
@@ -430,9 +430,8 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
         )
         item.setToolTip(0, game.name + version_line)
         item.setData(0, QtCore.Qt.UserRole, game)
-        icon = rounded_icon(game.artwork.get("icon", ""))
-        if not icon.isNull():
-            item.setIcon(0, icon)
+        icon = rounded_icon(game.artwork.get("icon", ""), 34, 8)
+        item.setIcon(0, placeholder_icon(game.name) if icon.isNull() else icon)
         return item
 
     def _render_tree(self):
@@ -456,9 +455,8 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
         for app in not_installed:
             item = QtWidgets.QTreeWidgetItem([app.name])
             item.setData(0, QtCore.Qt.UserRole, app)
-            icon_path = icons.get(app.app_id)
-            if icon_path:
-                item.setIcon(0, rounded_icon(icon_path))
+            icon = rounded_icon(icons.get(app.app_id) or "", 34, 8)
+            item.setIcon(0, placeholder_icon(app.name) if icon.isNull() else icon)
             self._owned_category.addChild(item)
         self._set_category_text(self._owned_category, LIBRARY("not_installed"))
         self.tree.blockSignals(False)
