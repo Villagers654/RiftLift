@@ -212,3 +212,33 @@ def test_debug_logging_setting_is_private_and_persistent(tmp_path: Path) -> None
     assert marker.stat().st_mode & 0o777 == 0o600
     set_debug_logging(paths, False)
     assert not debug_logging_enabled(paths)
+
+
+def test_unreal_bootstrap_records_are_repaired_to_the_shipping_binary(
+    tmp_path: Path,
+) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    header = bytearray(0x86)
+    header[:2] = b"MZ"
+    header[0x3C] = 0x80
+    header[0x80:0x86] = b"PE\0\0\x64\x86"
+    shipping = tmp_path / "Build/Adventure/Binaries/Win64/Adventure-Win64-Shipping.exe"
+    shipping.parent.mkdir(parents=True)
+    shipping.write_bytes(header)
+    (tmp_path / "Build/Adventure.exe").write_bytes(header)
+    Game(
+        "example", "Example", "123", "key", str(tmp_path), "Build/Adventure.exe", []
+    ).save(paths)
+
+    game = Game.load(paths, "example")
+
+    assert game.executable == "Build/Adventure/Binaries/Win64/Adventure-Win64-Shipping.exe"
+    assert game.arguments == ["-vr"]
+    assert Game.load(paths, "example") == game

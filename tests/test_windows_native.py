@@ -196,6 +196,57 @@ def test_native_launch_preserves_saved_environment_without_starting_game(
     assert captured[0]["LIBOVR_DLL_DIR"] == str(paths.tools) + __import__("os").sep
 
 
+def test_platform_shim_launch_uses_a_stable_engine_valid_user_id(paths, monkeypatch):
+    from riftlift import windows_process
+
+    game = windows.add_local(paths, sys.executable, "Probe")
+    game.platform_shim = True
+    runtime = windows.runtime_dir(paths)
+    runtime.mkdir(parents=True)
+    for name in windows.PLATFORM_FILES:
+        (runtime / name).touch()
+    monkeypatch.delenv("RIFTLIFT_USER_ID", raising=False)
+    monkeypatch.setattr(windows, "launch_command", lambda *args: ["fixture.exe"])
+    monkeypatch.setattr(windows, "runtime_ready", lambda backend: True)
+    monkeypatch.setattr(windows, "install_sdk_runtime", lambda paths: paths.tools)
+    captured = []
+    monkeypatch.setattr(
+        windows_process,
+        "run_game",
+        lambda command, **kwargs: captured.append(kwargs["env"]) or 0,
+    )
+
+    windows.launch(paths, game, "openvr")
+    windows.launch(paths, game, "openvr")
+
+    # Unreal's Oculus identity rejects IDs up to 100000 as invalid.
+    assert int(captured[0]["RIFTLIFT_USER_ID"]) > 100000
+    assert captured[0]["RIFTLIFT_USER_ID"] == captured[1]["RIFTLIFT_USER_ID"]
+
+
+def test_openvr_launch_points_the_runtime_at_its_action_manifest(paths, monkeypatch):
+    from riftlift import windows_process
+
+    game = windows.add_local(paths, sys.executable, "Probe")
+    monkeypatch.delenv("RIFTLIFT_ACTION_MANIFEST", raising=False)
+    monkeypatch.setattr(windows, "launch_command", lambda *args: ["fixture.exe"])
+    monkeypatch.setattr(windows, "runtime_ready", lambda backend: True)
+    monkeypatch.setattr(windows, "install_sdk_runtime", lambda paths: paths.tools)
+    captured = []
+    monkeypatch.setattr(
+        windows_process,
+        "run_game",
+        lambda command, **kwargs: captured.append(kwargs["env"]) or 0,
+    )
+
+    windows.launch(paths, game, "openvr")
+
+    # Without it SteamVR falls back to legacy input and games get no buttons.
+    assert captured[0]["RIFTLIFT_ACTION_MANIFEST"] == str(
+        windows.runtime_dir(paths) / "Input/action_manifest.json"
+    )
+
+
 def test_missing_runtime_stops_before_launch(paths, monkeypatch):
     game = windows.add_local(paths, sys.executable, "Probe")
     runtime = windows.runtime_dir(paths)

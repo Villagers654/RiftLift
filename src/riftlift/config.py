@@ -233,9 +233,27 @@ class Game:
         # keeps that one game loadable instead of crashing the whole library.
         known = {key: item for key, item in value.items() if key in allowed}
         try:
-            return cls(**known)
+            game = cls(**known)
         except (TypeError, ValueError) as error:
             raise ValueError(f"invalid game record {target}: {error}") from error
+        return game._without_unreal_bootstrap(paths)
+
+    def _without_unreal_bootstrap(self, paths: Paths) -> Game:
+        """Repair records saved before nested Unreal layouts were detected."""
+        from .detection import unreal_shipping_for_bootstrap
+
+        shipping = unreal_shipping_for_bootstrap(self.executable_path)
+        if shipping is None:
+            return self
+        self.executable = shipping.relative_to(self.game_dir).as_posix()
+        vr_options = {"-vr", "-oculus", "-openxr", "-steamvr"}
+        if not any(argument.casefold() in vr_options for argument in self.arguments):
+            self.arguments = [*self.arguments, "-vr"]
+        try:
+            self.save(paths)
+        except OSError:
+            pass
+        return self
 
 
 def games(paths: Paths) -> list[Game]:

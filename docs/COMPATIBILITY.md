@@ -9,6 +9,7 @@ Compatibility results are listed separately for Windows and Linux. Results can v
 | Game | Build tested | Windows | Linux | Oculus exclusive? | Setup notes |
 | --- | --- | --- | --- | --- | --- |
 | [Aircar](https://store.steampowered.com/app/1073390/Aircar/) | Steam Oculus mode | Untested | ✅ | No | — |
+| [Asgard's Wrath](https://www.meta.com/experiences/pcvr/asgards-wrath/1180401875303371/) | Meta Rift Store; Windows: 1.6.0 | ✅ | Untested | Yes | — |
 | Echo VR | Windows: original 34.4.636386.0; Linux: community PCVR installation | ✅ | ✅ | Yes, originally | Online play requires the community installer and patch; follow the [Echo VR setup guide](https://gist.github.com/Villagers654/d5bf4d11f56fc60d1eab91e7bf3f41c5). |
 | [Epic Roller Coasters](https://www.meta.com/experiences/pcvr/epic-roller-coasters/1477883658957255/) | Meta Rift Store; Windows: 8.11.2 | ✅ | Untested | No | — |
 | [Five Nights at Freddy's: Help Wanted](https://store.steampowered.com/app/732690/FIVE_NIGHTS_AT_FREDDYS_HELP_WANTED/) | Steam Oculus mode | Untested | ✅ | No | — |

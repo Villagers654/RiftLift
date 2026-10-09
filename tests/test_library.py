@@ -257,6 +257,24 @@ def test_unreal_shipping_binary_is_discovered_without_an_app_allowlist(
     assert _launch_arguments(tmp_path, executable, manifest, None) == ["-log", "-vr"]
 
 
+def test_unreal_shipping_binary_is_found_below_a_packaged_build_folder(
+    tmp_path: Path,
+) -> None:
+    _pe64(tmp_path / "WindowsNoEditor/Adventure.exe")
+    _pe64(
+        tmp_path
+        / "WindowsNoEditor/Adventure/Binaries/Win64/Adventure-Win64-Shipping.exe"
+    )
+    manifest = {"launchFile": "WindowsNoEditor\Adventure.exe"}
+
+    executable = _best_executable(tmp_path, manifest, None)
+
+    assert executable == (
+        "WindowsNoEditor/Adventure/Binaries/Win64/Adventure-Win64-Shipping.exe"
+    )
+    assert _launch_arguments(tmp_path, executable, manifest, None) == ["-vr"]
+
+
 def test_manifest_executable_and_arguments_remain_authoritative_for_native_game(
     tmp_path: Path,
 ) -> None:

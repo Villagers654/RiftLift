@@ -21,6 +21,7 @@ from . import __version__
 from .config import Game, Paths, debug_logging_enabled, games
 from .detection import is_pe64
 from .util import RiftLiftError, atomic_write_bytes, atomic_write_text, download, sha256
+from .xr_runtime import platform_user_id
 
 RELEASE = "v0.10.2.2"
 PAYLOAD_SHA256 = "90f9b1b5b26ba85a25ad2dcb3707b7a17540b0d40d310148dd98fa76c3a619eb"
@@ -452,6 +453,12 @@ def launch(
             f"Configure a Windows {backend} runtime and connect the headset first"
         )
     environment = os.environ.copy()
+    if backend == "openvr":
+        # Without its action manifest the runtime registers no SteamVR actions,
+        # so SteamVR falls back to legacy input and games see no buttons.
+        environment["RIFTLIFT_ACTION_MANIFEST"] = str(
+            runtime_dir(paths) / "Input/action_manifest.json"
+        )
     environment.update(game.environment)
     # Older Platform SDK loaders concatenate the DLL name directly to this value.
     environment["LIBOVR_DLL_DIR"] = str(install_sdk_runtime(paths)) + os.sep
@@ -464,6 +471,9 @@ def launch(
             native / "LibOVRPlatformImpl64_1.dll"
         )
         environment["LIBOVR_DLL_DIR"] = str(native) + os.sep
+        # The shim's fallback ID is too small for engines that validate Oculus
+        # IDs (Unreal treats IDs up to 100000 as invalid and fails login).
+        environment["RIFTLIFT_USER_ID"] = platform_user_id(paths)
         if game.platform_offline:
             environment["RIFTLIFT_PLATFORM_OFFLINE"] = "1"
     environment.update(openxr_environment(paths, environment))

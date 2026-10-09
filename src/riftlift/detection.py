@@ -162,11 +162,29 @@ def _unity_executables(directory: Path) -> list[Path]:
 
 
 def _unreal_executables(directory: Path) -> list[Path]:
+    # Packaged builds often keep the project one folder down, beside the
+    # bootstrapper (for example WindowsNoEditor/<Project>/Binaries/Win64).
     return [
         path
-        for path in directory.glob("*/Binaries/Win64/*-Win64-Shipping.exe")
+        for pattern in (
+            "*/Binaries/Win64/*-Win64-Shipping.exe",
+            "*/*/Binaries/Win64/*-Win64-Shipping.exe",
+        )
+        for path in sorted(directory.glob(pattern))
         if is_pe64(path)
     ]
+
+
+def unreal_shipping_for_bootstrap(path: Path) -> Path | None:
+    """Return the shipping binary an Unreal bootstrapper starts, if *path* is one.
+
+    The bootstrapper relaunches the real game as a child process, which would
+    run without RiftLift's runtime, so launches must target the child directly.
+    """
+    shipping = path.parent / path.stem / "Binaries/Win64" / f"{path.stem}-Win64-Shipping.exe"
+    if path.suffix.casefold() == ".exe" and is_pe64(shipping):
+        return shipping
+    return None
 
 
 def is_unreal_shipping(path: Path) -> bool:
