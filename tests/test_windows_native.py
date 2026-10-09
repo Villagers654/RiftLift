@@ -450,3 +450,36 @@ def test_windows_download_preserves_manifest_and_enables_offline_compat(
     assert game.app_key == "publisher.test"
     assert game.arguments == ["two words"]
     assert game.platform_shim and game.platform_offline
+
+
+def test_ovrplugin_layer_and_steamvr_openxr_are_per_process(
+    paths, tmp_path, monkeypatch
+):
+    steamvr = tmp_path / "SteamVR"
+    steamvr.mkdir()
+    (steamvr / "steamxr_win64.json").write_text("{}")
+    runtime = windows.runtime_dir(paths)
+    runtime.mkdir(parents=True)
+    (runtime / windows.OPENXR_LAYER_FILE).touch()
+    monkeypatch.setattr(windows, "active_openxr", lambda: None)
+    monkeypatch.setattr(windows, "active_openvr", lambda: steamvr)
+
+    updates = windows.openxr_environment(paths, {"XR_ENABLE_API_LAYERS": "Other"})
+
+    assert updates["XR_RUNTIME_JSON"] == str(steamvr / "steamxr_win64.json")
+    assert updates["XR_ENABLE_API_LAYERS"] == (
+        windows.OPENXR_LAYER_NAME + __import__("os").pathsep + "Other"
+    )
+    manifest = Path(updates["XR_API_LAYER_PATH"]) / "riftlift-openxr-layer.json"
+    layer = json.loads(manifest.read_text())["api_layer"]
+    assert layer["name"] == windows.OPENXR_LAYER_NAME
+    assert layer["library_path"] == str(runtime / windows.OPENXR_LAYER_FILE)
+
+
+def test_registered_openxr_runtime_is_not_overridden(paths, tmp_path, monkeypatch):
+    registered = tmp_path / "runtime.json"
+    monkeypatch.setattr(windows, "active_openxr", lambda: registered)
+    monkeypatch.setattr(windows, "active_openvr", lambda: tmp_path)
+    (tmp_path / "steamxr_win64.json").write_text("{}")
+    # The pinned source payload predates the layer: launch without it.
+    assert windows.openxr_environment(paths, {}) == {}

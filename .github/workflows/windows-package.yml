@@ -47,7 +47,7 @@ jobs:
       - name: Build complete Windows native runtime
         shell: pwsh
         run: |
-          cmake -S runtime -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DBUILD_TESTING=OFF "-DDETOURS_SOURCE_DIR=$PWD/build/Detours" "-DOPENXR_SDK_SOURCE_DIR=$PWD/build/OpenXR-SDK" "-DMETA_PLATFORM_IMPL=$PWD/build/meta-runtime/LibOVRPlatformImpl64_1.dll"
+          cmake -S runtime -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" -DBUILD_TESTING=OFF "-DDETOURS_SOURCE_DIR=$PWD/build/Detours" "-DOPENXR_SDK_SOURCE_DIR=$PWD/build/OpenXR-SDK" "-DMETA_PLATFORM_IMPL=$PWD/build/meta-runtime/LibOVRPlatformImpl64_1.dll"
           if ($LASTEXITCODE -ne 0) { throw 'Native configuration failed' }
           cmake --build build/native -j 4
           if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }

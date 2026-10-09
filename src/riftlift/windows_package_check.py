@@ -14,7 +14,7 @@ def run(output: Path) -> int:
 
     from .config import Paths, games
     from .gui import main
-    from .windows import FILES, PLATFORM_FILES, runtime_dir
+    from .windows import FILES, OPENXR_LAYER_FILE, PLATFORM_FILES, runtime_dir
 
     output.mkdir(parents=True, exist_ok=True)
     app = QtWidgets.QApplication([])
@@ -32,7 +32,9 @@ def run(output: Path) -> int:
             paths = Paths.defaults()
             native = runtime_dir(paths)
             missing = sorted(
-                name for name in FILES | PLATFORM_FILES if not (native / name).is_file()
+                name
+                for name in FILES | PLATFORM_FILES | {OPENXR_LAYER_FILE}
+                if not (native / name).is_file()
             )
             result.update(
                 success=not missing,

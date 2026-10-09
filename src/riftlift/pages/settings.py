@@ -94,27 +94,17 @@ class SettingsPage(QtWidgets.QWidget):
         )
         layout.addWidget(self.debug_logging)
 
-        layout.addSpacing(20)
-        layout.addWidget(
-            self._label(
-                SETTINGS("windows_runtime_heading")
-                if os.name == "nt"
-                else SETUP("heading"),
-                "section",
-            )
-        )
-        setup_explanation = self._label(
-            SETTINGS("windows_runtime_explanation")
-            if os.name == "nt"
-            else SETUP("explanation"),
-            "muted",
-        )
-        setup_explanation.setWordWrap(True)
-        setup_explanation.setMaximumWidth(640)
-        layout.addWidget(setup_explanation)
-        run_setup = QtWidgets.QPushButton(SETUP("run"))
-        run_setup.clicked.connect(on_run_setup)
-        layout.addWidget(run_setup, alignment=QtCore.Qt.AlignLeft)
+        # Installed Windows builds carry the native runtime; the installer repairs it.
+        if os.name != "nt":
+            layout.addSpacing(20)
+            layout.addWidget(self._label(SETUP("heading"), "section"))
+            setup_explanation = self._label(SETUP("explanation"), "muted")
+            setup_explanation.setWordWrap(True)
+            setup_explanation.setMaximumWidth(640)
+            layout.addWidget(setup_explanation)
+            run_setup = QtWidgets.QPushButton(SETUP("run"))
+            run_setup.clicked.connect(on_run_setup)
+            layout.addWidget(run_setup, alignment=QtCore.Qt.AlignLeft)
 
         layout.addStretch()
 

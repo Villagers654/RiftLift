@@ -215,8 +215,6 @@ STRINGS = {
     "settings": {
         "windows_system_check_explanation": "Checks the Windows VR runtime and writes a diagnostic report to Activity.",
         "windows_debug_logging_tooltip": "Include Windows launcher and VR bridge diagnostics in Activity.",
-        "windows_runtime_heading": "Windows VR runtime",
-        "windows_runtime_explanation": "Checks and restores the native VR bridge. Keep your OpenXR runtime available and your headset connected.",
         "title": "Settings",
         "language": "Language",
         "debug_logging": "Debug logging",
