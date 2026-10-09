@@ -366,12 +366,19 @@ class StoreGameDialog(QtWidgets.QDialog):
             super().closeEvent(event)
 
     def _update_progress(self, label: str, current: int, total: int) -> None:
+        assembling = label == "Assembling files"
         if key := _PHASE_KEYS.get(label):
             label = ADD_GAME(key)
         if total > 0:
             self.progress.setRange(0, total)
             self.progress.setValue(current)
-            self.validation.setText(f"{label}: {current}/{total}")
+            self.validation.setText(
+                ADD_GAME("assembling_progress").format(
+                    label=label, done=current / 1024, total=total / 1024
+                )
+                if assembling
+                else f"{label}: {current}/{total}"
+            )
         else:
             self.progress.setRange(0, 0)
             self.validation.setText(label)

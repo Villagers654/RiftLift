@@ -262,3 +262,11 @@ def test_worker_error_detail_names_the_failed_segment_without_secrets():
     assert "securecdn" not in detail
     assert detail.startswith("DownloadError: Could not download segment abc123")
     assert "ConnectionResetError" in detail
+
+
+def test_assembly_progress_is_shown_by_size(app, dialog):
+    dialog._update_progress("Assembling files", 0, 0)
+    assert dialog.validation.text() == "Assembling files"
+    dialog._update_progress("Assembling files", 95334, 133120)
+    assert dialog.validation.text() == "Assembling files: 93.1 / 130.0 GB"
+    assert dialog.progress.maximum() == 133120

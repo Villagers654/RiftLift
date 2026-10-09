@@ -150,6 +150,7 @@ STRINGS = {
         "phase_preparing_segments": "Préparation des segments",
         "phase_downloading": "Téléchargement",
         "phase_assembling_files": "Assemblage des fichiers",
+        "assembling_progress": "{label} : {done:.1f} / {total:.1f} Go",
     },
     "local_game": {
         "title": "Ajouter un jeu VR local",

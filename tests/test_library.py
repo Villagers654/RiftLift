@@ -127,10 +127,15 @@ def test_parse_download_progress_recognizes_downloader_output_lines() -> None:
         50,
         640,
     )
+    assert parse_download_progress("Assembling and validating 601 files...") == (
+        "Assembling files",
+        0,
+        0,
+    )
     assert parse_download_progress("  files 100/601 (2.34/5.00 GiB)") == (
         "Assembling files",
-        100,
-        601,
+        2396,
+        5120,
     )
     assert parse_download_progress("Downloading Epic Roller Coasters 8.11.2...") is None
     assert parse_download_progress("") is None

@@ -147,6 +147,7 @@ STRINGS = {
         "phase_preparing_segments": "Preparing segments",
         "phase_downloading": "Downloading",
         "phase_assembling_files": "Assembling files",
+        "assembling_progress": "{label}: {done:.1f} / {total:.1f} GB",
     },
     "local_game": {
         "title": "Add a local VR game",

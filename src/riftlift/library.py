@@ -23,18 +23,30 @@ from .metadata import generate_artwork, populate_game_metadata
 from .util import RiftLiftError
 
 _SEGMENTS_PROGRESS = re.compile(r"^\s*segments (\d+)/(\d+) \(\d+ cached\)$")
-_FILES_PROGRESS = re.compile(r"^\s*files (\d+)/(\d+) \([\d.]+/[\d.]+ GiB\)$")
+_FILES_PROGRESS = re.compile(r"^\s*files \d+/\d+ \(([\d.]+)/([\d.]+) GiB\)$")
+_FILES_TOTAL = re.compile(r"^Assembling and validating \d+ files")
+_MIB_PER_GIB = 1024
 _SEGMENTS_TOTAL = re.compile(r"^Preparing (\d+) unique segments")
 
 
 def parse_download_progress(line: str) -> tuple[str, int, int] | None:
-    """Parse one line of the downloader's progress output, if it is one."""
+    """Parse one line of the downloader's progress output, if it is one.
+
+    Download progress counts segments; assembly progress counts MiB.
+    """
     if match := _SEGMENTS_TOTAL.match(line):
         return "Preparing segments", 0, int(match.group(1))
     if match := _SEGMENTS_PROGRESS.match(line):
         return "Downloading", int(match.group(1)), int(match.group(2))
+    if _FILES_TOTAL.match(line):
+        return "Assembling files", 0, 0
     if match := _FILES_PROGRESS.match(line):
-        return "Assembling files", int(match.group(1)), int(match.group(2))
+        # By size, not file count: one game archive can be most of the build.
+        return (
+            "Assembling files",
+            round(float(match.group(1)) * _MIB_PER_GIB),
+            round(float(match.group(2)) * _MIB_PER_GIB),
+        )
     return None
 
 
