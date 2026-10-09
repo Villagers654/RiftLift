@@ -41,6 +41,9 @@ riftlift-gui = "riftlift.gui:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+riftlift = ["assets/*.svg"]
+
 [tool.setuptools.dynamic]
 version = {attr = "riftlift.__version__"}
 
