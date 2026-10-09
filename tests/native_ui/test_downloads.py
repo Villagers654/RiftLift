@@ -109,6 +109,9 @@ def test_failure_recovers_controls_and_keyboard_retry(app, dialog, reason):
     assert dialog.cancel_button.isEnabled()
     if reason == "sign_in_required":
         assert "Sign in again" in dialog.validation.text()
+    if reason in {"sign_in_required", "download_failed"}:
+        # The worker's cleaned-up reason is shown so failures can be diagnosed.
+        assert f"DownloadError: fixture {reason}" in dialog.validation.text()
     (dialog.paths.cache / "mode").write_text("complete")
     QtTest.QTest.keyClick(dialog.submit, QtCore.Qt.Key_Space)
     assert wait(app, lambda: dialog.installed_game is not None)
@@ -232,4 +235,30 @@ def test_worker_classifies_auth_failure_without_exposing_url(app, dialog, monkey
     monkeypatch.setattr(sys, "stdout", output)
     assert download_worker.main() == 1
     assert "SECRET_FIXTURE" not in output.getvalue()
-    assert json.loads(output.getvalue())["reason"] == "sign_in_required"
+    event = json.loads(output.getvalue())
+    assert event["reason"] == "sign_in_required"
+    assert event["detail"].startswith("ValueError: 401 [url]")
+
+
+def test_worker_error_detail_names_the_failed_segment_without_secrets():
+    from meta_pcvr_downloader.download import DownloadError
+
+    from riftlift.download_worker import describe_error
+
+    token = "FRL" + "a" * 60
+    try:
+        try:
+            raise ConnectionResetError(
+                f"reset while reading https://securecdn.oculus.com/x?access_token={token}"
+            )
+        except ConnectionResetError as cause:
+            raise DownloadError(
+                f"Could not download segment abc123: access_token={token} {token}"
+            ) from cause
+    except DownloadError as error:
+        detail = describe_error(error)
+
+    assert token not in detail
+    assert "securecdn" not in detail
+    assert detail.startswith("DownloadError: Could not download segment abc123")
+    assert "ConnectionResetError" in detail

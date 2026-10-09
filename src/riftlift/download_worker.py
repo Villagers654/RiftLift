@@ -5,11 +5,31 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 from .config import Paths
 from .util import LineWriter
+
+_URL = re.compile(r"[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+_SECRET = re.compile(
+    r"(?i:access_token|token|blob)=[^\s&]+|\b(?:FRL|OC)[A-Za-z0-9_.|-]{20,}"
+)
+
+
+def describe_error(error: BaseException) -> str:
+    """A short, credential-free account of why a download failed.
+
+    HTTP client errors can embed signed URLs or tokens, so URLs and
+    token-shaped values are removed before the text leaves the worker.
+    """
+    cause = error.__cause__ or error.__context__
+    text = f"{type(error).__name__}: {error}"
+    if cause is not None and str(cause) and str(cause) not in str(error):
+        text += f" ({type(cause).__name__}: {cause})"
+    text = _SECRET.sub("[redacted]", _URL.sub("[url]", text))
+    return " ".join(text.split())[:300]
 
 
 def restore_worker_streams() -> None:
@@ -87,7 +107,7 @@ def main() -> int:
             )
             else "download_failed"
         )
-        emit("error", reason=reason)
+        emit("error", reason=reason, detail=describe_error(error))
         return 1
 
 

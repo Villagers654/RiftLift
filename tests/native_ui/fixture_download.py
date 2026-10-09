@@ -19,7 +19,7 @@ def emit(event, **values):
 
 
 if mode in {"sign_in_required", "download_failed"}:
-    emit("error", reason=mode)
+    emit("error", reason=mode, detail=f"DownloadError: fixture {mode}")
     raise SystemExit(1)
 if mode == "crash":
     raise SystemExit(5)

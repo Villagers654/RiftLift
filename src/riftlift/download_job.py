@@ -37,6 +37,7 @@ class DownloadJob(QtCore.QObject):
         self._buffer = b""
         self._result = None
         self._error = None
+        self.error_detail = ""
         self._pause_requested = False
         self._terminal = False
         self._finishing = False
@@ -112,6 +113,7 @@ class DownloadJob(QtCore.QObject):
                         if event["reason"] == "sign_in_required"
                         else "download_failed"
                     )
+                    self.error_detail = str(event.get("detail") or "")[:300]
                 elif kind == "warning":
                     self._warning = "steam_sync_failed"
             except (ValueError, KeyError, TypeError):

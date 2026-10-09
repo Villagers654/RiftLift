@@ -399,7 +399,14 @@ class StoreGameDialog(QtWidgets.QDialog):
                 and error in {"sign_in_required", "download_failed", "worker_failed"}
                 else "download_failed"
             )
-            self.validation.setText(ADD_GAME(key))
+            message = ADD_GAME(key)
+            detail = self._job.error_detail if self._job is not None else ""
+            if detail:
+                message += "\n" + detail
+                log = getattr(self.parent(), "_append_log", None)
+                if log is not None:
+                    log(f"\nDownload failed: {detail}\n")
+            self.validation.setText(message)
             self.submit.setFocus()
             if self._close_when_paused:
                 super().reject()
