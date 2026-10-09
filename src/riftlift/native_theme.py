@@ -39,7 +39,6 @@ QMainWindow {{ background: {BACKGROUND}; }}
 QDialog {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {GLOW}, stop:0.3 {BACKGROUND}, stop:1 {BACKGROUND}); }}
 QWidget#root {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {GLOW}, stop:0.3 {BACKGROUND}, stop:1 {BACKGROUND}); }}
 QStackedWidget#content {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 16px; }}
-QWidget#topbar {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 16px; }}
 QWidget#sidebar {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 16px; }}
 QToolTip {{ background: {CONTROL}; color: {TEXT}; border: 1px solid {BORDER_STRONG};
  border-radius: 6px; padding: 6px 8px; }}
@@ -58,11 +57,12 @@ QPushButton:disabled {{ color: {TEXT_DISABLED}; background: {PANEL}; border-colo
 QPushButton#ghost {{ background: transparent; border: 1px solid transparent; color: {TEXT_SOFT}; }}
 QPushButton#ghost:hover {{ background: {CONTROL}; border-color: {BORDER}; color: {TEXT}; }}
 QPushButton#ghost:focus {{ border: 2px solid {FOCUS}; }}
-QPushButton#tab {{ background: transparent; border: 1px solid transparent; border-radius: 9px;
- color: {TEXT_MUTED}; font-weight: 600; padding: 7px 14px; }}
-QPushButton#tab:hover {{ background: {CONTROL}; color: {TEXT}; }}
-QPushButton#tab:checked {{ background: {SELECTION}; border-color: {SELECTION_BORDER}; color: #ffffff; }}
-QPushButton#tab:focus {{ border: 2px solid {FOCUS}; }}
+QPushButton#nav {{ background: transparent; border: 1px solid transparent; border-radius: 9px;
+ color: {TEXT_SOFT}; text-align: left; padding: 8px 10px; }}
+QPushButton#nav:hover {{ background: {CONTROL}; color: {TEXT}; }}
+QPushButton#nav:checked {{ background: {SELECTION}; border-color: {SELECTION_BORDER}; color: #ffffff; }}
+QPushButton#nav:focus {{ border: 2px solid {FOCUS}; }}
+QFrame#divider {{ background: {BORDER}; border: 0; }}
 QPushButton#primary {{ background: {ACCENT_GRADIENT}; color: #ffffff; border: 1px solid {BLUE};
  font-weight: 700; min-width: 100px; }}
 QPushButton#primary:hover {{ background: {ACCENT_GRADIENT_HOVER}; border-color: {BLUE_LIGHT}; }}

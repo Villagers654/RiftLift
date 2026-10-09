@@ -287,14 +287,25 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
     def _finish_system_status_check(self, healthy: bool, message: str) -> None:
         self.settings_page.set_status(healthy, message)
 
+    def _toggle_settings(self):
+        if self.view_stack.currentIndex() == 1:
+            self._leave_settings()
+        else:
+            self.show_settings()
+
     def show_settings(self):
         self.view_stack.setCurrentIndex(1)
         self.settings_button.setChecked(True)
         self._check_system_status()
 
+    def _return_to_library(self, item, _column=0):
+        # Picking a game from the sidebar while Settings is open shows that game.
+        if self.view_stack.currentIndex() == 1 and item.parent() is not None:
+            self._leave_settings()
+
     def _leave_settings(self):
         self.view_stack.setCurrentIndex(0)
-        self.library_tab.setChecked(True)
+        self.settings_button.setChecked(False)
         (self.tree if self.tree.currentItem() else self.search).setFocus()
 
     def _confirm_language_change(self, code: str) -> bool:

@@ -34,7 +34,7 @@ class SettingsPage(QtWidgets.QWidget):
         self.paths = paths
         self._on_language_change = on_language_change
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setContentsMargins(4, 4, 8, 8)
         layout.setSpacing(16)
         layout.setAlignment(QtCore.Qt.AlignTop)
 
