@@ -44,6 +44,9 @@ to your app menu. Run a newer installer to update.
 
 1. **Sign in.** Click **Sign In** and finish Meta's sign-in page in your browser.
    Your password and security codes go only to Meta.
+   To add games from another Meta account, open **Account** and click
+   **Add another account**; games owned by every signed-in account appear
+   together in your library.
 
    ![Sign in to Meta](docs/images/riftlift-account.png)
 
@@ -71,7 +74,9 @@ to your app menu. Run a newer installer to update.
 
 - **Command line** (Linux): `riftlift login`, `riftlift add <store-url>`,
   `riftlift list`, `riftlift launch <game>` and `riftlift doctor` mirror the app.
-  Run `riftlift --help` for everything else.
+  Run `riftlift login` again to add another account; `riftlift accounts` and
+  `riftlift logout [account]` manage them. Run `riftlift --help` for everything
+  else.
 
 ## Troubleshooting
 

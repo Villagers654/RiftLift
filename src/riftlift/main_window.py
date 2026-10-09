@@ -12,7 +12,7 @@ from collections.abc import Callable
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from .auth import is_signed_in, runtime_access_token
+from .auth import accounts, owned_apps
 from .auth_ui import AuthDialog
 from .config import Game, Paths, games, language_preference, set_language_preference
 from .desktop_services import (
@@ -26,7 +26,7 @@ from .desktop_services import (
     supports_steam_import,
     supports_steam_shortcuts,
 )
-from .entitlements import OwnedApp, list_owned_pcvr_apps
+from .entitlements import OwnedApp
 from .game_ui import LaunchOptionsDialog, LocalGameDialog, StoreGameDialog
 from .i18n import LANGUAGES, current_language, namespace, set_language
 from .library import remove
@@ -197,9 +197,7 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
         self.steam_games.setVisible(supports_steam_import())
         if not start_services:
             return
-        self.signin.setText(
-            NAV("account") if is_signed_in(self.paths) else NAV("sign_in")
-        )
+        self._update_signin_label()
         self.refresh()
         try:
             runtime_setup_needed = needs_setup(self.paths)
@@ -385,13 +383,28 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
 
     def show_auth(self):
         dialog = AuthDialog(self.paths, self)
-        if dialog.exec() == QtWidgets.QDialog.Accepted and dialog.completed:
+        dialog.exec()
+        signed_in = bool(accounts(self.paths))
+        if dialog.completed:
             self.status.setText(STATUS("signed_in"))
-            self.refresh_owned()
-        elif not is_signed_in(self.paths):
+        elif not signed_in:
             self.status.setText(STATUS("signed_out"))
+        if dialog.changed and signed_in:
+            self.refresh_owned()
+        elif dialog.changed:
+            # Nobody is signed in any more, so nothing is owned.
+            self.owned = []
+            self._render_tree()
+        self._update_signin_label()
+
+    def _update_signin_label(self):
+        count = len(accounts(self.paths))
         self.signin.setText(
-            NAV("account") if is_signed_in(self.paths) else NAV("sign_in")
+            NAV("sign_in")
+            if count == 0
+            else NAV("account")
+            if count == 1
+            else NAV("accounts").format(count=count)
         )
 
     def steam_dialog(self):
@@ -894,8 +907,9 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
         def worker():
             try:
                 with contextlib.redirect_stdout(Output(self.events.output.emit)):
-                    token = runtime_access_token(self.paths)
-                    owned = list_owned_pcvr_apps(token)
+                    owned, failures = owned_apps(self.paths)
+                    for failure in failures:
+                        print(f"Could not read a Meta account's games: {failure}")
                     icons = {
                         app.app_id: fetch_owned_icon(self.paths, app.app_id)
                         for app in owned

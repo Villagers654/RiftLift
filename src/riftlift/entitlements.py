@@ -79,3 +79,24 @@ def list_owned_pcvr_apps(token: str) -> list[OwnedApp]:
             f"skipped by platform: {skipped_platforms}"
         )
     return sorted(apps, key=lambda app: app.name.lower())
+
+
+def fetch_account_identity(token: str) -> tuple[str, str] | None:
+    """Return Meta's (user ID, display name) for a token, or None if unknown.
+
+    Only used to tell accounts apart, so any failure just leaves the account
+    keyed by its token.
+    """
+    query = urllib.parse.urlencode({"access_token": token, "fields": "id,alias"})
+    try:
+        with urllib.request.urlopen(
+            f"https://graph.oculus.com/me?{query}", timeout=15
+        ) as response:
+            payload = json.loads(
+                read_limited(response, 1024 * 1024, "Meta account details")
+            )
+    except (OSError, TimeoutError, ValueError, RiftLiftError):
+        return None
+    if not isinstance(payload, dict) or not payload.get("id"):
+        return None
+    return f"meta-{payload['id']}", str(payload.get("alias") or "")

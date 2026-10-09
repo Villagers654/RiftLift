@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__, doctor_components, doctor_system
-from .auth import is_signed_in
+from .auth import accounts
 from .config import Game, Paths, games
 from .detection import (
     is_unity_player,
@@ -612,12 +612,14 @@ def _meta_checks(paths: Paths) -> list[Check]:
             f"{sum(path.is_file() for path in platform_files)}/{len(platform_files)} files",
         )
     )
-    signed_in = is_signed_in(paths)
+    signed_in = len(accounts(paths))
     checks.append(
         (
             "Meta sign-in",
-            signed_in,
-            "signed in (credential cached)" if signed_in else "signed out",
+            signed_in > 0,
+            f"signed in ({signed_in} account{'s' if signed_in != 1 else ''} cached)"
+            if signed_in
+            else "signed out",
         )
     )
     return checks

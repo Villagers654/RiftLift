@@ -74,7 +74,7 @@ def test_finalization_is_acknowledged_before_install_record_and_metadata(
         )
     )
     build = SimpleNamespace(app_name="Fixture game", version="1")
-    monkeypatch.setattr(library, "runtime_access_token", lambda paths: "FIXTURE")
+    monkeypatch.setattr(library, "account_tokens", lambda *_args: ["FIXTURE"])
     monkeypatch.setattr(library, "list_builds", lambda *args: [build])
     monkeypatch.setattr(library, "select_build", lambda *args: build)
     monkeypatch.setattr(
@@ -355,3 +355,35 @@ def test_add_local_rejects_executable_outside_selected_root(tmp_path: Path) -> N
         assert "inside the local game folder" in str(error)
     else:
         raise AssertionError("outside executable was accepted")
+
+
+def test_install_falls_back_to_another_signed_in_account(tmp_path, monkeypatch):
+    from riftlift import library
+
+    paths = Paths(
+        *(
+            tmp_path / name
+            for name in ("data", "cache", "config", "games", "prefix", "tools")
+        )
+    )
+    build = SimpleNamespace(app_name="Fixture game", version="1")
+    monkeypatch.setattr(library, "account_tokens", lambda *_args: ["OTHER", "OWNER"])
+    monkeypatch.setattr(library, "list_builds", lambda *args: [build])
+    monkeypatch.setattr(library, "select_build", lambda *args: build)
+
+    def manifest(token, _build):
+        if token != "OWNER":
+            raise DownloadError("403 not entitled")
+        return {"launchFile": "game.exe"}
+
+    monkeypatch.setattr(library, "fetch_manifest", manifest)
+
+    assert library._owned_build(paths, "1", None) == (
+        "OWNER",
+        build,
+        {"launchFile": "game.exe"},
+    )
+
+    monkeypatch.setattr(library, "account_tokens", lambda *_args: ["OTHER"])
+    with pytest.raises(DownloadError, match="not entitled"):
+        library._owned_build(paths, "1", None)

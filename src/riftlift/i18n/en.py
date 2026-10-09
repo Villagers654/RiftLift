@@ -45,6 +45,7 @@ STRINGS = {
     "nav": {
         "settings": "Settings",
         "account": "Account",
+        "accounts": "Accounts ({count})",
         "sign_in": "Sign In",
         "steam_games": "Steam Games",
         "add_game": "Add Game",
@@ -196,7 +197,12 @@ STRINGS = {
             "and security codes go only to Meta."
         ),
         "open_browser": "Open default browser",
-        "sign_out_reset": "Sign out and reset",
+        "sign_out_all": "Sign out of all accounts",
+        "sign_out": "Sign out",
+        "sign_out_named": "Sign out {name}",
+        "unnamed_account": "Meta account {number}",
+        "add_account": "Add another account",
+        "signed_in_many": "RiftLift is signed in to {count} Meta accounts. Games owned by any of them appear in your library.",
         "signed_in": "RiftLift is signed in to Meta.",
         "opening_browser": "Opening your default browser…",
         "preparing": "Preparing a secure Meta sign-in…",

@@ -22,6 +22,14 @@ def _assume_compatibility_runtime_is_ready(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_meta_account_lookup(monkeypatch):
+    """Keep sign-in tests from asking Meta who a fixture token belongs to."""
+    monkeypatch.setattr(
+        "riftlift.entitlements.fetch_account_identity", lambda _token: None
+    )
+
+
+@pytest.fixture(autouse=True)
 def _english_ui_language():
     """Keep assertions on English UI text stable regardless of the host locale."""
     set_language("en")

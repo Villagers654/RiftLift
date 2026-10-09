@@ -4,11 +4,17 @@ from types import SimpleNamespace
 
 import pytest
 
+from riftlift import auth
 from riftlift.auth import (
-    clear_login,
+    account_tokens,
+    accounts,
     complete_browser_login,
     login,
+    owned_apps,
+    prepare_login,
+    record_owned,
     runtime_access_token,
+    save_access_token,
     sign_out,
 )
 from riftlift.auth_browser import (
@@ -20,6 +26,7 @@ from riftlift.auth_browser import (
     launch_browser_login,
 )
 from riftlift.config import Paths
+from riftlift.entitlements import OwnedApp
 from riftlift.util import RiftLiftError
 
 
@@ -171,28 +178,125 @@ def test_browser_login_imports_and_protects_the_token(
     token = "FRL" + "a" * 176
     session = SimpleNamespace(complete=lambda: token)
 
-    assert complete_browser_login(paths, session) == token
-    target = paths.config / "meta-access-token"
-    assert target.read_text().strip() == token
+    assert complete_browser_login(paths, session).token == token
+    target = paths.config / "meta-accounts.json"
+    assert token in target.read_text()
     if os.name != "nt":
         assert target.stat().st_mode & 0o777 == 0o600
 
 
-def test_new_login_keeps_browser_session_until_explicit_sign_out(
+def test_first_login_keeps_browser_session_until_explicit_sign_out(
     tmp_path: Path,
 ) -> None:
     paths = paths_in(tmp_path)
     profile = paths.config / "auth/edge/profile"
     profile.mkdir(parents=True)
     (profile / "Preferences").write_text("{}")
-    (paths.config / "meta-access-token").write_text("FRL" + "a" * 176)
 
-    clear_login(paths)
+    prepare_login(paths)
 
-    assert not (paths.config / "meta-access-token").exists()
     assert (profile / "Preferences").exists()
     sign_out(paths)
     assert not profile.exists()
+
+
+def test_adding_an_account_keeps_existing_accounts_but_resets_the_profile(
+    tmp_path: Path,
+) -> None:
+    paths = paths_in(tmp_path)
+    profile = paths.config / "auth/edge/profile"
+    profile.mkdir(parents=True)
+    save_access_token(paths, "FRL" + "a" * 176)
+
+    prepare_login(paths)
+
+    # Meta must ask which account to use, not reconfirm the remembered one.
+    assert not profile.exists()
+    assert [account.token for account in accounts(paths)] == ["FRL" + "a" * 176]
+
+
+def test_accounts_are_added_replaced_and_signed_out_individually(
+    tmp_path: Path,
+) -> None:
+    paths = paths_in(tmp_path)
+    first = save_access_token(paths, "FRL" + "a" * 176, ("meta-1", "Alpha"))
+    save_access_token(paths, "FRL" + "b" * 176, ("meta-2", "Beta"))
+    # Signing the same Meta user in again refreshes its token in place.
+    save_access_token(paths, "FRL" + "c" * 176, ("meta-1", ""))
+
+    signed_in = accounts(paths)
+    assert [(a.id, a.name, a.token[3]) for a in signed_in] == [
+        ("meta-1", "Alpha", "c"),
+        ("meta-2", "Beta", "b"),
+    ]
+    assert runtime_access_token(paths) == "FRL" + "c" * 176
+
+    sign_out(paths, first.id)
+    assert [account.id for account in accounts(paths)] == ["meta-2"]
+    sign_out(paths, "meta-2")
+    assert accounts(paths) == []
+    assert not (paths.config / "meta-accounts.json").exists()
+
+
+def test_legacy_single_token_becomes_the_first_account(tmp_path: Path) -> None:
+    paths = paths_in(tmp_path)
+    paths.config.mkdir(parents=True)
+    (paths.config / "meta-access-token").write_text("FRL" + "a" * 176 + "\n")
+
+    save_access_token(paths, "FRL" + "b" * 176, ("meta-2", "Beta"))
+
+    assert [account.token[3] for account in accounts(paths)] == ["a", "b"]
+    assert not (paths.config / "meta-access-token").exists()
+
+
+def test_install_tokens_prefer_the_account_that_owns_the_app(tmp_path: Path) -> None:
+    paths = paths_in(tmp_path)
+    save_access_token(paths, "FRL" + "a" * 176, ("meta-1", "Alpha"))
+    save_access_token(paths, "FRL" + "b" * 176, ("meta-2", "Beta"))
+    record_owned(paths, "meta-2", ["42"])
+
+    assert [token[3] for token in account_tokens(paths, "42")] == ["b", "a"]
+    assert [token[3] for token in account_tokens(paths, "7")] == ["a", "b"]
+
+
+def test_signed_out_install_tokens_explain_how_to_sign_in(tmp_path: Path) -> None:
+    with pytest.raises(RiftLiftError, match="signed out"):
+        account_tokens(paths_in(tmp_path))
+
+
+def test_owned_apps_merges_accounts_and_reports_partial_failures(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = paths_in(tmp_path)
+    save_access_token(paths, "FRL" + "a" * 176, ("meta-1", "Alpha"))
+    save_access_token(paths, "FRL" + "b" * 176, ("meta-2", "Beta"))
+    save_access_token(paths, "FRL" + "c" * 176, ("meta-3", ""))
+    shared = OwnedApp("1", "Shared", "shared")
+    libraries = {
+        "a": [shared, OwnedApp("2", "Alpha only", "alpha")],
+        "b": [OwnedApp("3", "beta only", "beta"), shared],
+    }
+
+    def list_owned(token):
+        if token[3] not in libraries:
+            raise RiftLiftError("expired")
+        return libraries[token[3]]
+
+    monkeypatch.setattr(auth.entitlements, "list_owned_pcvr_apps", list_owned)
+
+    owned, failures = owned_apps(paths)
+
+    assert [app.app_id for app in owned] == ["2", "3", "1"]
+    assert failures == ["Meta account 3: expired"]
+    assert {a.id: a.owned for a in accounts(paths)} == {
+        "meta-1": ["1", "2"],
+        "meta-2": ["1", "3"],
+        "meta-3": [],
+    }
+
+    libraries.clear()
+    with pytest.raises(RiftLiftError, match="expired"):
+        owned_apps(paths)
 
 
 def test_runtime_access_token_returns_the_persisted_login(tmp_path: Path) -> None:
@@ -255,8 +359,11 @@ def test_sign_out_removes_only_riftlift_auth_state(tmp_path: Path) -> None:
     unrelated = paths.config / "settings.json"
     unrelated.write_text("keep")
 
+    save_access_token(paths, "FRL" + "a" * 176)
+
     sign_out(paths)
 
     assert not token.exists()
+    assert not (paths.config / "meta-accounts.json").exists()
     assert not (paths.config / "auth").exists()
     assert unrelated.read_text() == "keep"

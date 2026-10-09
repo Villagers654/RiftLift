@@ -8,10 +8,15 @@ import shutil
 from collections.abc import Callable
 from pathlib import Path
 
-from meta_pcvr_downloader.api import list_builds, parse_app_id, select_build
-from meta_pcvr_downloader.download import Downloader, fetch_manifest
+from meta_pcvr_downloader.api import (
+    MetaApiError,
+    list_builds,
+    parse_app_id,
+    select_build,
+)
+from meta_pcvr_downloader.download import Downloader, DownloadError, fetch_manifest
 
-from .auth import runtime_access_token
+from .auth import account_tokens
 from .config import Game, Paths
 from .detection import best_windows_executable, is_unreal_shipping
 from .metadata import generate_artwork, populate_game_metadata
@@ -106,6 +111,22 @@ def _launch_arguments(
     return arguments
 
 
+def _owned_build(
+    paths: Paths, app_id: str, build_selector: str | None
+) -> tuple[str, object, dict]:
+    """Find a signed-in account that may download the app and its manifest."""
+    failure: Exception | None = None
+    for token in account_tokens(paths, app_id):
+        try:
+            build = select_build(list_builds(token, app_id), build_selector)
+            return token, build, fetch_manifest(token, build)
+        except (DownloadError, MetaApiError) as error:
+            # Another signed-in account may own it; keep the first reason.
+            failure = failure or error
+    assert failure is not None
+    raise failure
+
+
 def add(
     paths: Paths,
     app: str,
@@ -119,12 +140,10 @@ def add(
     paths.create()
     app_id = parse_app_id(app)
     print("Reading your persistent RiftLift Meta login...")
-    token = runtime_access_token(paths)
-    build = select_build(list_builds(token, app_id), build_selector)
+    token, build, manifest = _owned_build(paths, app_id, build_selector)
     slug = slugify(build.app_name)
     directory = paths.games / slug
     print(f"Downloading {build.app_name} {build.version}...")
-    manifest = fetch_manifest(token, build)
     workers = default_download_workers() if jobs is None else jobs
     print(f"Using {workers} download workers.")
     Downloader(

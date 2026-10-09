@@ -7,7 +7,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 
 from PySide6 import QtCore, QtWidgets
 
-from .auth import clear_login, is_signed_in, save_access_token, sign_out
+from .auth import accounts, complete_browser_login, prepare_login, sign_out
 from .auth_browser import default_browser, launch_browser_login, stop_browser
 from .config import Paths
 from .i18n import namespace
@@ -33,6 +33,7 @@ class AuthDialog(QtWidgets.QDialog):
             max_workers=1, thread_name_prefix="meta-auth"
         )
         self.completed = False
+        self.changed = False
         self.setWindowTitle(AUTH("title"))
         self.setMinimumWidth(520)
         self.setStyleSheet(STYLE)
@@ -51,6 +52,10 @@ class AuthDialog(QtWidgets.QDialog):
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
 
+        self.account_list = QtWidgets.QVBoxLayout()
+        self.account_list.setSpacing(6)
+        layout.addLayout(self.account_list)
+
         self.status = QtWidgets.QLabel()
         self.status.setObjectName("muted")
         self.status.setWordWrap(True)
@@ -61,28 +66,61 @@ class AuthDialog(QtWidgets.QDialog):
         self.retry.clicked.connect(self.start)
         layout.addWidget(self.retry)
 
-        self.reset = QtWidgets.QPushButton(AUTH("sign_out_reset"))
-        self.reset.clicked.connect(self.reset_login)
+        self.reset = QtWidgets.QPushButton(AUTH("sign_out_all"))
+        self.reset.clicked.connect(self._reset_clicked)
         layout.addWidget(self.reset)
 
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(900)
         self.timer.timeout.connect(self.check_login)
         self.show_state()
-        if not is_signed_in(self.paths):
+        if not accounts(self.paths):
+            self.status.setText(AUTH("opening_browser"))
+            self.retry.setVisible(False)
             QtCore.QTimer.singleShot(0, self.start)
 
+    def show_accounts(self):
+        """Rebuild one row per signed-in account, each with its own sign-out."""
+        while self.account_list.count():
+            row = self.account_list.takeAt(0).widget()
+            if row is not None:
+                row.deleteLater()
+        for number, account in enumerate(accounts(self.paths), 1):
+            row = QtWidgets.QWidget()
+            row_layout = QtWidgets.QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            name = QtWidgets.QLabel(
+                account.name or AUTH("unnamed_account").format(number=number)
+            )
+            row_layout.addWidget(name, 1)
+            remove = QtWidgets.QPushButton(AUTH("sign_out"))
+            remove.setAccessibleName(AUTH("sign_out_named").format(name=name.text()))
+            remove.setProperty("account_id", account.id)
+            remove.clicked.connect(self._sign_out_clicked)
+            row_layout.addWidget(remove)
+            self.account_list.addWidget(row)
+
     def show_state(self):
-        signed_in = is_signed_in(self.paths)
-        self.status.setText(AUTH("signed_in") if signed_in else AUTH("opening_browser"))
-        self.retry.setVisible(False)
-        self.reset.setVisible(signed_in)
+        """Show the idle account list and the actions that fit it."""
+        self.show_accounts()
+        count = len(accounts(self.paths))
+        self.status.setText(
+            AUTH("signed_out")
+            if count == 0
+            else AUTH("signed_in")
+            if count == 1
+            else AUTH("signed_in_many").format(count=count)
+        )
+        self.retry.setText(AUTH("add_account") if count else AUTH("open_browser"))
+        self.retry.setVisible(True)
+        self.reset.setText(AUTH("sign_out_all"))
+        self.reset.setVisible(count > 1)
 
     def start(self):
         self.process = None
         try:
             browser = default_browser()
-            clear_login(self.paths)
+            prepare_login(self.paths)
         except Exception as error:
             self.show_error(error)
             return
@@ -123,7 +161,9 @@ class AuthDialog(QtWidgets.QDialog):
     def _check_callback(self):
         if self.session is not None and self.session.callback_ready():
             self.operation = "complete"
-            self.pending = self.executor.submit(self.session.complete)
+            self.pending = self.executor.submit(
+                complete_browser_login, self.paths, self.session
+            )
             self.status.setText(AUTH("finishing"))
         elif self.process is not None and self.process.poll() not in (None, 0):
             self.show_error(AUTH("browser_open_failed"))
@@ -132,15 +172,16 @@ class AuthDialog(QtWidgets.QDialog):
         if self.pending is None or not self.pending.done():
             return
         try:
-            token = self.pending.result()
+            self.pending.result()
         except Exception as error:
             self.show_error(error)
         else:
-            save_access_token(self.paths, token)
             self.timer.stop()
             self.operation = "idle"
             self.pending = None
             self.completed = True
+            self.changed = True
+            self.show_accounts()
             self.status.setText(AUTH("signed_in_returning"))
             self._stop_browser()
             QtCore.QTimer.singleShot(500, self.accept)
@@ -153,24 +194,39 @@ class AuthDialog(QtWidgets.QDialog):
         self.status.setText(str(error))
         self.retry.setText(AUTH("try_again"))
         self.retry.setVisible(True)
-        self.reset.setText(AUTH("sign_out_reset"))
         self.reset.setVisible(False)
 
-    def reset_login(self):
+    def _reset_clicked(self):
+        if self.operation == "idle":
+            self.sign_out_all()
+        else:
+            self.cancel_login()
+
+    def cancel_login(self):
+        """Abandon the sign-in in progress; signed-in accounts stay."""
         self.timer.stop()
         self._stop_browser()
-        sign_out(self.paths)
         self.browser = None
         self.session = None
         if self.pending is not None:
             self.pending.cancel()
         self.pending = None
         self.operation = "idle"
-        self.reset.setText(AUTH("sign_out_reset"))
-        self.reset.setVisible(False)
-        self.retry.setText(AUTH("open_browser"))
-        self.retry.setVisible(True)
-        self.status.setText(AUTH("signed_out"))
+        self.show_state()
+
+    def _sign_out_clicked(self):
+        self.sign_out_account(self.sender().property("account_id"))
+
+    def sign_out_account(self, account_id: str):
+        sign_out(self.paths, account_id)
+        self.changed = True
+        self.show_state()
+
+    def sign_out_all(self):
+        self.cancel_login()
+        sign_out(self.paths)
+        self.changed = True
+        self.show_state()
 
     def accept(self):
         self.timer.stop()

@@ -11,6 +11,7 @@ if os.name != "nt":
 
 from PySide6 import QtWidgets
 
+from riftlift.auth import accounts
 from riftlift.auth_browser import Browser
 from riftlift.auth_ui import AuthDialog
 from riftlift.cli import parser
@@ -186,10 +187,7 @@ def test_window_auto_runs_setup_when_the_compatibility_runtime_is_not_ready(
     )
     paths.create()
     monkeypatch.setattr("riftlift.main_window.needs_setup", lambda _paths: True)
-    monkeypatch.setattr(
-        "riftlift.main_window.runtime_access_token", lambda _paths: "tok"
-    )
-    monkeypatch.setattr("riftlift.main_window.list_owned_pcvr_apps", lambda _token: [])
+    monkeypatch.setattr("riftlift.main_window.owned_apps", lambda _paths: ([], []))
     calls = []
     monkeypatch.setattr("riftlift.main_window.setup", lambda _paths: calls.append(1))
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
@@ -398,10 +396,7 @@ def test_settings_page_runs_the_system_check(tmp_path: Path, monkeypatch) -> Non
     paths.create()
     calls = []
     monkeypatch.setattr("riftlift.main_window.doctor", lambda _paths: calls.append(1))
-    monkeypatch.setattr(
-        "riftlift.main_window.runtime_access_token", lambda _paths: "tok"
-    )
-    monkeypatch.setattr("riftlift.main_window.list_owned_pcvr_apps", lambda _token: [])
+    monkeypatch.setattr("riftlift.main_window.owned_apps", lambda _paths: ([], []))
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
 
@@ -430,10 +425,7 @@ def test_setup_banner_shows_only_when_the_runtime_needs_setup(
         tmp_path / "tools",
     )
     paths.create()
-    monkeypatch.setattr(
-        "riftlift.main_window.runtime_access_token", lambda _paths: "tok"
-    )
-    monkeypatch.setattr("riftlift.main_window.list_owned_pcvr_apps", lambda _token: [])
+    monkeypatch.setattr("riftlift.main_window.owned_apps", lambda _paths: ([], []))
     monkeypatch.setattr("riftlift.main_window.needs_setup", lambda _paths: True)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
@@ -464,10 +456,7 @@ def test_setup_banner_button_runs_setup_and_hides_once_done(
         tmp_path / "tools",
     )
     paths.create()
-    monkeypatch.setattr(
-        "riftlift.main_window.runtime_access_token", lambda _paths: "tok"
-    )
-    monkeypatch.setattr("riftlift.main_window.list_owned_pcvr_apps", lambda _token: [])
+    monkeypatch.setattr("riftlift.main_window.owned_apps", lambda _paths: ([], []))
     monkeypatch.setattr("riftlift.main_window._themed_error", lambda *a: None)
     needed = [True]
     monkeypatch.setattr("riftlift.main_window.needs_setup", lambda _paths: needed[0])
@@ -520,10 +509,7 @@ def test_settings_page_runs_setup(tmp_path: Path, monkeypatch) -> None:
     paths.create()
     calls = []
     monkeypatch.setattr("riftlift.main_window.setup", lambda _paths: calls.append(1))
-    monkeypatch.setattr(
-        "riftlift.main_window.runtime_access_token", lambda _paths: "tok"
-    )
-    monkeypatch.setattr("riftlift.main_window.list_owned_pcvr_apps", lambda _token: [])
+    monkeypatch.setattr("riftlift.main_window.owned_apps", lambda _paths: ([], []))
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
 
@@ -723,12 +709,7 @@ def test_language_change_preserves_the_selected_owned_game(
         OwnedApp(app_id="111", name="Alpha", slug="alpha"),
         OwnedApp(app_id="222", name="Beta", slug="beta"),
     ]
-    monkeypatch.setattr(
-        "riftlift.main_window.runtime_access_token", lambda _paths: "tok"
-    )
-    monkeypatch.setattr(
-        "riftlift.main_window.list_owned_pcvr_apps", lambda _token: owned
-    )
+    monkeypatch.setattr("riftlift.main_window.owned_apps", lambda _paths: (owned, []))
     monkeypatch.setattr(
         "riftlift.main_window.fetch_owned_icon", lambda _paths, _id: None
     )
@@ -1452,7 +1433,7 @@ def test_auth_dialog_detects_browser_completion_and_returns(
     dialog.check_login()
 
     assert dialog.completed
-    assert (paths.config / "meta-access-token").read_text().strip() == token
+    assert [account.token for account in accounts(paths)] == [token]
     assert not stopped
     assert dialog.status.text() == "Signed in. Returning to RiftLift…"
     dialog.close()
@@ -1487,6 +1468,72 @@ def test_auth_dialog_stops_owned_windows_browser_after_login_error(
     assert dialog.process is None
     assert dialog.status.text() == "Meta rejected the token"
     dialog.close()
+    app.processEvents()
+
+
+def test_auth_dialog_manages_several_accounts(tmp_path: Path, monkeypatch) -> None:
+    from riftlift.auth import save_access_token
+
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    save_access_token(paths, "FRL" + "a" * 176, ("meta-1", "Alpha"))
+    save_access_token(paths, "FRL" + "b" * 176, ("meta-2", ""))
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    started = []
+    monkeypatch.setattr(AuthDialog, "start", lambda self: started.append(True))
+
+    dialog = AuthDialog(paths)
+    labels = {label.text() for label in dialog.findChildren(QtWidgets.QLabel)}
+
+    assert not started
+    assert {"Alpha", "Meta account 2"} <= labels
+    assert dialog.retry.text() == "Add another account"
+    assert dialog.reset.text() == "Sign out of all accounts"
+    assert not dialog.reset.isHidden()
+
+    sign_outs = [
+        button
+        for button in dialog.findChildren(QtWidgets.QPushButton)
+        if button.accessibleName() == "Sign out Alpha"
+    ]
+    sign_outs[0].click()
+    assert [account.id for account in accounts(paths)] == ["meta-2"]
+    assert dialog.changed
+    assert dialog.reset.isHidden()
+
+    dialog.sign_out_all()
+    assert accounts(paths) == []
+    assert dialog.retry.text() == "Open default browser"
+    dialog.close()
+    app.processEvents()
+
+
+def test_window_label_counts_several_accounts(tmp_path: Path, monkeypatch) -> None:
+    from riftlift.auth import save_access_token
+
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    save_access_token(paths, "FRL" + "a" * 176, ("meta-1", "Alpha"))
+    save_access_token(paths, "FRL" + "b" * 176, ("meta-2", "Beta"))
+    monkeypatch.setattr("riftlift.main_window.owned_apps", lambda _paths: ([], []))
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    window = Window(paths)
+
+    assert window.signin.text() == "Accounts (2)"
+    window.close()
     app.processEvents()
 
 
@@ -1648,12 +1695,7 @@ def test_owned_library_merges_with_installed_without_duplicates(
         OwnedApp(app_id="111", name="Echo VR", slug="echo-vr"),
         OwnedApp(app_id="222", name="Lone Echo", slug="lone-echo"),
     ]
-    monkeypatch.setattr(
-        "riftlift.main_window.runtime_access_token", lambda _paths: "tok"
-    )
-    monkeypatch.setattr(
-        "riftlift.main_window.list_owned_pcvr_apps", lambda _token: owned
-    )
+    monkeypatch.setattr("riftlift.main_window.owned_apps", lambda _paths: (owned, []))
     monkeypatch.setattr(
         "riftlift.main_window.fetch_owned_icon", lambda _paths, _id: None
     )
@@ -1833,12 +1875,7 @@ def test_falls_back_to_first_owned_game_when_nothing_installed(
     )
     paths.create()
     owned = [OwnedApp(app_id="222", name="Lone Echo", slug="lone-echo")]
-    monkeypatch.setattr(
-        "riftlift.main_window.runtime_access_token", lambda _paths: "tok"
-    )
-    monkeypatch.setattr(
-        "riftlift.main_window.list_owned_pcvr_apps", lambda _token: owned
-    )
+    monkeypatch.setattr("riftlift.main_window.owned_apps", lambda _paths: (owned, []))
     monkeypatch.setattr(
         "riftlift.main_window.fetch_owned_icon", lambda _paths, _id: None
     )
@@ -1933,12 +1970,7 @@ def test_owned_game_meta_line_keeps_saying_not_installed(
     )
     paths.create()
     owned = [OwnedApp(app_id="222", name="Lone Echo", slug="lone-echo")]
-    monkeypatch.setattr(
-        "riftlift.main_window.runtime_access_token", lambda _paths: "tok"
-    )
-    monkeypatch.setattr(
-        "riftlift.main_window.list_owned_pcvr_apps", lambda _token: owned
-    )
+    monkeypatch.setattr("riftlift.main_window.owned_apps", lambda _paths: (owned, []))
     monkeypatch.setattr(
         "riftlift.main_window.fetch_owned_icon", lambda _paths, _id: None
     )
@@ -2049,7 +2081,7 @@ def test_install_stays_disabled_when_rift_game_does_not_exist(
     app.processEvents()
 
 
-@pytest.mark.parametrize("action", ["reset_login", "accept", "reject"])
+@pytest.mark.parametrize("action", ["cancel_login", "accept", "reject"])
 def test_auth_dialog_leaves_personal_browser_running(tmp_path, monkeypatch, action):
     paths = Paths(
         tmp_path / "data",

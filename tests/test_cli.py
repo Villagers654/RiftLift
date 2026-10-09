@@ -49,3 +49,36 @@ def test_remove_command_deletes_the_game_and_syncs_steam(
     output = capsys.readouterr().out
     assert "Removed Aircar." in output
     assert "Updated Steam (synced)." in output
+
+
+def test_accounts_and_logout_commands_manage_individual_accounts(
+    monkeypatch, capsys, tmp_path: Path
+) -> None:
+    from argparse import Namespace
+
+    from riftlift import auth, cli
+
+    paths = Paths(
+        *(
+            tmp_path / name
+            for name in ("data", "cache", "config", "games", "prefix", "tools")
+        )
+    )
+    # The Linux CLI imports these lazily; provide them on every host.
+    monkeypatch.setattr(cli, "accounts", auth.accounts, raising=False)
+    monkeypatch.setattr(cli, "sign_out", auth.sign_out, raising=False)
+    monkeypatch.setattr(cli, "RiftLiftError", auth.RiftLiftError, raising=False)
+    auth.save_access_token(paths, "FRL" + "a" * 176, ("meta-1", "Alpha"))
+    auth.save_access_token(paths, "FRL" + "b" * 176, ("meta-2", ""))
+
+    assert cli._run_accounts(paths, Namespace()) == 0
+    assert capsys.readouterr().out == "1. Alpha\n2. Meta account 2\n"
+
+    with pytest.raises(auth.RiftLiftError, match="no signed-in Meta account"):
+        cli._run_logout(paths, Namespace(account="Gamma"))
+    assert cli._run_logout(paths, Namespace(account="alpha")) == 0
+    assert capsys.readouterr().out == "Signed out of Alpha.\n"
+    assert [account.id for account in auth.accounts(paths)] == ["meta-2"]
+
+    assert cli._run_logout(paths, Namespace(account=None)) == 0
+    assert auth.accounts(paths) == []

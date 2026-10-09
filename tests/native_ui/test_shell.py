@@ -38,7 +38,7 @@ def test_actual_window_fixture_does_not_start_account_or_runtime(app, monkeypatc
     def forbidden(*args, **kwargs):
         raise AssertionError("external services are forbidden in UI fixtures")
 
-    for name in ("is_signed_in", "runtime_access_token", "needs_setup", "setup"):
+    for name in ("accounts", "owned_apps", "needs_setup", "setup"):
         monkeypatch.setattr(f"riftlift.main_window.{name}", forbidden)
     widget = PreviewWindow()
     widget.show()

@@ -46,6 +46,7 @@ STRINGS = {
     "nav": {
         "settings": "Paramètres",
         "account": "Compte",
+        "accounts": "Comptes ({count})",
         "sign_in": "Connexion",
         "steam_games": "Jeux Steam",
         "add_game": "Ajouter un jeu",
@@ -200,7 +201,12 @@ STRINGS = {
             "vont qu'à Meta."
         ),
         "open_browser": "Ouvrir le navigateur par défaut",
-        "sign_out_reset": "Se déconnecter et réinitialiser",
+        "sign_out_all": "Se déconnecter de tous les comptes",
+        "sign_out": "Se déconnecter",
+        "sign_out_named": "Déconnecter {name}",
+        "unnamed_account": "Compte Meta {number}",
+        "add_account": "Ajouter un autre compte",
+        "signed_in_many": "RiftLift est connecté à {count} comptes Meta. Les jeux de chacun apparaissent dans ta bibliothèque.",
         "signed_in": "RiftLift est connecté à Meta.",
         "opening_browser": "Ouverture de ton navigateur par défaut…",
         "preparing": "Préparation d'une connexion Meta sécurisée…",

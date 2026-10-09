@@ -12,10 +12,9 @@ if os.name != "nt":
     from meta_pcvr_downloader.auth import AuthenticationError
     from meta_pcvr_downloader.download import DownloadError
 
-    from .auth import complete_login, login, runtime_access_token
+    from .auth import accounts, complete_login, login, owned_apps, sign_out
     from .config import Game, Paths, games
     from .desktop_services import doctor, launch, setup
-    from .entitlements import list_owned_pcvr_apps
     from .library import add, add_local, remove
     from .metadata import populate_game_metadata
     from .playtime import playtime, playtime_label
@@ -44,7 +43,18 @@ def parser() -> argparse.ArgumentParser:
     setup_command.add_argument(
         "--login", action="store_true", help="start browser-backed Meta sign-in"
     )
-    commands.add_parser("login", help="sign in to Meta through your default browser")
+    commands.add_parser(
+        "login",
+        help="sign in to a Meta account through your default browser "
+        "(run again to add another account)",
+    )
+    commands.add_parser("accounts", help="list signed-in Meta accounts")
+    logout = commands.add_parser("logout", help="sign out of Meta accounts")
+    logout.add_argument(
+        "account",
+        nargs="?",
+        help="account number or name from 'riftlift accounts' (default: all)",
+    )
     callback = commands.add_parser("callback", help=argparse.SUPPRESS)
     callback.add_argument("url", nargs="?", help=argparse.SUPPRESS)
 
@@ -109,7 +119,7 @@ def parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("list", help="list installed RiftLift games")
     commands.add_parser(
-        "owned", help="list owned Rift/PC VR games from your Meta account"
+        "owned", help="list owned Rift/PC VR games from your Meta accounts"
     )
     commands.add_parser(
         "steam-sync", help="safely synchronize all RiftLift games into Steam"
@@ -148,6 +158,45 @@ def _run_setup(paths: Paths, arguments: argparse.Namespace) -> int:
 
 def _run_login(paths: Paths, _arguments: argparse.Namespace) -> int:
     return login(paths)
+
+
+def _account_label(account, number: int) -> str:
+    return account.name or f"Meta account {number}"
+
+
+def _run_accounts(paths: Paths, _arguments: argparse.Namespace) -> int:
+    signed_in = accounts(paths)
+    if not signed_in:
+        print("No Meta accounts are signed in. Use 'riftlift login'.")
+    for number, account in enumerate(signed_in, 1):
+        owned = f" ({len(account.owned)} owned)" if account.owned else ""
+        print(f"{number}. {_account_label(account, number)}{owned}")
+    return 0
+
+
+def _run_logout(paths: Paths, arguments: argparse.Namespace) -> int:
+    if arguments.account is None:
+        sign_out(paths)
+        print("Signed out of every Meta account.")
+        return 0
+    signed_in = accounts(paths)
+    wanted = arguments.account.strip().casefold()
+    match = next(
+        (
+            account
+            for number, account in enumerate(signed_in, 1)
+            if wanted in {str(number), _account_label(account, number).casefold()}
+        ),
+        None,
+    )
+    if match is None:
+        raise RiftLiftError(
+            f"no signed-in Meta account matches {arguments.account!r}; "
+            "see 'riftlift accounts'"
+        )
+    sign_out(paths, match.id)
+    print(f"Signed out of {_account_label(match, signed_in.index(match) + 1)}.")
+    return 0
 
 
 def _run_callback(paths: Paths, arguments: argparse.Namespace) -> int:
@@ -242,10 +291,11 @@ def _run_list(paths: Paths, _arguments: argparse.Namespace) -> int:
 
 
 def _run_owned(paths: Paths, _arguments: argparse.Namespace) -> int:
-    token = runtime_access_token(paths)
-    owned = list_owned_pcvr_apps(token)
+    owned, failures = owned_apps(paths)
+    for failure in failures:
+        print(f"warning: {failure}", file=sys.stderr)
     if not owned:
-        print("No owned Rift/PC VR games found on this Meta account.")
+        print("No owned Rift/PC VR games found on your Meta accounts.")
     for app in owned:
         print(f"{app.name} ({app.app_id})")
     return 0
@@ -273,6 +323,8 @@ def run(arguments: argparse.Namespace) -> int:
         "gui": _run_gui,
         "setup": _run_setup,
         "login": _run_login,
+        "accounts": _run_accounts,
+        "logout": _run_logout,
         "callback": _run_callback,
         "add": _run_add,
         "add-local": _run_add_local,
