@@ -83,8 +83,9 @@ def test_gui_exposes_only_the_primary_library_actions(tmp_path: Path) -> None:
         "Sign In",
         "Steam Games",
         "Add Game",
-        "View Activity",
     } <= buttons
+    assert "View Activity" not in buttons
+    assert window.status.isHidden()
     assert (
         window.refresh_button.accessibleName()
         == "Refresh installed games and your Meta library"

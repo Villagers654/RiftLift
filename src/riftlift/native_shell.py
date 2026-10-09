@@ -247,15 +247,10 @@ class NativePresentation:
         self.view_stack.addWidget(settings)
         outer.addWidget(self.view_stack, 1)
 
-        footer = QtWidgets.QHBoxLayout()
+        # Task handlers retain their status text internally without a footer.
         self.status = self.label(namespace("status")("ready"), "muted")
-        self.status.setWordWrap(True)
-        self.status.setAccessibleName(SHELL("activity_status"))
-        footer.addWidget(self.status, 1)
-        footer.addWidget(
-            self.button(namespace("status")("view_activity"), self.show_activity)
-        )
-        outer.addLayout(footer)
+        self.status.setParent(self)
+        self.status.hide()
         self._shortcuts = []
         for key, callback in (
             ("Ctrl+F", self.search.setFocus),
