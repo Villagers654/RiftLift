@@ -247,7 +247,7 @@ def test_gui_constructs_without_linux_imports(paths, monkeypatch):
     assert Window.__module__ == "riftlift.main_window"
     assert window.signin.isEnabled()
     assert window.settings_page.debug_logging.isEnabled()
-    assert not window.steam_games.isEnabled()
+    assert window.steam_games.isHidden()
     assert window._installed_category.childCount() == 0
     window.close()
     app.processEvents()
@@ -483,3 +483,21 @@ def test_registered_openxr_runtime_is_not_overridden(paths, tmp_path, monkeypatc
     (tmp_path / "steamxr_win64.json").write_text("{}")
     # The pinned source payload predates the layer: launch without it.
     assert windows.openxr_environment(paths, {}) == {}
+
+
+def test_steamvr_sees_the_game_name_when_the_launcher_supports_it(paths):
+    game = windows.add_local(paths, sys.executable, "Probe Game")
+    runtime = windows.runtime_dir(paths)
+    runtime.mkdir(parents=True)
+    for name in windows.FILES:
+        (runtime / name).touch()
+    # The pinned source payload's launcher has no /manifest option.
+    assert "/manifest" not in windows.launch_command(paths, game, "openvr")
+    (runtime / "RiftLiftLauncher.exe").write_bytes("/manifest".encode("utf-16-le"))
+    argv = windows.launch_command(paths, game, "openvr")
+    manifest = Path(argv[argv.index("/manifest") + 1])
+    assert argv.index("/manifest") < argv.index(str(game.executable_path.resolve()))
+    application = json.loads(manifest.read_text())["applications"][0]
+    assert application["app_key"] == "riftlift.app." + game.app_key
+    assert application["strings"]["en_us"]["name"] == "Probe Game"
+    assert "/manifest" not in windows.launch_command(paths, game, "openxr")

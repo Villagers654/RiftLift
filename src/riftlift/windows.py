@@ -354,6 +354,42 @@ def add_local(
     return game
 
 
+def _launcher_accepts_manifest(launcher: Path) -> bool:
+    # The pinned source payload's launcher would treat /manifest as the game.
+    return "/manifest".encode("utf-16-le") in launcher.read_bytes()
+
+
+def steamvr_manifest(paths: Paths, game: Game) -> Path:
+    """SteamVR app identity, so the dashboard shows the game rather than its .exe."""
+    image = next(
+        (
+            game.artwork[name]
+            for name in ("grid", "hero", "portrait")
+            if name in game.artwork and Path(game.artwork[name]).is_file()
+        ),
+        None,
+    )
+    application = {
+        "app_key": f"riftlift.app.{game.app_key}",
+        "launch_type": "binary",
+        "binary_path_windows": str(game.executable_path),
+        "strings": {"en_us": {"name": game.name}},
+        **({"image_path": image} if image else {}),
+    }
+    manifest = paths.cache / "steamvr" / f"{game.slug}.vrmanifest"
+    payload = (
+        json.dumps({"source": "user", "applications": [application]}, indent=2) + "\n"
+    )
+    try:
+        current = manifest.read_text(encoding="utf-8")
+    except OSError:
+        current = None
+    if current != payload:
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(manifest, payload)
+    return manifest
+
+
 def launch_command(
     paths: Paths, game: Game, backend: str, extra: list[str] | None = None
 ) -> list[str]:
@@ -374,14 +410,21 @@ def launch_command(
         raise RiftLiftError(
             "Game executable must be an existing x64 PE inside its game folder"
         )
+    launcher = native / "RiftLiftLauncher.exe"
+    identity = (
+        ["/manifest", str(steamvr_manifest(paths, game))]
+        if backend == "openvr" and _launcher_accepts_manifest(launcher)
+        else []
+    )
     return [
-        str(native / "RiftLiftLauncher.exe"),
+        str(launcher),
         f"/{backend}",
         "/wait",
         "/app",
         game.app_key,
         "/cwd",
         str(game.game_dir),
+        *identity,
         str(executable),
         *game.arguments,
         *game.launch_options,

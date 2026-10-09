@@ -21,6 +21,7 @@ MinVersion=10.0.17763
 WizardStyle=modern
 SetupIconFile={#BundleDir}\_internal\assets\riftlift.ico
 UninstallDisplayIcon={app}\RiftLift.exe
+UninstallDisplayName=RiftLift
 OutputBaseFilename=RiftLift-Setup-{#AppVersion}-x64
 Compression=lzma2
 SolidCompression=yes

@@ -3,7 +3,6 @@
 STRINGS = {
     "shell": {
         "steam_shortcuts_unavailable": "La mise à jour des raccourcis Steam n'est pas disponible dans cette version Windows.",
-        "steam_import_unavailable": "L'importation des jeux Steam n'est pas disponible dans cette version Windows.",
         "steam_status_unknown": "État du raccourci Steam indisponible",
         "steam_already_added": "Déjà ajouté à Steam",
         "game_actions": "Actions du jeu",

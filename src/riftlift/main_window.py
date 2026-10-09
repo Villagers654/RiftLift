@@ -193,9 +193,8 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
         self.system_status_events.complete.connect(self._finish_system_status_check)
         self.setWindowTitle(APP("name"))
         self._build()
-        self.steam_games.setEnabled(supports_steam_import())
-        if not supports_steam_import():
-            self.steam_games.setToolTip(namespace("shell")("steam_import_unavailable"))
+        # A permanently disabled button is noise; show it only where it works.
+        self.steam_games.setVisible(supports_steam_import())
         if not start_services:
             return
         self.signin.setText(
