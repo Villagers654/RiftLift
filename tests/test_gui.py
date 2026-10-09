@@ -150,7 +150,7 @@ def test_game_detail_scrolls_instead_of_overlapping_when_space_is_tight(
     app.processEvents()
 
 
-def test_gui_cannot_close_while_an_operation_is_running(tmp_path: Path) -> None:
+def test_gui_can_close_while_an_operation_is_running(tmp_path: Path) -> None:
     paths = Paths(
         tmp_path / "data",
         tmp_path / "cache",
@@ -165,19 +165,11 @@ def test_gui_cannot_close_while_an_operation_is_running(tmp_path: Path) -> None:
     window.busy = True
     window.busy_label = "Launching Lone Echo"
 
-    class CloseEvent:
-        ignored = False
-
-        def ignore(self):
-            self.ignored = True
-
-    event = CloseEvent()
-    window.closeEvent(event)
-
-    assert event.ignored
-    assert "minimize RiftLift instead" in window.status.text()
-    window.busy = False
-    window.close()
+    window.show()
+    app.processEvents()
+    assert window.isVisible()
+    assert window.close()
+    assert not window.isVisible()
     app.processEvents()
 
 
