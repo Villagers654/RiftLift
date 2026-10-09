@@ -352,9 +352,11 @@ def test_header_button_toggles_between_settings_and_library(
     window.settings_button.click()
     assert window.view_stack.currentIndex() == 1
     assert window.settings_button.isChecked()
-    window.settings_button.click()
+    assert window.sidebar.isHidden()
+    window.back_to_library.click()
     assert window.view_stack.currentIndex() == 0
     assert not window.settings_button.isChecked()
+    assert not window.sidebar.isHidden()
 
     window.close()
     app.processEvents()

@@ -294,6 +294,8 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
             self.show_settings()
 
     def show_settings(self):
+        # Settings is its own place: it takes the whole window.
+        self.sidebar.hide()
         self.view_stack.setCurrentIndex(1)
         self.settings_button.setChecked(True)
         self._check_system_status()
@@ -304,6 +306,7 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
             self._leave_settings()
 
     def _leave_settings(self):
+        self.sidebar.show()
         self.view_stack.setCurrentIndex(0)
         self.settings_button.setChecked(False)
         (self.tree if self.tree.currentItem() else self.search).setFocus()
@@ -366,7 +369,7 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
         count = item.childCount()
         item.setHidden(count == 0)
         arrow = "▾" if item.isExpanded() else "▸"
-        item.setText(0, f"{arrow}  {label}  ·  {count}")
+        item.setText(0, f"{arrow}  {label}")
 
     def refresh(self, preferred=None):
         if preferred:
