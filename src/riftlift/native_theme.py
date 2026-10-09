@@ -25,7 +25,7 @@ QPushButton#link { background: transparent; border: 1px solid transparent; color
 QPushButton#link:hover { color: #a1e9d6; }
 QPushButton#link:focus { border: 2px solid #9cf0db; }
 QPushButton#refresh { padding: 0; min-height: 0; font-size: 23px; }
-QPushButton:focus, QLineEdit:focus, QTreeWidget:focus { border: 2px solid #9cf0db; }
+QPushButton:focus, QLineEdit:focus { border: 2px solid #9cf0db; }
 QPushButton:disabled { color: #7d8b99; background: #1a232d; border-color: #344353; }
 QPushButton#primary { background: #a1e9d6; color: #102721; border-color: #a1e9d6;
  font-weight: 700; min-width: 100px; }
