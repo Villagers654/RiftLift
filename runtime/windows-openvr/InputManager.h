@@ -182,6 +182,10 @@ public:
 	ovrResult GetControllerVibrationState(ovrSession session, ovrControllerType controllerType, ovrHapticsPlaybackState* outState);
 
 	void GetTrackingState(ovrSession session, ovrTrackingState* outState, double absTime);
+
+	// Held while polling OpenVR events too: vrclient applies binding updates
+	// from inside PollNextEvent, which races action-state updates.
+	std::recursive_mutex& Lock() { return m_Lock; }
 	ovrResult GetDevicePoses(ovrSession session, ovrTrackedDeviceType* deviceTypes, int deviceCount, double absTime, ovrPoseStatef* outDevicePoses);
 
 protected:
