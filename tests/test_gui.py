@@ -348,13 +348,13 @@ def test_header_button_toggles_between_settings_and_library(
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = Window(paths)
 
-    assert window.settings_button.text() == "Settings"
+    assert window.library_tab.isChecked()
     window.settings_button.click()
     assert window.view_stack.currentIndex() == 1
-    assert window.settings_button.text() == "Library"
-    window.settings_button.click()
+    assert window.settings_button.isChecked()
+    window.library_tab.click()
     assert window.view_stack.currentIndex() == 0
-    assert window.settings_button.text() == "Settings"
+    assert window.library_tab.isChecked()
 
     window.close()
     app.processEvents()

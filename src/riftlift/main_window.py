@@ -287,20 +287,14 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
     def _finish_system_status_check(self, healthy: bool, message: str) -> None:
         self.settings_page.set_status(healthy, message)
 
-    def _toggle_settings(self):
-        if self.view_stack.currentIndex() == 1:
-            self._leave_settings()
-        else:
-            self.show_settings()
-
     def show_settings(self):
         self.view_stack.setCurrentIndex(1)
-        self.settings_button.setText(LIBRARY("title"))
+        self.settings_button.setChecked(True)
         self._check_system_status()
 
     def _leave_settings(self):
         self.view_stack.setCurrentIndex(0)
-        self.settings_button.setText(NAV("settings"))
+        self.library_tab.setChecked(True)
         (self.tree if self.tree.currentItem() else self.search).setFocus()
 
     def _confirm_language_change(self, code: str) -> bool:
@@ -338,6 +332,8 @@ class Window(NativePresentation, QtWidgets.QMainWindow):
     def _add_category(self, label_key: str) -> QtWidgets.QTreeWidgetItem:
         item = QtWidgets.QTreeWidgetItem([""])
         item.setFlags(QtCore.Qt.ItemIsEnabled)
+        # Compact header rows; game rows get their height from the icons.
+        item.setSizeHint(0, QtCore.QSize(0, 30))
         self.tree.addTopLevelItem(item)
         self._categories.append((item, label_key))
         return item

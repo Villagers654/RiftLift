@@ -39,10 +39,11 @@ QMainWindow {{ background: {BACKGROUND}; }}
 QDialog {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {GLOW}, stop:0.3 {BACKGROUND}, stop:1 {BACKGROUND}); }}
 QWidget#root {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {GLOW}, stop:0.3 {BACKGROUND}, stop:1 {BACKGROUND}); }}
 QStackedWidget#content {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 16px; }}
+QWidget#topbar {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 16px; }}
 QWidget#sidebar {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 16px; }}
 QToolTip {{ background: {CONTROL}; color: {TEXT}; border: 1px solid {BORDER_STRONG};
  border-radius: 6px; padding: 6px 8px; }}
-QLabel#brand {{ font-size: 23px; font-weight: 700; }}
+QLabel#brand {{ font-size: 20px; font-weight: 700; }}
 QLabel#game {{ font-size: 32px; font-weight: 700; }}
 QLabel#section {{ font-size: 17px; font-weight: 600; }}
 QLabel#muted {{ color: {TEXT_MUTED}; font-size: 12px; }}
@@ -57,6 +58,11 @@ QPushButton:disabled {{ color: {TEXT_DISABLED}; background: {PANEL}; border-colo
 QPushButton#ghost {{ background: transparent; border: 1px solid transparent; color: {TEXT_SOFT}; }}
 QPushButton#ghost:hover {{ background: {CONTROL}; border-color: {BORDER}; color: {TEXT}; }}
 QPushButton#ghost:focus {{ border: 2px solid {FOCUS}; }}
+QPushButton#tab {{ background: transparent; border: 1px solid transparent; border-radius: 9px;
+ color: {TEXT_MUTED}; font-weight: 600; padding: 7px 14px; }}
+QPushButton#tab:hover {{ background: {CONTROL}; color: {TEXT}; }}
+QPushButton#tab:checked {{ background: {SELECTION}; border-color: {SELECTION_BORDER}; color: #ffffff; }}
+QPushButton#tab:focus {{ border: 2px solid {FOCUS}; }}
 QPushButton#primary {{ background: {ACCENT_GRADIENT}; color: #ffffff; border: 1px solid {BLUE};
  font-weight: 700; min-width: 100px; }}
 QPushButton#primary:hover {{ background: {ACCENT_GRADIENT_HOVER}; border-color: {BLUE_LIGHT}; }}
@@ -111,7 +117,7 @@ QTreeWidget {{ background: transparent; border: 2px solid transparent; outline: 
 QTreeWidget::item {{ border: 1px solid transparent; border-radius: 8px; padding: 6px 6px; margin: 1px 0; }}
 QTreeWidget::item:hover {{ background: {CONTROL}; }}
 QTreeWidget::item:selected {{ background: {SELECTION}; border-color: {SELECTION_BORDER}; color: #ffffff; }}
-QTreeWidget::item:has-children {{ color: {TEXT_MUTED}; font-size: 12px; font-weight: 600; padding: 10px 6px 4px 6px; }}
+QTreeWidget::item:has-children {{ color: {TEXT_MUTED}; font-size: 12px; font-weight: 600; padding: 2px 6px; margin: 0; }}
 QTreeWidget::item:has-children:hover {{ background: transparent; color: {TEXT_SOFT}; }}
 
 QScrollArea, QStackedWidget {{ border: 0; background: transparent; }}
