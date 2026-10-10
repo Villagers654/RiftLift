@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.20)
+project(RiftLiftLauncherTests LANGUAGES CXX)
+add_executable(CommandLineTests CommandLineTests.cpp)
+target_compile_definitions(CommandLineTests PRIVATE UNICODE _UNICODE)
+target_compile_features(CommandLineTests PRIVATE cxx_std_17)
+target_link_libraries(CommandLineTests PRIVATE shell32)
+include(CTest)
+add_test(NAME LauncherCommandLine COMMAND CommandLineTests)

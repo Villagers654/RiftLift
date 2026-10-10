@@ -12,6 +12,7 @@ from PySide6 import QtWidgets
 from riftlift.cli import _run_steam_launch
 from riftlift.config import Game, Paths
 from riftlift.game_ui import LaunchOptionsDialog
+from riftlift.library import join_launch_arguments, split_launch_arguments
 from riftlift.main_window import Window
 
 
@@ -64,6 +65,38 @@ def test_dialog_roundtrip_and_clear(app, game):
     assert dialog.updated_game.environment == {}
     assert dialog.updated_game.arguments == ["--default"]
     assert game.environment["PROTON_LOG"] == "1"
+    dialog.close()
+
+
+def test_dialog_keeps_windows_paths_and_drops_grouping_quotes(app, game):
+    dialog = LaunchOptionsDialog(game)
+    dialog.arguments_entry.setText(
+        r'-log C:\Logs\run.txt -config "C:\Program Files\Game\vr.ini" \\server\share'
+    )
+    dialog._save()
+    assert dialog.updated_game.launch_options == [
+        "-log",
+        r"C:\Logs\run.txt",
+        "-config",
+        r"C:\Program Files\Game\vr.ini",
+        r"\\server\share",
+    ]
+    dialog.close()
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["-level", "gpr_020_post_tutorial"],
+        ["C:\\Folder With Space\\", "Z:\\data\\"],
+        ["", "it's", 'say "hi"', "both ' and \""],
+    ],
+)
+def test_launch_options_text_roundtrips(app, game, arguments):
+    assert split_launch_arguments(join_launch_arguments(arguments)) == arguments
+    dialog = LaunchOptionsDialog(replace(game, launch_options=arguments))
+    dialog._save()
+    assert dialog.updated_game.launch_options == arguments
     dialog.close()
 
 

@@ -138,6 +138,9 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="CommandLine.h" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Externals\openvr_api.vcxproj">
       <Project>{8940fe26-e0d4-4977-8a24-ab26ae687432}</Project>
     </ProjectReference>

@@ -80,13 +80,26 @@ def _download_path(path: Path) -> Path:
     return Path("\\\\?\\" + absolute)
 
 
-def _split_launch_arguments(value: str) -> list[str]:
+def split_launch_arguments(value: str) -> list[str]:
     """Split a Windows launch string without retaining quotes or eating slashes."""
     lexer = shlex.shlex(value, posix=True)
     lexer.whitespace_split = True
     lexer.commenters = ""
     lexer.escape = ""
     return list(lexer)
+
+
+def join_launch_arguments(arguments: list[str]) -> str:
+    """Format arguments so split_launch_arguments returns them unchanged."""
+
+    def quote(argument: str) -> str:
+        if argument and not any(c.isspace() or c in "\"'" for c in argument):
+            return argument
+        # Quotes cannot be escaped, so close the double-quoted run around each
+        # literal double quote and supply it single-quoted instead.
+        return "'\"'".join(f'"{part}"' for part in argument.split('"'))
+
+    return " ".join(quote(argument) for argument in arguments)
 
 
 def _best_executable(directory: Path, manifest: dict, override: str | None) -> str:
@@ -115,7 +128,7 @@ def _launch_arguments(
         if override is not None
         else str(manifest.get("launchParameters") or "")
     )
-    arguments = _split_launch_arguments(value)
+    arguments = split_launch_arguments(value)
     if override is None and is_unreal_shipping(directory / executable):
         vr_options = {"-vr", "-oculus", "-openxr", "-steamvr"}
         if not any(argument.casefold() in vr_options for argument in arguments):
@@ -258,7 +271,7 @@ def add_local(
     if not game_name:
         raise ValueError("local game name cannot be empty")
     slug = slugify(game_name)
-    launch_arguments = _split_launch_arguments(arguments) if arguments else []
+    launch_arguments = split_launch_arguments(arguments) if arguments else []
     game = Game(
         slug=slug,
         name=game_name,

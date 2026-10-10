@@ -10,6 +10,8 @@
 #include <detours/detours.h>
 #include <openvr.h>
 
+#include "CommandLine.h"
+
 FILE* g_LogFile = NULL;
 
 void Log(const char* format, ...)
@@ -55,45 +57,6 @@ bool GetModuleDirectory(std::string& result)
 		return false;
 	result = path.data();
 	return true;
-}
-
-std::wstring QuoteArgument(const wchar_t* argument)
-{
-	std::wstring result = L"\"";
-	size_t backslashes = 0;
-	for (const wchar_t* current = argument; *current; ++current)
-	{
-		if (*current == L'\\')
-		{
-			++backslashes;
-			continue;
-		}
-		if (*current == L'\"')
-		{
-			result.append(backslashes * 2 + 1, L'\\');
-			result.push_back(L'\"');
-			backslashes = 0;
-			continue;
-		}
-		result.append(backslashes, L'\\');
-		backslashes = 0;
-		result.push_back(*current);
-	}
-	result.append(backslashes * 2, L'\\');
-	result.push_back(L'\"');
-	return result;
-}
-
-std::wstring BuildCommandLine(int argc, wchar_t* argv[], int firstArgument)
-{
-	std::wstring result;
-	for (int index = firstArgument; index < argc; ++index)
-	{
-		if (!result.empty())
-			result.push_back(L' ');
-		result += QuoteArgument(argv[index]);
-	}
-	return result;
 }
 
 bool OpenLog()

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import shlex
 import threading
 from collections.abc import Callable
 from dataclasses import replace
@@ -15,6 +14,7 @@ from .config import Game, Paths
 from .desktop_services import supports_steam_shortcuts
 from .download_job import DownloadJob
 from .i18n import namespace
+from .library import join_launch_arguments, split_launch_arguments
 from .metadata import fetch_catalog_metadata
 from .theme import STYLE
 from .titlebar import wrap_dialog
@@ -44,7 +44,9 @@ class LaunchOptionsDialog(QtWidgets.QDialog):
         self.setStyleSheet(STYLE)
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(_label(LAUNCH_OPTIONS("arguments_label"), "section"))
-        self.arguments_entry = QtWidgets.QLineEdit(shlex.join(game.launch_options))
+        self.arguments_entry = QtWidgets.QLineEdit(
+            join_launch_arguments(game.launch_options)
+        )
         self.arguments_entry.setPlaceholderText(LAUNCH_OPTIONS("arguments_placeholder"))
         layout.addWidget(self.arguments_entry)
         hint = _label(LAUNCH_OPTIONS("arguments_hint"), "muted")
@@ -91,7 +93,7 @@ class LaunchOptionsDialog(QtWidgets.QDialog):
                 environment[key.strip()] = value
             self.updated_game = replace(
                 self.game,
-                launch_options=shlex.split(self.arguments_entry.text()),
+                launch_options=split_launch_arguments(self.arguments_entry.text()),
                 dll_overrides=self.overrides_entry.text().strip(),
                 environment=environment,
             )

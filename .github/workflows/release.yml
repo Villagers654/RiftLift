@@ -79,6 +79,12 @@ jobs:
           cmake -S ../compat -B ../compat/build -A x64
           cmake --build ../compat/build --config Release
           ctest --test-dir ../compat/build -C Release --output-on-failure
+      - name: Test launcher command-line quoting
+        shell: pwsh
+        run: |
+          cmake -S windows-launcher/tests -B windows-launcher/tests/build -A x64
+          cmake --build windows-launcher/tests/build --config Release
+          ctest --test-dir windows-launcher/tests/build -C Release --output-on-failure
       - name: Build and test the Windows OpenXR layer
         shell: pwsh
         run: |
