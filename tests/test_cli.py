@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -82,3 +83,16 @@ def test_accounts_and_logout_commands_manage_individual_accounts(
 
     assert cli._run_logout(paths, Namespace(account=None)) == 0
     assert auth.accounts(paths) == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Linux doctor report")
+@pytest.mark.parametrize(("arguments", "paste"), ((["--no-paste"], False), ([], True)))
+def test_doctor_command_forwards_the_paste_choice(monkeypatch, arguments, paste):
+    calls = []
+    monkeypatch.setattr(
+        "riftlift.doctor.doctor",
+        lambda paths, *, paste=True: calls.append(paste) or 0,
+    )
+
+    assert main(["doctor", *arguments]) == 0
+    assert calls == [paste]

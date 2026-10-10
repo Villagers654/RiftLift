@@ -47,8 +47,9 @@ def setup(paths):
     return install(paths)
 
 
-def doctor(paths):
+def doctor(paths, *, paste=True):
     if os.name == "nt":
+        # Windows reports always stay local; there is nothing to upload.
         report, status = _windows().doctor(paths)
         print(report)
         if status:
@@ -56,7 +57,7 @@ def doctor(paths):
         return status
     from .doctor import doctor as check
 
-    return check(paths)
+    return check(paths, paste=paste)
 
 
 def active_runtime_json():
