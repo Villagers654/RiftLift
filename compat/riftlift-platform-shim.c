@@ -28,6 +28,8 @@
 #define MSG_ACHIEVEMENT_PROGRESS UINT32_C(0x4F9FDE1D)
 #define MSG_CLOUD_BUCKET_METADATA UINT32_C(0x7327A50D)
 #define MSG_LOGGED_IN_USER_FRIENDS UINT32_C(0x587C2A8D)
+#define MSG_PLATFORM_INITIALIZE_WINDOWS_ASYNC UINT32_C(0x6DA7BA8F)
+#define PLATFORM_INITIALIZE_SUCCESS 0
 #define FAKE_MAGIC UINT64_C(0x56414445524f5652)
 
 typedef struct FakeMessage {
@@ -172,6 +174,47 @@ __declspec(dllexport) int __cdecl ovr_PlatformInitializeWindows(const char *app_
     (void)app_id;
     log_call("initialize windows: success");
     return 0;
+}
+
+/* Unity's Core.AsyncInitialize waits for a PlatformInitialize response instead
+ * of a return code. Forwarding it lets Meta's implementation wait for the
+ * unavailable session until the game's authentication times out and it quits.
+ * Extra trailing arguments (logging options) are ignored, which is safe for
+ * the x64 caller-cleanup calling convention. */
+static uint64_t initialize_async(const char *description)
+{
+    log_call(description);
+    return enqueue(MSG_PLATFORM_INITIALIZE_WINDOWS_ASYNC);
+}
+
+__declspec(dllexport) uint64_t __cdecl ovr_PlatformInitializeWindowsAsynchronous(const char *app_id)
+{
+    (void)app_id;
+    return initialize_async("initialize windows async: success queued");
+}
+
+__declspec(dllexport) uint64_t __cdecl ovr_UnityInitWrapperWindowsAsynchronous(const char *app_id)
+{
+    (void)app_id;
+    return initialize_async("unity init wrapper windows async: success queued");
+}
+
+__declspec(dllexport) void *__cdecl ovr_Message_GetPlatformInitialize(const void *object)
+{
+    typedef void *(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return (void *)object;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_Message_GetPlatformInitialize")};
+    return convert.target ? convert.target(object) : NULL;
+}
+
+__declspec(dllexport) int __cdecl ovr_PlatformInitialize_GetResult(const void *object)
+{
+    typedef int(__cdecl *function_type)(const void *);
+    const FakeMessage *message = (const FakeMessage *)object;
+    if (message && message->magic == FAKE_MAGIC) return PLATFORM_INITIALIZE_SUCCESS;
+    union { FARPROC source; function_type target; } convert = {real_proc("ovr_PlatformInitialize_GetResult")};
+    return convert.target ? convert.target(object) : PLATFORM_INITIALIZE_SUCCESS;
 }
 
 __declspec(dllexport) bool __cdecl ovr_IsPlatformInitialized(void)

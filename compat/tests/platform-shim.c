@@ -3,8 +3,20 @@
 int main(void) {
     _putenv("RIFTLIFT_USER_ID=1234");
     _putenv("RIFTLIFT_USER_NAME=Test User");
-    uint64_t request = ovr_User_GetLoggedInUser();
+    uint64_t request = ovr_UnityInitWrapperWindowsAsynchronous("1477883658957255");
     void *message = ovr_PopMessage();
+    CHECK(message && ovr_Message_GetRequestID(message) == request);
+    CHECK(ovr_Message_GetType(message) == MSG_PLATFORM_INITIALIZE_WINDOWS_ASYNC);
+    CHECK(!ovr_Message_IsError(message));
+    CHECK(ovr_PlatformInitialize_GetResult(ovr_Message_GetPlatformInitialize(message)) == PLATFORM_INITIALIZE_SUCCESS);
+    ovr_FreeMessage(message);
+    request = ovr_PlatformInitializeWindowsAsynchronous("1477883658957255");
+    message = ovr_PopMessage();
+    CHECK(ovr_Message_GetRequestID(message) == request);
+    CHECK(ovr_Message_GetType(message) == MSG_PLATFORM_INITIALIZE_WINDOWS_ASYNC);
+    ovr_FreeMessage(message);
+    request = ovr_User_GetLoggedInUser();
+    message = ovr_PopMessage();
     CHECK(message && ovr_Message_GetNativeMessage(message) == message);
     CHECK(ovr_Message_GetRequestID(message) == request);
     CHECK(ovr_Message_GetType(message) == MSG_LOGGED_IN_USER);
@@ -47,6 +59,6 @@ int main(void) {
     CHECK(ovr_AssetDetailsArray_GetSize(&real_object) == 3);
     CHECK(!strcmp(ovr_User_GetDisplayName(&real_object), "Real user"));
     CHECK(ovr_User_GetPresenceStatus(&real_object) == 2);
-    puts("Platform profile lifetime, local asset enumeration and native forwarding tests passed");
+    puts("Platform async initialization, profile lifetime, local asset enumeration and native forwarding tests passed");
     return 0;
 }
