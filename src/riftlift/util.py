@@ -5,6 +5,7 @@ import io
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -17,6 +18,20 @@ from . import __version__
 
 class RiftLiftError(RuntimeError):
     """A concise, user-actionable RiftLift failure."""
+
+
+def python_interpreter() -> str:
+    """The Python interpreter running RiftLift, for `-c` and `-m` children.
+
+    python-appimage rewrites sys.executable and sys._base_executable to
+    RiftLift's AppImage launcher, which parses `-c`/`-m` as application
+    arguments. Resolve the running interpreter instead, while its AppImage
+    mount is still alive. A Windows venv python.exe is only a redirector, so
+    elsewhere prefer the base interpreter so the caller owns the real process.
+    """
+    if os.environ.get("APPDIR"):
+        return str(Path("/proc/self/exe").resolve(strict=True))
+    return getattr(sys, "_base_executable", None) or sys.executable
 
 
 class LineWriter(io.TextIOBase):

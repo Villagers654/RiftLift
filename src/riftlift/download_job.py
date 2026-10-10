@@ -10,6 +10,7 @@ from dataclasses import asdict
 from PySide6 import QtCore
 
 from .config import Game, Paths
+from .util import python_interpreter
 
 
 class DownloadJob(QtCore.QObject):
@@ -46,9 +47,9 @@ class DownloadJob(QtCore.QObject):
     def _command(self):
         if getattr(sys, "frozen", False):
             return sys.executable, ["--download-worker"]
-        # Windows venv python.exe is a redirector. Use the real interpreter
-        # so QProcess owns the actual worker, including its download threads.
-        return getattr(sys, "_base_executable", sys.executable), [
+        # The real interpreter, not an AppImage launcher or Windows venv
+        # redirector, so QProcess owns the worker and its download threads.
+        return python_interpreter(), [
             "-m",
             "riftlift.download_worker",
         ]

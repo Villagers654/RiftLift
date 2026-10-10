@@ -8,7 +8,6 @@ import re
 import shutil
 import struct
 import subprocess
-import sys
 import tarfile
 import tempfile
 import zipfile
@@ -25,6 +24,7 @@ from .util import (
     atomic_write_text,
     download,
     linux_to_windows,
+    python_interpreter,
     run,
     sha256,
 )
@@ -852,19 +852,11 @@ def install_rift_runtime(paths: Paths) -> Path:
 
 def validate_openvr_library(library: Path) -> None:
     try:
-        # python-appimage rewrites sys.executable to RiftLift's launcher,
-        # which parses -c as application arguments. Resolve the running Linux
-        # interpreter instead, while its AppImage mount is still alive. Keep
-        # the probe in a child process so a broken native loader cannot take
-        # down the GUI.
-        executable = (
-            str(Path("/proc/self/exe").resolve(strict=True))
-            if os.environ.get("APPDIR")
-            else sys.executable
-        )
+        # Keep the probe in a child process so a broken native loader cannot
+        # take down the GUI.
         result = subprocess.run(
             [
-                executable,
+                python_interpreter(),
                 "-c",
                 "import ctypes, sys; lib = ctypes.CDLL(sys.argv[1]); "
                 "lib.HmdSystemFactory; lib.VRClientCoreFactory",

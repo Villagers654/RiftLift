@@ -32,8 +32,9 @@ def openvr_library(tmp_path, request):
 
 @pytest.fixture
 def appimage_launcher(tmp_path, monkeypatch):
-    # python-appimage's _initappimage replaces sys.executable with the app
-    # launcher. Reproduce its routing, including paths containing spaces.
+    # python-appimage's _initappimage replaces sys.executable and
+    # sys._base_executable with the app launcher. Reproduce its routing,
+    # including paths containing spaces.
     launcher = tmp_path / "RiftLift test.AppImage"
     launcher.write_text(
         "#!/bin/sh\nexec "
@@ -45,6 +46,7 @@ def appimage_launcher(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDIR", str(tmp_path))
     monkeypatch.setenv("APPIMAGE_COMMAND", str(launcher))
     monkeypatch.setattr(sys, "executable", str(launcher))
+    monkeypatch.setattr(sys, "_base_executable", str(launcher), raising=False)
     return launcher
 
 
@@ -57,6 +59,33 @@ def test_appimage_launcher_reproduces_python_command_routing(appimage_launcher):
     )
     assert result.returncode == 2
     assert "invalid choice: 'import ctypes, sys'" in result.stderr
+
+
+def test_appimage_download_worker_reports_its_own_error(appimage_launcher, tmp_path):
+    from PySide6 import QtCore
+
+    from riftlift.config import Paths
+    from riftlift.download_job import DownloadJob
+
+    app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+    paths = Paths(
+        *(
+            tmp_path / key
+            for key in ("data", "cache", "config", "games", "prefix", "tools")
+        )
+    )
+    job = DownloadJob(
+        paths, "https://www.meta.com/experiences/pcvr/fixture/123456789/", False
+    )
+    results = []
+    job.complete.connect(lambda game, error: results.append((game, error)))
+    job.start()
+    assert job.process.waitForFinished(30000)
+    app.processEvents()
+    # The launcher would reject `-m riftlift.download_worker` as an unknown
+    # command, leaving only the generic "download process stopped" message.
+    assert results == [(None, "sign_in_required")]
+    assert "signed out" in job.error_detail
 
 
 def test_appimage_validates_native_library(appimage_launcher, openvr_library):
