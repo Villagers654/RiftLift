@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -249,10 +250,8 @@ class Game:
         vr_options = {"-vr", "-oculus", "-openxr", "-steamvr"}
         if not any(argument.casefold() in vr_options for argument in self.arguments):
             self.arguments = [*self.arguments, "-vr"]
-        try:
+        with contextlib.suppress(OSError):
             self.save(paths)
-        except OSError:
-            pass
         return self
 
 

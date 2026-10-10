@@ -239,6 +239,8 @@ def test_unreal_bootstrap_records_are_repaired_to_the_shipping_binary(
 
     game = Game.load(paths, "example")
 
-    assert game.executable == "Build/Adventure/Binaries/Win64/Adventure-Win64-Shipping.exe"
+    assert (
+        game.executable == "Build/Adventure/Binaries/Win64/Adventure-Win64-Shipping.exe"
+    )
     assert game.arguments == ["-vr"]
     assert Game.load(paths, "example") == game

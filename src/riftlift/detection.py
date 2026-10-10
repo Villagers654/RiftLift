@@ -181,7 +181,9 @@ def unreal_shipping_for_bootstrap(path: Path) -> Path | None:
     The bootstrapper relaunches the real game as a child process, which would
     run without RiftLift's runtime, so launches must target the child directly.
     """
-    shipping = path.parent / path.stem / "Binaries/Win64" / f"{path.stem}-Win64-Shipping.exe"
+    shipping = (
+        path.parent / path.stem / "Binaries/Win64" / f"{path.stem}-Win64-Shipping.exe"
+    )
     if path.suffix.casefold() == ".exe" and is_pe64(shipping):
         return shipping
     return None
