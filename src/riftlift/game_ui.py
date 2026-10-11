@@ -632,9 +632,17 @@ class StoreGameDialog(QtWidgets.QDialog):
         # List the failed versions even when none installed: the plain
         # failure text below cannot say which ones failed or why.
         if failed:
-            self._log("".join(f"\n{line}" for line in self._job.failed_version_details))
+            reasons = self._job.failed_version_reasons
+            self._log("".join(f"\n{label}: {why}" for label, why in reasons.items()))
+            # The library window offers no way to open its Activity log, so the
+            # notice says why; versions that failed the same way share a line.
+            groups: dict[tuple[str, str], list[str]] = {}
+            for label, kind in failed:
+                groups.setdefault((kind, reasons.get(label, "")), []).append(label)
             details = "\n".join(
-                f"{label}: {ADD_GAME('version_' + kind)}" for label, kind in failed
+                f"{', '.join(labels)}: {ADD_GAME('version_' + kind)}"
+                + (f" ({why})" if why else "")
+                for (kind, why), labels in groups.items()
             )
             _themed_notice(
                 self,

@@ -167,7 +167,7 @@ def test_job_sends_the_build_and_reads_version_events(tmp_path) -> None:
     assert versions == [(2, 3)]
     assert job._finishing is False  # Pause works again between versions
     assert job.failed_versions == [("1.0 (2)", "not_launchable"), ("0.9 (1)", "failed")]
-    assert job.failed_version_details == ["0.9 (1): RuntimeError: HTTP 404"]
+    assert job.failed_version_reasons == {"0.9 (1)": "RuntimeError: HTTP 404"}
 
 
 def test_themed_notice_keeps_wrapped_text_visible() -> None:

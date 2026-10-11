@@ -313,20 +313,61 @@ def test_failed_versions_are_listed_even_when_none_installed(
     ]
     dialog._job = SimpleNamespace(
         failed_versions=[("2.0 (2)", "not_launchable"), ("1.0 (1)", "failed")],
-        failed_version_details=["1.0 (1): RuntimeError: HTTP 404"],
+        failed_version_reasons={"1.0 (1)": "RuntimeError: HTTP 404"},
         error_detail="",
     )
 
     dialog._finish_install(None, "download_failed")
 
     assert len(notices) == 1
-    assert "2.0 (2)" in notices[0] and "1.0 (1)" in notices[0]
-    # The notice stays short; why each version failed goes to Activity.
-    assert "HTTP 404" not in notices[0]
+    # The library window has no way to open its Activity log, so the notice
+    # itself says why each version failed.
+    assert notices[0].splitlines()[2:] == [
+        f"2.0 (2): {game_ui.ADD_GAME('version_not_launchable')}",
+        f"1.0 (1): {game_ui.ADD_GAME('version_failed')} (RuntimeError: HTTP 404)",
+    ]
     assert logged == ["\n1.0 (1): RuntimeError: HTTP 404\n"]
     dialog._job = None
     dialog._finish_install(None, "not_launchable")
     assert dialog.validation.text() == game_ui.ADD_GAME("not_launchable")
+    dialog.close()
+
+
+def test_versions_that_failed_for_the_same_reason_share_one_line(
+    app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    from riftlift import game_ui
+
+    notices = []
+    monkeypatch.setattr(
+        game_ui, "_themed_notice", lambda _parent, _title, text: notices.append(text)
+    )
+    dialog = game_ui.StoreGameDialog(_paths(tmp_path), lambda: None)
+    dialog._builds = [
+        Build("1", "Game", f"b{code}", f"1.{code}", code) for code in (3, 2, 1)
+    ]
+    offline = "ConnectionError: network is unreachable"
+    dialog._job = SimpleNamespace(
+        failed_versions=[
+            ("1.3 (3)", "failed"),
+            ("1.2 (2)", "failed"),
+            ("1.1 (1)", "failed"),
+        ],
+        failed_version_reasons={
+            "1.3 (3)": offline,
+            "1.2 (2)": offline,
+            "1.1 (1)": offline,
+        },
+        error_detail="",
+    )
+
+    dialog._finish_install(None, "download_failed")
+
+    assert notices[0].splitlines()[2:] == [
+        f"1.3 (3), 1.2 (2), 1.1 (1): {game_ui.ADD_GAME('version_failed')} ({offline})"
+    ]
     dialog.close()
 
 
