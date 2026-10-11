@@ -418,3 +418,44 @@ def test_a_link_check_finishing_after_the_dialog_is_gone_is_dropped(
     assert not worker.is_alive()
     assert crashes == []
     dialog.close()
+
+
+def test_resuming_a_paused_all_versions_run_does_not_ask_again(
+    app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from riftlift import game_ui
+    from riftlift.download_job import DownloadJob
+    from riftlift.library import ALL_BUILDS
+
+    questions, starts = [], []
+    monkeypatch.setattr(
+        game_ui,
+        "_themed_question",
+        lambda _parent, _title, text: questions.append(text) or True,
+    )
+
+    class PausingJob(DownloadJob):
+        def start(self):
+            starts.append(self.request["build"])
+            self.paused.emit()
+
+    monkeypatch.setattr(game_ui, "DownloadJob", PausingJob)
+    url = "https://www.meta.com/experiences/pcvr/game/1/"
+    dialog = game_ui.StoreGameDialog(_paths(tmp_path), lambda: None)
+    dialog.entry.setText(url)
+    dialog._verified_url = url
+    dialog._game_name = "Game"
+    dialog._set_builds(
+        [Build("1", "Game", f"b{code}", f"1.{code}", code) for code in (2, 1)]
+    )
+    dialog.versions.setCurrentIndex(dialog.versions.findData(ALL_BUILDS))
+    dialog.submit.setEnabled(True)  # as after the link check
+
+    dialog.submit.click()
+    assert dialog.submit.text() == game_ui.ADD_GAME("resume_download")
+    dialog.submit.click()
+
+    # Resuming continues the run the question already allowed.
+    assert starts == [ALL_BUILDS, ALL_BUILDS]
+    assert len(questions) == 1
+    dialog.close()

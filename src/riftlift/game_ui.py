@@ -293,6 +293,7 @@ class StoreGameDialog(QtWidgets.QDialog):
         self._job = None
         self._busy = False
         self._close_when_paused = False
+        self._paused = False
         self._generation = 0
         self._verified_url = ""
         self._game_name = simple_name
@@ -507,12 +508,18 @@ class StoreGameDialog(QtWidgets.QDialog):
             self.entry.setFocus()
             return
         selector = self.versions.currentData() if self.versions.count() else None
-        if selector == ALL_BUILDS and not _themed_question(
-            self,
-            ADD_GAME("all_versions").format(count=len(self._builds)),
-            ADD_GAME("all_versions_confirm").format(
-                count=len(self._builds), name=self._game_name
-            ),
+        # Resuming continues the run the question already allowed; the link and
+        # the version can't change while paused.
+        if (
+            selector == ALL_BUILDS
+            and not self._paused
+            and not _themed_question(
+                self,
+                ADD_GAME("all_versions").format(count=len(self._builds)),
+                ADD_GAME("all_versions_confirm").format(
+                    count=len(self._builds), name=self._game_name
+                ),
+            )
         ):
             return
         self._start_install(value, selector)
@@ -523,6 +530,7 @@ class StoreGameDialog(QtWidgets.QDialog):
         if self._job is not None:
             self._job.deleteLater()
         self._close_when_paused = False
+        self._paused = False
         self._version_prefix = ""
         self.sync_steam = self.steam.isChecked()
         self.entry.setEnabled(False)
@@ -571,6 +579,7 @@ class StoreGameDialog(QtWidgets.QDialog):
 
     def _finish_pause(self):
         self._busy = False
+        self._paused = True
         self.progress.hide()
         self.submit.setText(ADD_GAME("resume_download"))
         self.submit.setAccessibleName(self.submit.text())
