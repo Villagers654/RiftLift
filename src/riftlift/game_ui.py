@@ -186,13 +186,27 @@ def _themed_question(parent, title: str, text: str) -> bool:
     return dialog.exec() == QtWidgets.QDialog.Accepted
 
 
-def _themed_notice(parent, title: str, text: str) -> None:
+def _themed_notice_dialog(parent, title: str, text: str, details: str = ""):
     dialog, layout = _themed_dialog(parent, title, text)
+    if details:
+        # A long list scrolls in its own box instead of growing the dialog
+        # past the screen; it can be selected and copied, too.
+        dialog.setMinimumWidth(560)
+        view = QtWidgets.QPlainTextEdit(details)
+        view.setReadOnly(True)
+        line = view.fontMetrics().lineSpacing()
+        view.setMinimumHeight(4 * line)
+        view.setMaximumHeight(12 * line)
+        layout.addWidget(view)
     ok_button = QtWidgets.QPushButton(ACTION("ok"))
     ok_button.setObjectName("primary")
     ok_button.clicked.connect(dialog.accept)
     layout.addWidget(ok_button, alignment=QtCore.Qt.AlignRight)
-    dialog.exec()
+    return dialog
+
+
+def _themed_notice(parent, title: str, text: str, details: str = "") -> None:
+    _themed_notice_dialog(parent, title, text, details).exec()
 
 
 def _label(text: str, name: str = "") -> QtWidgets.QLabel:
@@ -658,9 +672,8 @@ class StoreGameDialog(QtWidgets.QDialog):
                 self._game_name or ADD_GAME("title"),
                 ADD_GAME("versions_failed").format(
                     failed=len(failed), total=len(self._builds)
-                )
-                + "\n\n"
-                + details,
+                ),
+                details,
             )
         if game is not None:
             self.installed_game = game

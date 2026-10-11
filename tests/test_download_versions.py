@@ -188,3 +188,28 @@ def test_themed_notice_keeps_wrapped_text_visible() -> None:
     assert label.height() >= label.heightForWidth(label.width())
     dialog.close()
     dialog.deleteLater()
+
+
+def test_a_long_failure_list_scrolls_instead_of_outgrowing_the_screen() -> None:
+    from riftlift import game_ui
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    # As seen live: 30 versions, each with its own long reason.
+    details = "\n".join(
+        f"1.{index} ({index}): download failed (PermissionError: [Errno 13] Permission "
+        f"denied: '/home/user/Games/RiftLift/sensor-bounds-1-{index}')"
+        for index in range(30)
+    )
+    dialog = game_ui._themed_notice_dialog(
+        None, "Sensor Bounds", "30 of 31 versions could not be downloaded:", details
+    )
+    dialog.show()
+    app.processEvents()
+    view = dialog.findChild(QtWidgets.QPlainTextEdit)
+
+    assert view.toPlainText() == details
+    assert view.isReadOnly()
+    assert view.verticalScrollBar().maximum() > 0
+    assert dialog.height() < 600
+    dialog.close()
+    dialog.deleteLater()

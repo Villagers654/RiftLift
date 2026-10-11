@@ -301,7 +301,11 @@ def test_failed_versions_are_listed_even_when_none_installed(
 
     notices = []
     monkeypatch.setattr(
-        game_ui, "_themed_notice", lambda _parent, _title, text: notices.append(text)
+        game_ui,
+        "_themed_notice",
+        lambda _parent, _title, text, details="": notices.append(
+            f"{text}\n\n{details}"
+        ),
     )
     window = QtWidgets.QWidget()
     logged = []
@@ -342,7 +346,11 @@ def test_versions_that_failed_for_the_same_reason_share_one_line(
 
     notices = []
     monkeypatch.setattr(
-        game_ui, "_themed_notice", lambda _parent, _title, text: notices.append(text)
+        game_ui,
+        "_themed_notice",
+        lambda _parent, _title, text, details="": notices.append(
+            f"{text}\n\n{details}"
+        ),
     )
     dialog = game_ui.StoreGameDialog(_paths(tmp_path), lambda: None)
     dialog._builds = [

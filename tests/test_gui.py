@@ -2329,7 +2329,7 @@ def test_all_versions_downloads_every_build_after_confirmation(
     )
     monkeypatch.setattr(
         "riftlift.game_ui._themed_notice",
-        lambda _parent, title, text: notices.append(text),
+        lambda _parent, title, text, details="": notices.append(f"{text}\n\n{details}"),
     )
     requests = []
     game = Game("echo-vr-34-4", "Echo VR", "1", "k", str(tmp_path), "e.exe", [])
