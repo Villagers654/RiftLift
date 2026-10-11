@@ -374,6 +374,33 @@ def test_the_guide_address_is_copied_when_no_browser_opens(
     _close(app, dialog)
 
 
+@pytest.mark.parametrize(
+    "browser", [_no_browser, lambda: FIREFOX], ids=["no browser", "browser"]
+)
+def test_the_guide_address_is_copied_even_when_opening_it_reports_success(
+    tmp_path, monkeypatch, browser
+) -> None:
+    from riftlift.auth_ui import AUTH
+
+    # The desktop portal answers success even when nothing opens https links.
+    monkeypatch.setattr(
+        "riftlift.auth_ui.QtGui.QDesktopServices.openUrl", lambda _url: True
+    )
+    app, dialog, _ = _waiting(tmp_path, monkeypatch, browser=browser)
+    QtGui.QGuiApplication.clipboard().clear()
+    dialog.manual_toggle.click()
+
+    dialog.help_link.click()
+    app.processEvents()
+
+    assert QtGui.QGuiApplication.clipboard().text() == MANUAL_SIGN_IN_GUIDE
+    assert dialog.paste_error.text() == AUTH("guide_copied").format(
+        url=MANUAL_SIGN_IN_GUIDE
+    )
+    assert dialog.paste_error.isVisible()
+    _close(app, dialog)
+
+
 def test_text_fits_again_when_the_dialog_is_narrowed(tmp_path, monkeypatch) -> None:
     from riftlift.i18n import set_language
 

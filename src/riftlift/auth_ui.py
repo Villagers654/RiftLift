@@ -314,9 +314,9 @@ class AuthDialog(QtWidgets.QDialog):
         self._fit_text()
 
     def _open_guide(self):
-        if QtGui.QDesktopServices.openUrl(QtCore.QUrl(MANUAL_SIGN_IN_GUIDE)):
-            return
-        # Without a browser, the guide is only reachable by copying its address.
+        # The result can't be trusted: the desktop portal reports success even when
+        # nothing opens https links. Without a browser, the address is the only way.
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl(MANUAL_SIGN_IN_GUIDE))
         QtGui.QGuiApplication.clipboard().setText(MANUAL_SIGN_IN_GUIDE)
         self.paste_error.setText(AUTH("guide_copied").format(url=MANUAL_SIGN_IN_GUIDE))
         self.paste_error.show()

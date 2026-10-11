@@ -242,7 +242,7 @@ STRINGS = {
             "affiche après cette connexion."
         ),
         "guide_copied": (
-            "Aucun navigateur n'a ouvert le guide. Son adresse est dans le "
+            "Si le guide ne s'est pas ouvert, son adresse est dans le "
             "presse-papiers : {url}"
         ),
         "manual_help": "Comment trouver cette adresse ?",
