@@ -23,8 +23,6 @@ Compatibility results are listed separately for Windows and Linux. Results can v
 | [The Thrill of the Fight](https://store.steampowered.com/app/494150/The_Thrill_of_the_Fight__VR_Boxing/) | Meta Rift Store | Untested | ✅ | No | — |
 | [Vader Immortal: Episode I](https://www.playstation.com/en-us/games/vader-immortal-a-star-wars-vr-series/) | Meta Rift Store; Windows: 1.1.0 | ✅ | ✅ | Yes | — |
 
-Windows results (2026-10-09) use the CI-built `windows-native` installer on SteamVR's null headset with two simulated Oculus Touch controllers ([test driver](../runtime/tests/steamvr-touch-sim/README.md)): every title presents stereo frames through the SteamVR compositor and detects the controllers. Physical-headset tracking, real controller input and full gameplay remain unverified. With SteamVR, RiftLift uses its OpenVR interface; forcing the OpenXR path on SteamVR's OpenXR runtime still fails for First Contact and Stormland, whose swapchains that runtime rejects. These results do not establish compatibility for the pinned release.
-
 ## What “Oculus exclusive” means here
 
 **Yes** means the title's PC VR release was available only for Oculus/Meta Rift, though it may also have versions on non-PC consoles. **No** means it also received an official PC VR release for another headset platform. This is separate from whether the particular build tested by RiftLift uses the Oculus SDK.
