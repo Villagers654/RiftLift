@@ -58,6 +58,10 @@ STRINGS = {
         "not_installed": "Non installés",
         "version": "Version {version}",
         "refresh_tooltip": "Rafraîchir les jeux installés et ta bibliothèque Meta",
+        "partial_list": (
+            "Meta n'a renvoyé qu'une partie de ta bibliothèque. Ajoute un jeu "
+            "manquant avec Ajouter un jeu."
+        ),
     },
     "empty": {
         "title": "Aucun jeu Rift pour l'instant",

@@ -22,10 +22,26 @@ class OwnedApp:
 
     @property
     def store_url(self) -> str:
+        # Delisted apps can come back without a canonical name; Meta's store
+        # also resolves the link without one.
+        if not self.slug:
+            return f"https://www.meta.com/experiences/pcvr/{self.app_id}/"
         return f"https://www.meta.com/experiences/pcvr/{self.slug}/{self.app_id}/"
 
 
-def list_owned_pcvr_apps(token: str) -> list[OwnedApp]:
+class OwnedLibrary(list):
+    """Owned apps, plus whether Meta said more results exist than it returned.
+
+    The entitlements query is a persisted one without known paging variables,
+    so a list Meta cut short can only be reported, not completed.
+    """
+
+    def __init__(self, apps=(), *, partial: bool = False):
+        super().__init__(apps)
+        self.partial = partial
+
+
+def list_owned_pcvr_apps(token: str) -> OwnedLibrary:
     body = urllib.parse.urlencode(
         {
             "access_token": token,
@@ -52,9 +68,11 @@ def list_owned_pcvr_apps(token: str) -> list[OwnedApp]:
         nodes = entitlements["nodes"]
     except (KeyError, TypeError) as error:
         raise RiftLiftError("Meta returned no entitlement data") from error
+    page_info = entitlements.get("page_info") or {}
+    partial = bool(isinstance(page_info, dict) and page_info.get("has_next_page"))
     print(
         f"Meta entitlements: {len(nodes)} node(s) returned"
-        f"{'; a page_info field is present (results may be paginated and truncated)' if 'page_info' in entitlements else ''}."
+        f"{'; Meta reports more pages, so this list is incomplete' if partial else ''}."
     )
     apps = []
     skipped_platforms: dict[str, int] = {}
@@ -68,8 +86,8 @@ def list_owned_pcvr_apps(token: str) -> list[OwnedApp]:
             )
             continue
         app_id, name = item.get("id"), item.get("display_name")
-        slug = item.get("canonical_name")
-        if app_id and name and slug:
+        slug = item.get("canonical_name") or ""
+        if app_id and name:
             apps.append(OwnedApp(app_id=str(app_id), name=str(name), slug=str(slug)))
         else:
             skipped_incomplete += 1
@@ -78,7 +96,7 @@ def list_owned_pcvr_apps(token: str) -> list[OwnedApp]:
             f"Meta entitlements: skipped {skipped_incomplete} incomplete node(s); "
             f"skipped by platform: {skipped_platforms}"
         )
-    return sorted(apps, key=lambda app: app.name.lower())
+    return OwnedLibrary(sorted(apps, key=lambda app: app.name.lower()), partial=partial)
 
 
 def fetch_account_identity(token: str) -> tuple[str, str] | None:
