@@ -3,6 +3,10 @@
 int main(void) {
     _putenv("RIFTLIFT_USER_ID=1234");
     _putenv("RIFTLIFT_USER_NAME=Test User");
+    CHECK(ovr_PlatformInitializeWindows("1") == 0);
+    CHECK(ovr_PlatformInitializeUnrealWindows("1") == 0);
+    CHECK(ovr_PlatformInitializeUnityWindows("1") == 0);
+    CHECK(ovr_UnityInitWrapperWindows("1", NULL));
     uint64_t request = ovr_UnityInitWrapperWindowsAsynchronous("1477883658957255");
     void *message = ovr_PopMessage();
     CHECK(message && ovr_Message_GetRequestID(message) == request);
@@ -48,17 +52,40 @@ int main(void) {
     CHECK(ovr_Message_GetType(message) == MSG_ASSET_LIST);
     CHECK(ovr_AssetDetailsArray_GetSize(ovr_Message_GetAssetDetailsArray(message)) == 0);
     ovr_FreeMessage(message);
-    typedef void (*setter)(uint64_t);
-    union { FARPROC source; setter target; } set = {real_proc("test_set_user")};
-    CHECK(set.target);
-    set.target(5678);
-    CHECK(ovr_AssetFile_GetList() == 71);
+    CHECK(ovr_Achievements_Unlock("first") == 81);
+    _putenv("RIFTLIFT_PLATFORM_OFFLINE=1");
+    request = ovr_Achievements_Unlock("first");
+    message = ovr_PopMessage();
+    CHECK(ovr_Message_GetType(message) == MSG_ACHIEVEMENT_UNLOCK);
+    CHECK(ovr_Message_GetRequestID(message) == request);
+    CHECK(!ovr_Message_IsError(message));
+    /* Games read the unlock result: Meta's getters must never see the local reply. */
+    CHECK(ovr_AchievementUpdate_GetJustUnlocked(ovr_Message_GetAchievementUpdate(message)));
+    CHECK(strcmp(ovr_AchievementUpdate_GetName(ovr_Message_GetAchievementUpdate(message)), "first") == 0);
+    ovr_FreeMessage(message);
+    _putenv("RIFTLIFT_PLATFORM_OFFLINE=");
+    /* Meta's implementation was never initialized: an empty queue must not reach it. */
     CHECK(ovr_PopMessage() == NULL);
+    typedef void (*setter)(uint64_t);
+    typedef void (*flag_setter)(bool);
+    union { FARPROC source; setter target; } set = {real_proc("test_set_user")};
+    union { FARPROC source; flag_setter target; } set_initialized = {real_proc("test_set_initialized")};
+    CHECK(set.target && set_initialized.target);
+    set.target(5678);
+    request = ovr_AssetFile_GetList();
+    message = ovr_PopMessage();
+    CHECK(ovr_Message_GetType(message) == MSG_ASSET_LIST);
+    CHECK(ovr_Message_GetRequestID(message) == request);
+    ovr_FreeMessage(message);
+    set_initialized.target(true);
+    CHECK(ovr_AssetFile_GetList() == 71);
+    void *real_message = ovr_PopMessage();
+    CHECK(real_message && ovr_Message_GetNativeMessage(real_message) == real_message);
     uint64_t real_object = 0;
     CHECK(ovr_Message_GetNativeMessage(&real_object) == &real_object);
     CHECK(ovr_AssetDetailsArray_GetSize(&real_object) == 3);
     CHECK(!strcmp(ovr_User_GetDisplayName(&real_object), "Real user"));
     CHECK(ovr_User_GetPresenceStatus(&real_object) == 2);
-    puts("Platform async initialization, profile lifetime, local asset enumeration and native forwarding tests passed");
+    puts("Platform async initialization, profile lifetime, local asset enumeration, achievement unlocks, uninitialized polling and native forwarding tests passed");
     return 0;
 }
