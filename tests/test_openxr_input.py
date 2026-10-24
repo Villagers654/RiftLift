@@ -38,6 +38,7 @@ def test_openxr_menu_input(tmp_path: Path, release: bool):
         for signature in (
             "bool InputManager::Action::GetDigital(",
             "void InputManager::OculusTouch::GetInputState(",
+            "bool InputManager::OculusTouch::UsesTrackpadButtons(",
             "ovrResult InputManager::GetInputState(",
         )
     )

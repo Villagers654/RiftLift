@@ -331,6 +331,12 @@ OVR_PUBLIC_FUNCTION(ovrResult) ovr_GetSessionStatus(ovrSession session, ovrSessi
 			session->SessionStatus = status;
 			break;
 		}
+		case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED:
+			// The runtime picked (or dropped) a controller profile: the input
+			// translation follows it, and "none" means the hands won't track.
+			if (session->Input)
+				session->Input->UpdateInteractionProfiles(session->Session);
+			break;
 		case XR_TYPE_EVENT_DATA_VISIBILITY_MASK_CHANGED_KHR:
 		{
 			const XrEventDataVisibilityMaskChangedKHR& maskChange =

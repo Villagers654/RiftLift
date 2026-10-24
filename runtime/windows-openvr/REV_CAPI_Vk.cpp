@@ -44,7 +44,7 @@ ovr_GetInstanceExtensionsVk(
 	uint32_t* inoutExtensionNamesSize)
 {
 	if (!inoutExtensionNamesSize)
-		ovrError_InvalidParameter;
+		return ovrError_InvalidParameter;
 
 	std::stringstream extensions;
 	uint32_t required = vr::VRCompositor()->GetVulkanInstanceExtensionsRequired(nullptr, 0);
@@ -79,7 +79,7 @@ ovr_GetDeviceExtensionsVk(
 	uint32_t* inoutExtensionNamesSize)
 {
 	if (!inoutExtensionNamesSize)
-		ovrError_InvalidParameter;
+		return ovrError_InvalidParameter;
 
 	std::stringstream extensions;
 	// xrizer cannot answer this query until ovr_GetSessionPhysicalDeviceVk has

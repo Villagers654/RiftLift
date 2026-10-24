@@ -46,13 +46,17 @@ ovrResult AudioEndPointToGuid(char* deviceStrBuffer, int deviceStrSize, GUID* de
 	}
 
 	PROPVARIANT pv;
+	PropVariantInit(&pv);
 	hr = pPropertyStore->GetValue(PKEY_AudioEndpoint_GUID, &pv);
 	if (FAILED(hr))
 	{
 		return ovrError_AccessDenied;
 	}
 
-	hr = IIDFromString(pv.pwszVal, deviceGuid);
+	hr = pv.vt == VT_LPWSTR && pv.pwszVal
+		? IIDFromString(pv.pwszVal, deviceGuid)
+		: E_INVALIDARG;
+	PropVariantClear(&pv);
 	if (FAILED(hr))
 		return ovrError_RuntimeException;
 	return ovrSuccess;
@@ -83,6 +87,7 @@ ovrResult GetDefaultAudioEndpoint(EDataFlow endpoint, WCHAR deviceStrBuffer[OVR_
 	if (FAILED(hr))
 		return ovrError_AudioComError;
 	wcscpy_s(deviceStrBuffer, OVR_AUDIO_MAX_DEVICE_STR_SIZE, pGuid);
+	CoTaskMemFree(pGuid);
 	return ovrSuccess;
 }
 

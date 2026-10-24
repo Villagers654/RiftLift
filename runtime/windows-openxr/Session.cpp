@@ -29,13 +29,17 @@ ovrResult ovrHmdStruct::InitSession(XrInstance instance)
 	SystemProperties = XR_TYPE(SYSTEM_PROPERTIES);
 	SystemColorSpace = XR_TYPE(SYSTEM_COLOR_SPACE_PROPERTIES_FB);
 
-	// Initialize view structures
+	// Initialize view structures. Chain the EPIC fov struct only when its
+	// extension is enabled: a struct from a disabled extension is invalid,
+	// and SteamVR fails xrEnumerateViewConfigurationViews over it. The view
+	// fallback below derives the fov without it.
+	const bool epicFov = Runtime::Get().Supports(XR_EPIC_VIEW_CONFIGURATION_FOV_EXTENSION_NAME);
 	for (int i = 0; i < ovrEye_Count; i++)
 	{
 		ViewConfigs[i] = XR_TYPE(VIEW_CONFIGURATION_VIEW);
 		ViewFov[i] = XR_TYPE(VIEW_CONFIGURATION_VIEW_FOV_EPIC);
 		ViewPoses[i] = XR_TYPE(VIEW);
-		ViewConfigs[i].next = &ViewFov[i];
+		ViewConfigs[i].next = epicFov ? &ViewFov[i] : nullptr;
 	}
 
 	XrSystemGetInfo systemInfo = XR_TYPE(SYSTEM_GET_INFO);

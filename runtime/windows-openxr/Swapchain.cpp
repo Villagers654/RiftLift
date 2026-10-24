@@ -97,6 +97,13 @@ ovrResult ovrTextureSwapChainData::Init(XrSession session, const ovrTextureSwapC
 	CHK_XR(created);
 	TraceOculusValue("xrCreateSwapchain.createdMipCount", createInfo.mipCount);
 
+	// GE-Proton's WineOpenXR learns a swapchain's image count only when its
+	// images are first enumerated, and refuses an acquire before that with
+	// XR_ERROR_CALL_ORDER_INVALID. Asking for the count first is valid on
+	// every runtime.
+	uint32_t imageCount = 0;
+	CHK_XR(xrEnumerateSwapchainImages(Swapchain, 0, &imageCount, nullptr));
+
 	XrSwapchainImageAcquireInfo acqInfo = XR_TYPE(SWAPCHAIN_IMAGE_ACQUIRE_INFO);
 	CHK_XR(xrAcquireSwapchainImage(Swapchain, &acqInfo, &CurrentIndex));
 

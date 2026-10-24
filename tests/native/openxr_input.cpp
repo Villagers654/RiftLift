@@ -103,6 +103,8 @@ public:
     class OculusTouch : public InputDevice {
     public:
         void GetInputState(XrSession, ovrControllerType, ovrInputState*) override;
+        bool UsesTrackpadButtons(ovrHandType hand) const;
+        bool m_WmrBound[ovrHand_Count] = {};
         Action m_Button_Enter{Enter, false}, m_Button_Home{Home, false};
         Action m_Button_AX{AX}, m_Button_BY{BY}, m_Button_Thumb{Thumb};
         Action m_Touch_AX{TouchAX}, m_Touch_BY{TouchBY}, m_Touch_Thumb{TouchThumb};
@@ -215,6 +217,20 @@ int main()
     check(sample() == ovrButton_X, "WMR lower trackpad click is one button");
     trackpadY = 1;
     check(sample() == ovrButton_Y, "WMR upper trackpad click is one button");
+
+    // Monado binds the WMR profile without being the WMR runtime: its shared
+    // trackpad click must still be one button, never the X+Y Menu chord.
+    reset();
+    touch.m_WmrBound[ovrHand_Left] = true;
+    states[AX][0].pressed = states[BY][0].pressed = true;
+    check(sample() == ovrButton_X, "bound WMR lower trackpad click is one button");
+    trackpadY = 1;
+    check(sample() == ovrButton_Y, "bound WMR upper trackpad click is one button");
+    touch.m_WmrBound[ovrHand_Left] = false;
+    touch.m_WmrBound[ovrHand_Right] = true;
+    trackpadY = 0;
+    check(sample() == chord, "a WMR right hand must not change the left hand");
+    touch.m_WmrBound[ovrHand_Right] = false;
 
 #ifdef NDEBUG
     reset();

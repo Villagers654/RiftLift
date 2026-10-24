@@ -32,7 +32,7 @@ ovr_GetInstanceExtensionsVk(
 	uint32_t* inoutExtensionNamesSize)
 {
 	if (!inoutExtensionNamesSize)
-		ovrError_InvalidParameter;
+		return ovrError_InvalidParameter;
 
 	if (Runtime::Get().Supports(XR_KHR_VULKAN_ENABLE_EXTENSION_NAME))
 	{
@@ -64,7 +64,7 @@ ovr_GetDeviceExtensionsVk(
 	uint32_t* inoutExtensionNamesSize)
 {
 	if (!inoutExtensionNamesSize)
-		ovrError_InvalidParameter;
+		return ovrError_InvalidParameter;
 
 	if (Runtime::Get().Supports(XR_KHR_VULKAN_ENABLE_EXTENSION_NAME))
 	{
@@ -99,7 +99,7 @@ ovr_GetSessionPhysicalDeviceVk(
 	XR_FUNCTION(session->Instance, GetVulkanGraphicsDeviceKHR);
 
 	if (!out_physicalDevice)
-		ovrError_InvalidParameter;
+		return ovrError_InvalidParameter;
 
 	VulkanLibrary = LoadLibraryW(L"vulkan-1.dll");
 	if (!VulkanLibrary)
