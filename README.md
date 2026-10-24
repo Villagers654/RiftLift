@@ -92,6 +92,8 @@ Common fixes:
 
 - **No VR runtime found:** start SteamVR (or your OpenXR runtime) and try again.
 - **Meta asks you to sign in again:** click **Sign In** and finish Meta's page.
+- **Meta's Continue button does nothing, or no browser opens:** sign in
+  manually, see [Signing in manually](docs/MANUAL_SIGN_IN.md).
 - **A game is missing from Steam (Linux):** close Steam, run `riftlift steam-sync`,
   and reopen it.
 

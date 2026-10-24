@@ -222,6 +222,15 @@ class MetaAuthSession:
     def callback_ready(self) -> bool:
         return _callback_file(self.paths).is_file()
 
+    def accepts(self, callback_url: str) -> bool:
+        """Whether a callback answers this sign-in's request, not an earlier one."""
+        parsed = urlsplit(callback_url)
+        callback_hash = parse_qs(parsed.query).get("token", [""])[0]
+        expected_hash = hashlib.sha256(self.request_token.encode()).hexdigest()[:16]
+        return parsed.scheme in {"oculus", "oculus-client"} and secrets.compare_digest(
+            callback_hash, expected_hash
+        )
+
     def complete(self) -> str:
         target = _callback_file(self.paths)
         try:
@@ -230,16 +239,9 @@ class MetaAuthSession:
             raise RiftLiftError("Meta has not finished authentication yet") from error
         finally:
             target.unlink(missing_ok=True)
-        parsed = urlsplit(callback_url)
-        query = parse_qs(parsed.query)
-        blob = query.get("blob", [""])[0]
-        callback_hash = query.get("token", [""])[0]
-        expected_hash = hashlib.sha256(self.request_token.encode()).hexdigest()[:16]
-        if parsed.scheme not in {
-            "oculus",
-            "oculus-client",
-        } or not secrets.compare_digest(callback_hash, expected_hash):
+        if not self.accepts(callback_url):
             raise RiftLiftError("Meta returned an invalid login callback")
+        blob = parse_qs(urlsplit(callback_url).query).get("blob", [""])[0]
         if not blob:
             raise RiftLiftError("Meta's login callback did not contain a session")
 

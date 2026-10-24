@@ -2122,7 +2122,7 @@ def test_auth_dialog_reports_browser_launch_failure(tmp_path, monkeypatch):
     dialog.process = SimpleNamespace(poll=lambda: 1)
     dialog.operation = "waiting"
     dialog.check_login()
-    assert dialog.operation == "idle"
+    assert dialog.operation == "waiting"  # the copied link can still finish
     assert "Could not open the browser" in dialog.status.text()
     dialog.close()
     app.processEvents()
