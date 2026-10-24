@@ -532,10 +532,20 @@ def parser() -> argparse.ArgumentParser:
     callback.add_argument("url")
     download = sub.add_parser("add", help="download an owned Meta Rift PC game")
     download.add_argument("app")
-    download.add_argument("--build")
+    download.add_argument(
+        "--build",
+        help=(
+            "specific version, version code, or binary ID, or 'all' to download "
+            "every available version (see 'riftlift builds')"
+        ),
+    )
     download.add_argument("--executable")
     download.add_argument("--arguments")
     download.add_argument("--jobs", type=int)
+    builds = sub.add_parser(
+        "builds", help="list every version of an owned game you can download"
+    )
+    builds.add_argument("app", help="Meta Rift store URL or numeric app ID")
     setup = sub.add_parser("setup", help="install checksum-verified native x64 runtime")
     setup.add_argument("--archive", type=Path)
     doc = sub.add_parser("doctor", help="local Windows runtime checks")
@@ -587,18 +597,8 @@ def _run_command(paths: Paths, args: argparse.Namespace) -> int:
         from .auth import complete_login
 
         return complete_login(paths, args.url)
-    if args.command == "add":
-        from .library import add
-
-        game = add(
-            paths,
-            args.app,
-            build_selector=args.build,
-            executable=args.executable,
-            arguments=args.arguments,
-            jobs=args.jobs,
-        )
-        print(f"Installed: {game.name} ({game.slug})")
+    if args.command in {"add", "builds"}:
+        return _run_download(paths, args)
     if args.command == "setup":
         print(f"Native payload installed: {install_payload(paths, args.archive)}")
     elif args.command == "doctor":
@@ -617,6 +617,35 @@ def _run_command(paths: Paths, args: argparse.Namespace) -> int:
     elif args.command == "launch":
         game = Game.load(paths, args.slug)
         return launch(paths, game, select_backend(game, args.backend), args.dry_run)
+    return 0
+
+
+def _run_download(paths: Paths, args: argparse.Namespace) -> int:
+    from .builds import builds_table
+    from .library import (
+        ALL_BUILDS,
+        add,
+        add_all_versions,
+        all_versions_summary,
+        available_builds,
+    )
+
+    if args.command == "builds":
+        print("\n".join(builds_table(available_builds(paths, args.app))))
+        return 0
+    if args.build == ALL_BUILDS:
+        installed, failed = add_all_versions(paths, args.app, jobs=args.jobs)
+        print("\n".join(all_versions_summary(installed, failed)))
+        return 1 if failed else 0
+    game = add(
+        paths,
+        args.app,
+        build_selector=args.build,
+        executable=args.executable,
+        arguments=args.arguments,
+        jobs=args.jobs,
+    )
+    print(f"Installed: {game.name} ({game.slug})")
     return 0
 
 

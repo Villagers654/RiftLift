@@ -49,7 +49,19 @@ def test_validates_meta_rift_store_urls() -> None:
     assert is_valid_rift_store_url(
         "https://www.meta.com/en-gb/experiences/pcvr/lone-echo/1368187813209608/"
     )
+    assert is_valid_rift_store_url(
+        "https://www.meta.com/en-gb/experiences/pcvr/echo-vr/1369078409873402/"
+    )
+    assert is_valid_rift_store_url(
+        "https://www.meta.com/experiences/pcvr/1369078409873402/"
+    )
+    assert is_valid_rift_store_url(
+        "https://www.oculus.com/experiences/rift/1369078409873402/"
+    )
     assert not is_valid_rift_store_url("123456789")
+    assert not is_valid_rift_store_url(
+        "https://www.oculus.com/experiences/quest/1369078409873402/"
+    )
     assert not is_valid_rift_store_url(
         "https://www.meta.com/experiences/quest/vader-immortal/123456789/"
     )
@@ -2054,6 +2066,12 @@ def test_install_stays_disabled_when_rift_game_does_not_exist(
         raise RiftLiftError("Meta's store page has no catalog metadata for app 123")
 
     monkeypatch.setattr("riftlift.game_ui.fetch_catalog_metadata", missing)
+    monkeypatch.setattr("riftlift.game_ui._is_signed_in", lambda _paths: True)
+
+    def no_builds(_paths, _app):
+        raise RiftLiftError("Meta returned no PCVR application data for that app ID")
+
+    monkeypatch.setattr("riftlift.game_ui.available_builds", no_builds)
     monkeypatch.setattr(
         QtWidgets.QDialog, "exec", lambda dialog: dialogs.append(dialog)
     )
@@ -2071,6 +2089,54 @@ def test_install_stays_disabled_when_rift_game_does_not_exist(
         app,
         lambda: any(
             label.text() == "This Rift store game could not be found."
+            for label in dialog.findChildren(QtWidgets.QLabel)
+        ),
+    )
+    assert not install.isEnabled()
+
+    dialog.close()
+    window.close()
+    app.processEvents()
+
+
+def test_signed_out_delisted_game_asks_to_sign_in(tmp_path: Path, monkeypatch) -> None:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    dialogs = []
+    monkeypatch.setattr("riftlift.game_ui.LINK_VALIDATION_DELAY_MS", 0)
+
+    def missing(_app_id: str):
+        raise RiftLiftError("Meta's store page has no catalog metadata for app 123")
+
+    monkeypatch.setattr("riftlift.game_ui.fetch_catalog_metadata", missing)
+    monkeypatch.setattr(
+        QtWidgets.QDialog, "exec", lambda dialog: dialogs.append(dialog)
+    )
+
+    window.add_dialog()
+    dialog = dialogs[0]
+    entry = dialog.findChild(QtWidgets.QLineEdit)
+    install = next(
+        button
+        for button in dialog.findChildren(QtWidgets.QPushButton)
+        if button.text() == "Install"
+    )
+    entry.setText("https://www.meta.com/experiences/pcvr/not-real/123456789/")
+    assert wait_until(
+        app,
+        lambda: any(
+            label.text()
+            == "This game is not listed in the store. Sign in to Meta to install "
+            "delisted games you own."
             for label in dialog.findChildren(QtWidgets.QLabel)
         ),
     )
@@ -2124,5 +2190,166 @@ def test_auth_dialog_reports_browser_launch_failure(tmp_path, monkeypatch):
     dialog.check_login()
     assert dialog.operation == "idle"
     assert "Could not open the browser" in dialog.status.text()
+    dialog.close()
+    app.processEvents()
+
+
+def _store_paths(tmp_path: Path) -> Paths:
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    return paths
+
+
+def _echo_builds():
+    from riftlift.builds import AvailableBuild
+
+    return [
+        AvailableBuild(
+            "1369078409873402",
+            "Echo VR",
+            "6608609535920237",
+            "34.4.636386.0",
+            2206,
+            channels=("LIVE",),
+        ),
+        AvailableBuild(
+            "1369078409873402",
+            "Echo VR",
+            "6323983201049540",
+            "34.4.631547.1",
+            2202,
+            channels=("LIVE",),
+        ),
+    ]
+
+
+ECHO_URL = "https://www.meta.com/en-gb/experiences/pcvr/echo-vr/1369078409873402/"
+
+
+def _recording_job(requests, game, *, versions=0, failed=()):
+    """A DownloadJob stand-in: records the worker request, replays its events."""
+    from riftlift.download_job import DownloadJob
+
+    class RecordingJob(DownloadJob):
+        def start(self):
+            requests.append(self.request)
+            for index in range(1, versions + 1):
+                self.version.emit(index, versions)
+            self.failed_versions.extend(failed)
+            self.complete.emit(game, None)
+
+    return RecordingJob
+
+
+def test_delisted_owned_game_is_accepted_and_lists_versions(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _store_paths(tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    monkeypatch.setattr("riftlift.game_ui.LINK_VALIDATION_DELAY_MS", 0)
+    monkeypatch.setattr("riftlift.game_ui._is_signed_in", lambda _paths: True)
+    monkeypatch.setattr(
+        "riftlift.game_ui.available_builds", lambda _paths, _app: _echo_builds()
+    )
+
+    def delisted(_app_id: str):
+        raise RiftLiftError("Meta's store page has no catalog metadata for app 1")
+
+    monkeypatch.setattr("riftlift.game_ui.fetch_catalog_metadata", delisted)
+    requests = []
+    game = Game(
+        "echo-vr", "Echo VR", "1369078409873402", "k", str(tmp_path), "e.exe", []
+    )
+    monkeypatch.setattr("riftlift.game_ui.DownloadJob", _recording_job(requests, game))
+
+    dialog = StoreGameDialog(paths, lambda: None, initial_url=ECHO_URL)
+    assert wait_until(app, dialog.submit.isEnabled)
+    assert dialog.validation.text() == "Ready to install Echo VR."
+    items = [dialog.versions.itemText(i) for i in range(dialog.versions.count())]
+    assert items == [
+        "34.4.636386.0 (2206) (latest)",
+        "34.4.631547.1 (2202)",
+        "All versions (2)",
+    ]
+
+    dialog.versions.setCurrentIndex(1)
+    dialog.submit.click()
+    assert wait_until(app, lambda: dialog.installed_game is not None)
+    assert requests[0]["url"] == ECHO_URL
+    assert requests[0]["build"] == "6323983201049540"
+    dialog.close()
+    app.processEvents()
+
+
+def test_latest_version_installs_without_a_selector(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _store_paths(tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    monkeypatch.setattr("riftlift.game_ui._is_signed_in", lambda _paths: True)
+    monkeypatch.setattr(
+        "riftlift.game_ui.available_builds", lambda _paths, _app: _echo_builds()
+    )
+    requests = []
+    game = Game("echo-vr", "Echo VR", "1", "k", str(tmp_path), "e.exe", [])
+    monkeypatch.setattr("riftlift.game_ui.DownloadJob", _recording_job(requests, game))
+
+    # The owned-library path confirms the game up front and loads versions after.
+    dialog = StoreGameDialog(
+        paths, lambda: None, initial_url=ECHO_URL, simple_name="Echo VR"
+    )
+    assert wait_until(app, lambda: dialog.versions.count() == 3)
+    dialog.submit.click()
+    assert wait_until(app, lambda: dialog.installed_game is not None)
+    assert "build" not in requests[0]
+    dialog.close()
+    app.processEvents()
+
+
+def test_all_versions_downloads_every_build_after_confirmation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _store_paths(tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    monkeypatch.setattr("riftlift.game_ui._is_signed_in", lambda _paths: True)
+    monkeypatch.setattr(
+        "riftlift.game_ui.available_builds", lambda _paths, _app: _echo_builds()
+    )
+    questions, notices = [], []
+    monkeypatch.setattr(
+        "riftlift.game_ui._themed_question",
+        lambda _parent, title, text: questions.append(text) or True,
+    )
+    monkeypatch.setattr(
+        "riftlift.game_ui._themed_notice",
+        lambda _parent, title, text, details="": notices.append(f"{text}\n\n{details}"),
+    )
+    requests = []
+    game = Game("echo-vr-34-4", "Echo VR", "1", "k", str(tmp_path), "e.exe", [])
+    monkeypatch.setattr(
+        "riftlift.game_ui.DownloadJob",
+        _recording_job(
+            requests, game, versions=2, failed=[("34.4.631547.1 (2202)", "failed")]
+        ),
+    )
+
+    dialog = StoreGameDialog(
+        paths, lambda: None, initial_url=ECHO_URL, simple_name="Echo VR"
+    )
+    assert wait_until(app, lambda: dialog.versions.count() == 3)
+    dialog.versions.setCurrentIndex(2)
+    dialog.submit.click()
+    assert wait_until(app, lambda: dialog.installed_game is not None)
+    assert requests[0]["build"] == "all"
+    assert "Download all 2 versions of Echo VR?" in questions[0]
+    assert "1 of 2 versions could not be downloaded" in notices[0]
+    assert "34.4.631547.1 (2202): download failed" in notices[0]
     dialog.close()
     app.processEvents()

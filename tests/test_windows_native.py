@@ -482,8 +482,10 @@ def test_windows_download_preserves_manifest_and_enables_offline_compat(
     from riftlift import library
 
     monkeypatch.setattr(library, "account_tokens", lambda *_args: ["test-token"])
-    build = SimpleNamespace(app_name="Test Download", version="1.0")
-    monkeypatch.setattr(library, "list_builds", lambda *args: [build])
+    build = SimpleNamespace(
+        app_name="Test Download", version="1.0", binary_id="1", version_code=1
+    )
+    monkeypatch.setattr(library, "list_all_builds", lambda *args: [build])
     monkeypatch.setattr(library, "select_build", lambda *args: build)
     manifest = {
         "canonicalName": "publisher.test",

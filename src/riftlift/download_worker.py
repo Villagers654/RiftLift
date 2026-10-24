@@ -55,6 +55,62 @@ def restore_worker_streams() -> None:
         setattr(sys, name, os.fdopen(descriptor, mode, encoding="utf-8", buffering=1))
 
 
+def _add_every_version(paths, url, emit, finalize):
+    from .builds import build_label
+    from .library import NotLaunchableError, add_all_versions
+
+    installed, failed = add_all_versions(
+        paths,
+        url,
+        on_build=lambda index, total, _build: emit("version", index=index, total=total),
+        on_finalizing=finalize,
+    )
+    # Error text may hold credentials; describe_error strips URLs and tokens.
+    for build, error in failed:
+        kind = "not_launchable" if isinstance(error, NotLaunchableError) else "failed"
+        emit(
+            "failed",
+            label=build_label(build),
+            kind=kind,
+            detail=describe_error(error),
+        )
+    if not installed:
+        raise RuntimeError("no version could be installed")
+    return installed[0]
+
+
+def _install(paths, request, emit, finalize):
+    from .library import ALL_BUILDS, add
+
+    build = request.get("build")
+    if build == ALL_BUILDS:
+        return _add_every_version(paths, request["url"], emit, finalize)
+    if build:
+        return add(
+            paths, request["url"], build_selector=str(build), on_finalizing=finalize
+        )
+    return add(paths, request["url"], on_finalizing=finalize)
+
+
+def _error_reason(error: Exception) -> str:
+    """Classify a failed install for the UI.
+
+    Exceptions from HTTP clients may contain credential-bearing URLs. Send a
+    bounded classification, never their raw text or traceback.
+    """
+    from .library import NotLaunchableError
+
+    if isinstance(error, NotLaunchableError):
+        return "not_launchable"
+    message = str(error).lower()
+    if any(
+        text in message
+        for text in ("401", "403", "login", "log in", "token", "sign in")
+    ):
+        return "sign_in_required"
+    return "download_failed"
+
+
 def main() -> int:
     restore_worker_streams()
     output = sys.stdout
@@ -66,7 +122,7 @@ def main() -> int:
     try:
         request = json.loads(sys.stdin.readline(65536))
         paths = Paths(**{key: Path(value) for key, value in request["paths"].items()})
-        from .library import add, parse_download_progress
+        from .library import parse_download_progress
 
         def progress(line):
             parsed = parse_download_progress(line)
@@ -83,7 +139,7 @@ def main() -> int:
                 raise ValueError("Invalid finalization acknowledgement")
 
         with contextlib.redirect_stdout(LineWriter(progress)):
-            game = add(paths, request["url"], on_finalizing=finalize)
+            game = _install(paths, request, emit, finalize)
             # The install record is already committed. A Steam sync failure
             # must not turn an installed game into a failed download.
             if request.get("sync_steam"):
@@ -96,18 +152,7 @@ def main() -> int:
         emit("complete", slug=game.slug)
         return 0
     except Exception as error:
-        # Exceptions from HTTP clients may contain credential-bearing URLs.
-        # Send a bounded classification, never their raw text or traceback.
-        message = str(error).lower()
-        reason = (
-            "sign_in_required"
-            if any(
-                text in message
-                for text in ("401", "403", "login", "log in", "token", "sign in")
-            )
-            else "download_failed"
-        )
-        emit("error", reason=reason, detail=describe_error(error))
+        emit("error", reason=_error_reason(error), detail=describe_error(error))
         return 1
 
 

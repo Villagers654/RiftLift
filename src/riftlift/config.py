@@ -122,6 +122,7 @@ class Game:
     launch_options: list[str] = field(default_factory=list)
     dll_overrides: str = ""
     environment: dict[str, str] = field(default_factory=dict)
+    binary_id: str = ""
 
     def _validate_strings(self) -> None:
         for field_name in (
@@ -136,6 +137,7 @@ class Game:
             "description",
             "developer",
             "publisher",
+            "binary_id",
         ):
             if not isinstance(getattr(self, field_name), str):
                 raise ValueError(f"game {field_name} must be a string")

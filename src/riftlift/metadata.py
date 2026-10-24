@@ -444,6 +444,21 @@ def fetch_owned_hero(paths: Paths, app_id: str, *, refresh: bool = False) -> str
     )
 
 
+def _store_name_for(game: Game, store_name: str) -> str:
+    """The store's name, keeping the label of a side-by-side version install.
+
+    Versions installed side by side are named "Game (1.28)" or "Game (1.28,
+    build 39)"; without the label they would all read the same in the library.
+    """
+    if game.version:
+        label = re.search(
+            rf" \({re.escape(game.version)}(?:, build \d+)?\)$", game.name
+        )
+        if label:
+            return store_name + label.group(0)
+    return store_name
+
+
 def populate_game_metadata(paths: Paths, game: Game, *, refresh: bool = False) -> Game:
     if game.source == "local":
         return game
@@ -458,7 +473,7 @@ def populate_game_metadata(paths: Paths, game: Game, *, refresh: bool = False) -
         else fetch_catalog_metadata(app_id)
     )
     if metadata.name:
-        game.name = metadata.name
+        game.name = _store_name_for(game, metadata.name)
     game.store_url = metadata.store_url
     game.description = metadata.description
     game.description_lang = current_language()

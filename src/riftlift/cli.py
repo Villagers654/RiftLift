@@ -13,9 +13,18 @@ if os.name != "nt":
     from meta_pcvr_downloader.download import DownloadError
 
     from .auth import accounts, complete_login, login, owned_apps, sign_out
+    from .builds import builds_table
     from .config import Game, Paths, games
     from .desktop_services import doctor, launch, setup
-    from .library import add, add_local, remove
+    from .library import (
+        ALL_BUILDS,
+        add,
+        add_all_versions,
+        add_local,
+        all_versions_summary,
+        available_builds,
+        remove,
+    )
     from .metadata import populate_game_metadata
     from .playtime import playtime, playtime_label
     from .steam import sync_with_restart
@@ -63,7 +72,11 @@ def parser() -> argparse.ArgumentParser:
     )
     add_command.add_argument("app", help="Meta Rift store URL or numeric app ID")
     add_command.add_argument(
-        "--build", help="specific version, version code, or binary ID"
+        "--build",
+        help=(
+            "specific version, version code, or binary ID, or 'all' to download "
+            "every available version (see 'riftlift builds')"
+        ),
     )
     add_command.add_argument(
         "--executable", help="override the manifest launch executable"
@@ -81,6 +94,11 @@ def parser() -> argparse.ArgumentParser:
     add_command.add_argument(
         "--no-steam", action="store_true", help="download without updating Steam"
     )
+
+    builds_command = commands.add_parser(
+        "builds", help="list every version of an owned game you can download"
+    )
+    builds_command.add_argument("app", help="Meta Rift store URL or numeric app ID")
 
     local_command = commands.add_parser(
         "add-local", help="add an existing Windows VR game to RiftLift"
@@ -203,7 +221,22 @@ def _run_callback(paths: Paths, arguments: argparse.Namespace) -> int:
     return complete_login(paths, arguments.url or "")
 
 
+def _run_add_all(paths: Paths, arguments: argparse.Namespace) -> int:
+    installed, failed = add_all_versions(paths, arguments.app, jobs=arguments.jobs)
+    print("\n".join(all_versions_summary(installed, failed)))
+    if installed and not arguments.no_steam:
+        print(f"Added to Steam ({sync_with_restart(paths)}).")
+    return 1 if failed else 0
+
+
+def _run_builds(paths: Paths, arguments: argparse.Namespace) -> int:
+    print("\n".join(builds_table(available_builds(paths, arguments.app))))
+    return 0
+
+
 def _run_add(paths: Paths, arguments: argparse.Namespace) -> int:
+    if arguments.build == ALL_BUILDS:
+        return _run_add_all(paths, arguments)
     game = add(
         paths,
         arguments.app,
@@ -328,6 +361,7 @@ def run(arguments: argparse.Namespace) -> int:
         "callback": _run_callback,
         "add": _run_add,
         "add-local": _run_add_local,
+        "builds": _run_builds,
         "remove": _run_remove,
         "launch": _run_launch,
         "launch-steam": _run_steam_launch,
