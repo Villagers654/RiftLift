@@ -86,9 +86,21 @@ switches between them.
 
 If a game won't start:
 
-1. Set **Settings → Log detail** to **Debug** and try the game once more.
+1. Set **Settings → Log detail** to **Debug** and, on Linux, turn on
+   **Debug logging** (Proton, graphics and crash logs). Try the game once more.
 2. Click **Upload debug report** and put the link in a
    [new issue](https://github.com/Villagers654/RiftLift/issues).
+   `riftlift-cli report GAME` writes the same report and prints its summary;
+   add `--upload` for a link.
+
+A report starts with what happened to the last run, its likely cause and what
+to try next. It then lists:
+
+- the state of every compatibility component;
+- your system and VR runtime setup;
+- the errors that every related log recorded during the run: Proton, the
+  graphics and XRizer logs, the game's own logs, Steam, WiVRn and Envision, and
+  the system journal.
 
 Reports leave out your name, folders and account details.
 

@@ -600,6 +600,164 @@ void Installer::setup() {
   shutdown_compat_prefix();
 }
 
+std::vector<std::string> Installer::check() {
+  std::vector<std::string> out;
+  auto line = [&](std::string_view state, std::string_view label, const std::string &detail) {
+    out.push_back(std::format("{:<4} {}: {}", state, label, detail));
+  };
+  auto payload = [&](std::string_view label, const fs::path &directory, const std::vector<std::string> &files) {
+    std::string installed;
+    try {
+      installed = strip(read_file(directory / ".riftlift-version"));
+    } catch (...) {
+    }
+    if (installed.empty() && !exists_dir(directory))
+      return line("--", label, "not installed yet (installed when a game starts)");
+    if (installed_payload_current(directory, runtime_version(), files))
+      return line("OK", label, installed);
+    line("FAIL", label,
+         installed != runtime_version()
+             ? std::format("{} installed, this build uses {}", installed.empty() ? "unknown" : installed,
+                           runtime_version())
+             : "files missing or changed since they were installed");
+  };
+
+  std::optional<fs::path> steam;
+  try {
+    steam = steam_root();
+    line("OK", "Steam", paths::utf8(*steam));
+  } catch (const std::exception &e) {
+    line("FAIL", "Steam", e.what());
+  }
+  if (steam) {
+    auto target = *steam / "compatibilitytools.d" / proton_version;
+    if (!exists_file(target / "proton")) {
+      line("--", "GE-Proton", std::format("{} not installed yet", proton_version));
+    } else {
+      std::string version;
+      try {
+        version = strip(read_file(target / "version"));
+      } catch (...) {
+      }
+      proton_ = target;  // the bridge checks below read this install as it is
+      line("OK", "GE-Proton", version.empty() ? std::string(proton_version) : version);
+      auto dxvk = target / "files/lib/wine/dxvk";
+      try {
+        auto installed = parse_json(read_file(dxvk / ".riftlift-dxvk.json"));
+        const auto &files = field(installed, "files");
+        std::vector<std::string> changed;
+        for (auto &f : dxvk_files)
+          if (str(files, f.second) != try_sha256_file(dxvk / f.second))
+            changed.push_back(f.second);
+        for (auto &f : proton_openvr_files)
+          if (!exists_file(dxvk / f))
+            changed.push_back(f + " (missing)");
+        std::string list;
+        for (auto &c : changed)
+          list += (list.empty() ? "" : ", ") + c;
+        if (str(installed, "version") != dxvk_version)
+          line("FAIL", "RiftLift DXVK",
+               std::format("{} installed, this build uses {}", str(installed, "version"), dxvk_version));
+        else if (!changed.empty())
+          line("FAIL", "RiftLift DXVK", "changed or missing: " + list);
+        else
+          line("OK", "RiftLift DXVK", std::string(dxvk_version));
+      } catch (...) {
+        line("--", "RiftLift DXVK", "not installed yet");
+      }
+      for (auto backend : {"openxr", "openvr"}) {
+        auto label = std::string("Native ") + (backend == std::string_view("openxr") ? "OpenXR" : "OpenVR") +
+                     " bridge";
+        try {
+          line("OK", label, native_xr_bridge(backend));
+        } catch (const std::exception &e) {
+          line("FAIL", label, e.what());
+        }
+      }
+    }
+  }
+  const auto prefix = layout_.prefix / "pfx";
+  if (exists_dir(prefix / "drive_c"))
+    line("OK", "Compatibility prefix", paths::utf8(prefix));
+  else
+    line("--", "Compatibility prefix", "not created yet");
+  payload("Compatibility runtime", layout_.tools / "rift-runtime", rift_runtime_files);
+  {
+    std::string system_reg;
+    try {
+      system_reg = read_file(prefix / "system.reg");
+    } catch (...) {
+    }
+    auto manifest = layout_.tools / "rift-runtime/openxr-layer.json";
+    if (!exists_file(manifest))
+      line("--", "OpenXR compatibility layer", "not registered yet");
+    else if (layer_registered(system_reg, "Software\\Khronos\\OpenXR\\1\\ApiLayers\\Implicit",
+                              linux_to_windows(manifest)))
+      line("OK", "OpenXR compatibility layer", "registered in the prefix");
+    else
+      line("FAIL", "OpenXR compatibility layer", "manifest written but not registered in the prefix");
+  }
+  const auto support = prefix / "drive_c/Program Files/Oculus/Support";
+  for (auto &package : meta_packages()) {
+    if (!exists_dir(support / package.name))
+      line("--", "Meta " + package.name, "not installed yet");
+    else if (meta_package_current(support / package.name, package))
+      line("OK", "Meta " + package.name, std::format("{} sha256 {}", meta_version, package.sha256.substr(0, 12)));
+    else
+      line("FAIL", "Meta " + package.name, std::format("files differ from Meta's {} package", meta_version));
+  }
+  if (exists_dir(support / "oculus-runtime")) {
+    line(signed_meta_runtime_current(support / "oculus-runtime") ? "OK" : "FAIL", "Meta signed loaders",
+         "LibOVRRT32_1.dll, LibOVRRT64_1.dll");
+    line(meta_signing_root_installed(layout_.prefix) ? "OK" : "FAIL", "Meta signing root",
+         std::string(meta_signing_root_thumbprint));
+    line(exists_file(support / ".riftlift-registry-v4") ? "OK" : "FAIL", "Meta runtime registry", "v4");
+  }
+  {
+    auto compat = layout_.tools / "platform-compat";
+    int present = 0;
+    for (auto name : {"LibOVRPlatform64_1.dll", "LibOVRPlatformImpl64_1.dll", "LibOVRPlatformImpl64_1_real.dll"})
+      present += exists_file(compat / name);
+    if (!exists_dir(compat))
+      line("--", "Platform SDK bridge", "not installed yet");
+    else
+      line(present == 3 ? "OK" : "FAIL", "Platform SDK bridge", std::format("{} of 3 files", present));
+  }
+  payload("XRizer (OpenVR on OpenXR)", layout_.tools / "openvr-runtime", openvr_runtime_files);
+
+  std::optional<fs::path> openxr;
+  try {
+    openxr = active_runtime_json(base_);
+    std::string detail = paths::utf8(*openxr);
+    try {
+      auto manifest = parse_json(read_file(*openxr));
+      const auto &runtime = field(manifest, "runtime");
+      detail += std::format(" ({}; {})", str(runtime, "name").empty() ? "unnamed" : str(runtime, "name"),
+                            paths::utf8(paths::from_utf8(str(runtime, "library_path")).filename()));
+    } catch (...) {
+      detail += " (unreadable manifest)";
+    }
+    if (auto flatpak = flatpak_app_parts(*openxr))
+      detail += "; Flatpak " + flatpak->second;
+    line("OK", "Active OpenXR runtime", detail);
+  } catch (const std::exception &e) {
+    line("FAIL", "Active OpenXR runtime", e.what());
+  }
+  if (openxr) {
+    if (auto steamvr = steamvr_runtime_for_openxr(*openxr))
+      line("OK", "OpenVR games", "SteamVR's own OpenVR client " + paths::utf8(*steamvr));
+    else
+      line("OK", "OpenVR games", "XRizer on the active OpenXR runtime");
+  }
+  try {
+    auto registry = parse_json(read_file(layout_.config / "openvr/openvrpaths.vrpath"));
+    line("OK", "OpenVR path registry", field(registry, "runtime").dump());
+  } catch (...) {
+    line("--", "OpenVR path registry", "not written yet");
+  }
+  return out;
+}
+
 void Installer::shutdown_compat_prefix(bool wait) {
   auto wineserver = install_proton() / "files/bin/wineserver";
   if (!exists_file(wineserver))

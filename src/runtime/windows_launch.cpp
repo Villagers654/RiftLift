@@ -11,6 +11,7 @@
 #include "runtime/rules.h"
 #include "runtime/xr.h"
 #include <algorithm>
+#include <cstdio>
 #include <windows.h>
 
 namespace riftlift::runtime {
@@ -275,6 +276,54 @@ bool launcher_accepts_manifest(const fs::path &launcher) {
   }
 }
 } // namespace
+
+int check_components(const fs::path &root, const Env &env) {
+  const auto layout = runtime::layout(root);
+  auto line = [](std::string_view state, std::string_view label, const std::string &detail) {
+    std::printf("%s\n", std::format("{:<4} {}: {}", state, label, detail).c_str());
+  };
+  auto missing = [](const fs::path &directory, const std::vector<std::string> &names) {
+    std::string list;
+    for (auto &n : names)
+      if (!is_file(directory / paths::from_utf8(n)))
+        list += (list.empty() ? "" : ", ") + n;
+    return list;
+  };
+  const auto native_dir = runtime_dir(layout, env);
+  const auto &dir = native_dir.directory;
+  const std::string where = native_dir.packaged ? "bundled" : std::format("{} at {}", payload_release, native(dir));
+  if (auto list = missing(dir, payload_files); list.empty())
+    line("OK", "Compatibility runtime", where);
+  else if (!native_dir.packaged && !fs::exists(dir))
+    line("--", "Compatibility runtime", "not installed yet (installed when a game starts)");
+  else
+    line("FAIL", "Compatibility runtime", where + "; missing " + list);
+  if (auto list = missing(dir, platform_files); list.empty())
+    line("OK", "Platform SDK bridge", "complete");
+  else
+    line(native_dir.packaged ? "FAIL" : "--", "Platform SDK bridge", "missing " + list);
+  if (try_sha256_file(dir / "LibOVRRT64_1.dll") == sdk_runtime_sha256 ||
+      try_sha256_file(layout.tools / "meta-runtime/LibOVRRT64_1.dll") == sdk_runtime_sha256)
+    line("OK", "Meta signed loader", "LibOVRRT64_1.dll");
+  else
+    line("--", "Meta signed loader", "not installed yet");
+  line(is_file(dir / openxr_layer_file) ? "OK" : "--", "OpenXR compatibility layer",
+       is_file(dir / openxr_layer_file) ? std::string(openxr_layer_file) : "not in this payload");
+  if (auto xr = active_openxr(env))
+    line(is_file(*xr) ? "OK" : "FAIL", "Active OpenXR runtime", native(*xr) + (is_file(*xr) ? "" : " (file missing)"));
+  else
+    line("FAIL", "Active OpenXR runtime", "none registered");
+  if (auto vr = active_openvr(env))
+    line("OK", "Active OpenVR runtime", native(*vr));
+  else
+    line("--", "Active OpenVR runtime", "none registered");
+  try {
+    line("OK", "Backend for new launches", select_windows_backend(env));
+  } catch (const std::exception &e) {
+    line("FAIL", "Backend for new launches", e.what());
+  }
+  return 0;
+}
 
 int launch(const LaunchRequest &request) {
   const auto &game = request.game;

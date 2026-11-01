@@ -48,6 +48,11 @@ Library
                                  files go too, never a local or Steam game's
   play GAME [--as ACCOUNT|local] Launch a game and wait for it to exit
   logs GAME [--lines N]          The end of a game's last runtime log
+  report [GAME] [--upload]       Write a debug report about a game's last run
+                                 (the most recent one by default): its likely
+                                 cause, component checks, system setup and
+                                 logs, with personal details removed; --upload
+                                 also shares it as a link (dpaste.com, 90 days)
 
 Adding games
   add EXE [--name NAME] [--args "ARGS"]
@@ -81,7 +86,8 @@ Settings
   settings                       Show settings
   settings set KEY VALUE         games-folder PATH | runtime PATH|default |
                                  log-level trace|debug|info|warn|error |
-                                 console on|off | add-to-steam on|off |
+                                 console on|off | debug-logging on|off |
+                                 add-to-steam on|off |
                                  add-new-to-steam on|off | language auto|en|fr
 
 GAME is a name (or a unique part of it), an app id or a slug.
@@ -116,7 +122,7 @@ Args parse(const std::vector<std::string> &argv) {
   static const std::set<std::string> with_value{"--as",      "--to",      "--search",        "--lines", "--name",
                                                 "--args",    "--options", "--dll-overrides", "--shim"};
   static const std::set<std::string> known{"--json", "--offline",   "--yes",   "-y",        "--all",    "--installed",
-                                           "--steam", "--clear-env", "--help", "-h",        "--version"};
+                                           "--steam", "--clear-env", "--help", "-h",        "--version", "--upload"};
   Args out;
   for (size_t i = 1; i < argv.size(); ++i) {
     const auto &a = argv[i];
@@ -541,6 +547,7 @@ private:
   int uninstall_game(const Args &);
   int play_game(const Args &);
   int logs(const Args &);
+  int report(const Args &);
   int add_cmd(const Args &);
   int configure_cmd(const Args &);
   int downloads_cmd(const Args &);
@@ -817,6 +824,40 @@ int Cli::logs(const Args &args) {
   std::cout << "# " << paths::utf8(file) << "\n";
   for (auto &l : lines)
     std::cout << l << "\n";
+  return 0;
+}
+
+int Cli::report(const Args &args) {
+  wait_scan();
+  std::string app_id;
+  if (args.words.size() > 1)
+    app_id = resolve_game(args.word(1, "game")).id;
+  const auto file = save_debug_report(app_id, RIFTLIFT_VERSION);
+  std::string url, error;
+  if (args.flag("--upload")) {
+    bool done = false;
+    share_debug_report(file, [&](std::string u, std::string e) {
+      url = std::move(u);
+      error = std::move(e);
+      done = true;
+    });
+    wait([&] { return done; });
+  }
+  if (json_) {
+    Json out{{"report", paths::utf8(file)}};
+    if (!url.empty()) out["url"] = url;
+    if (!error.empty()) out["error"] = error;
+    print(out);
+  } else {
+    // The summary: everything before the checks.
+    std::ifstream in(file, std::ios::binary);
+    for (std::string line; std::getline(in, line) && line != "=== Checks ===";)
+      std::cout << line << "\n";
+    std::cout << "Full report: " << paths::utf8(file) << "\n";
+    if (!url.empty()) std::cout << "Link to share: " << url << "\n";
+  }
+  if (!error.empty())
+    throw std::runtime_error("The report could not be uploaded: " + error);
   return 0;
 }
 
@@ -1113,6 +1154,8 @@ int Cli::settings_cmd(const Args &args) {
       next.log_level = int(it - std::begin(kLevels));
     } else if (key == "console")
       next.console = on_off(value);
+    else if (key == "debug-logging")
+      next.debug_logging = on_off(value);
     else if (key == "add-to-steam")
       next.add_games_to_steam = on_off(value);
     else if (key == "add-new-to-steam")
@@ -1129,6 +1172,7 @@ int Cli::settings_cmd(const Args &args) {
            {"language", settings_.language},
            {"log-level", std::string(kLevels[std::clamp(settings_.log_level, 0, 4)])},
            {"console", settings_.console},
+           {"debug-logging", settings_.debug_logging},
            {"add-to-steam", settings_.add_games_to_steam},
            {"add-new-to-steam", settings_.steam_add_new}};
   Json folders = Json::array();
@@ -1151,6 +1195,7 @@ int Cli::run(const Args &args) {
   if (cmd == "uninstall") return uninstall_game(args);
   if (cmd == "play") return play_game(args);
   if (cmd == "logs") return logs(args);
+  if (cmd == "report") return report(args);
   if (cmd == "add") return add_cmd(args);
   if (cmd == "configure") return configure_cmd(args);
   if (cmd == "downloads") return downloads_cmd(args);

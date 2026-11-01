@@ -32,6 +32,11 @@ public:
   void install_openxr_layer();
   // Installs every component above.
   void setup();
+  // --check: each component as installed now, against what this build
+  // installs; reads only, never downloads or changes anything. Lines are
+  // "OK  label: detail", "FAIL label: detail" or "--  label: detail" (not
+  // installed yet, or not in use).
+  std::vector<std::string> check();
   // Checks GE-Proton's Wine unixlib pair for `backend`; returns "pe -> unix".
   std::string native_xr_bridge(std::string_view backend);
   OpenVrSelection select_openvr_runtime(const std::optional<fs::path> &openxr_runtime = {});

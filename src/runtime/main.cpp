@@ -9,6 +9,8 @@
 #include "runtime/options.h"
 #include "runtime/platform_relay.h"
 #include <atomic>
+#include <chrono>
+#include <cstdio>
 #include <limits>
 #include <thread>
 #ifdef _WIN32
@@ -152,6 +154,14 @@ int main(int argc, char **argv) {
   if (!options.probe_openvr.empty())
     return runtime::probe_openvr(options.probe_openvr);
 #endif
+  if (options.check) {
+    try {
+      return runtime::check_components(paths::data_dir(), runtime::current_environment());
+    } catch (const std::exception &e) {
+      std::printf("FAIL Check: %s\n", one_line(e.what()).c_str());
+      return 1;
+    }
+  }
   log::set_level(level_from_environment());
   if (options.console)
     log::attach_console();
@@ -179,8 +189,10 @@ int main(int argc, char **argv) {
       }
       request.stop = watcher.token();
       request.started = [&watcher] { watcher.game_started(); };
-      log::info("runtime", "RiftLift runtime {} starting {} (account {}).", runtime::payload_version,
-                options.game, options.account);
+      // The wall-clock start lets a debug report match system logs to this run.
+      log::info("runtime", "RiftLift runtime {} starting {} (account {}) at {:%FT%TZ}.", runtime::payload_version,
+                options.game, options.account,
+                std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
       code = runtime::launch(request);
       // A smoke run whose game was still running at the deadline passed.
       if (watcher.timed_out())

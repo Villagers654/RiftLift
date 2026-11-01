@@ -1,5 +1,5 @@
 # The launcher without its window (core.h): the GUI and riftlift-cli share it.
-add_library(riftlift_launcher_core STATIC core.cpp debug_report.cpp drives.cpp i18n.cpp i18n_fr.cpp updater.cpp ui/rich_text_parse.cpp)
+add_library(riftlift_launcher_core STATIC core.cpp debug_report.cpp diagnosis.cpp drives.cpp i18n.cpp i18n_fr.cpp updater.cpp ui/rich_text_parse.cpp)
 target_link_libraries(riftlift_launcher_core PUBLIC riftlift_common)
 if(WIN32)
   target_sources(riftlift_launcher_core PRIVATE platform/win32/auth_browser.cpp)

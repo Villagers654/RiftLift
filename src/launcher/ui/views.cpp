@@ -1597,6 +1597,14 @@ void App::draw_settings() {
       if (dropdown("log", "", levels, 5, &settings_.log_level, dw)) action([&] { save_settings(); });
     });
   }
+#ifndef _WIN32
+  divider();
+  setting_row("Debug logging",
+              "Keeps Proton, graphics and crash logs for debug reports. Games may start and run slower.", s(44),
+              s(24), [&] {
+                if (toggle("debug-logging", &settings_.debug_logging)) action([&] { save_settings(); });
+              });
+#endif
   divider();
   {
     float bw = row_button_w("Open logs", icons::folder);

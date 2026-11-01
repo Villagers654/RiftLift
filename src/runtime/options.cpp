@@ -40,6 +40,8 @@ Options parse_options(const std::vector<std::string> &args) {
       o.console = true;
     else if (option == "--run-seconds")
       o.run_seconds = number(option, value());
+    else if (option == "--check")
+      o.check = true;
     else if (option == "--probe-openvr")
       o.probe_openvr = value();
     else if (option == "--credential-read")
@@ -54,7 +56,7 @@ Options parse_options(const std::vector<std::string> &args) {
   }
   if (!o.credential_read != !o.credential_write)
     throw std::invalid_argument("Both credential channel handles are required.");
-  if (o.game.empty() && o.probe_openvr.empty())
+  if (o.game.empty() && o.probe_openvr.empty() && !o.check)
     throw std::invalid_argument("--game is required.");
   return o;
 }

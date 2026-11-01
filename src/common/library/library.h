@@ -64,6 +64,9 @@ struct Settings {
   fs::path games, runtime;
   int log_level = 2;
   bool console = false;
+  // Linux: games also keep Proton, graphics, crash and XRizer logs for
+  // debug reports (slower; RIFTLIFT_PROTON_LOG for the runtime).
+  bool debug_logging = false;
   // The launcher asks GitHub for a newer release at start; "Not now" skips that version.
   bool check_updates = true;
   std::string dismissed_update;

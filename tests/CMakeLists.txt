@@ -12,6 +12,7 @@ add_executable(riftlift_tests
   paths_test.cpp
   broker_test.cpp
   launch_channel_test.cpp
+  debug_report_test.cpp
 )
 target_link_libraries(riftlift_tests PRIVATE riftlift_launcher_core doctest::doctest)
 target_include_directories(riftlift_tests PRIVATE ${PROJECT_SOURCE_DIR})

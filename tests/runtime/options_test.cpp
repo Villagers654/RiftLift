@@ -24,6 +24,7 @@ TEST_CASE("runtime: command line") {
   CHECK_THROWS(parse_options({"--game"}));
   CHECK_THROWS(parse_options({"--game", "x", "--run-seconds", "soon"}));
   CHECK(parse_options({"--probe-openvr", "/x.so"}).probe_openvr == "/x.so");
+  CHECK(parse_options({"--check"}).check);
   auto brokered = parse_options({"--game", "x", "--credential-read", "64", "--credential-write", "65"});
   CHECK(brokered.credential_read == 64);
   CHECK(brokered.credential_write == 65);

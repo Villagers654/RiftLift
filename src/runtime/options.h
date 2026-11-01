@@ -2,6 +2,7 @@
 // riftlift-runtime --game <slug> --log <file> --account <key|local>
 //                  --parent-pid <pid> [--console] [--run-seconds N]
 //                  [--credential-read H --credential-write H]
+// riftlift-runtime --check
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -16,6 +17,9 @@ struct Options {
   // The launcher's Platform broker (common/ipc.h): inherited pipe handles,
   // 0 when the launcher gave none.
   std::uintptr_t credential_read = 0, credential_write = 0;
+  // --check: prints each compatibility component's state and exits (the
+  // debug report's checks); reads only.
+  bool check = false;
   // Internal: dlopen()s an OpenVR client in a separate process to validate it.
   std::string probe_openvr;
   std::vector<std::string> ignored;  // options this build does not know

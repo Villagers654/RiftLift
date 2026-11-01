@@ -33,7 +33,8 @@ For Steam titles, RiftLift adds a separate Oculus-compatible shortcut. It does n
 
 ## Reporting another game
 
-Set **Settings → Log detail** to **Debug**, launch the game once, then click
+Set **Settings → Log detail** to **Debug** (and, on Linux, turn on **Debug
+logging**), launch the game once, then click
 **Upload debug report**. It uploads the launch's logs and setup details (without
 your name, folders or account details) and gives you a link to put in a
 [compatibility report](https://github.com/Villagers654/RiftLift/issues).

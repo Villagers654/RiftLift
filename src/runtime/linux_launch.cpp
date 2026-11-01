@@ -9,6 +9,7 @@
 #include "runtime/rules.h"
 #include "runtime/xr.h"
 #include <csignal>
+#include <cstdio>
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <random>
@@ -163,6 +164,12 @@ std::string random_id() {
 }
 } // namespace
 
+int check_components(const fs::path &root, const Env &env) {
+  Installer installer(layout(root), env, {});
+  for (auto &line : installer.check())
+    std::printf("%s\n", line.c_str());
+  return 0;
+}
 int probe_openvr(const std::string &library) {
   void *handle = dlopen(library.c_str(), RTLD_NOW | RTLD_LOCAL);
   if (!handle) {

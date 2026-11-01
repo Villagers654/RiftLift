@@ -22,6 +22,9 @@ struct LaunchRequest {
 // Throws for a launch that could not start; the message becomes the
 // "[runtime]" error line the launcher shows.
 int launch(const LaunchRequest &request);
+// --check: prints one line per compatibility component (Installer::check on
+// Linux) to stdout; returns 0.
+int check_components(const fs::path &root, const Env &env);
 // --probe-openvr: loads an OpenVR client library; 0 when it is usable.
 int probe_openvr(const std::string &library);
 

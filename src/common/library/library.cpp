@@ -345,6 +345,7 @@ Settings Settings::load(const fs::path &data) {
   if (auto jobs = number(j, "parallelDownloads"); jobs >= 1 && jobs <= 4)
     s.parallel_downloads = int(jobs);
   s.console = field(j, "launchWithConsole") == true;
+  s.debug_logging = field(j, "debugLogging") == true;
   s.check_updates = field(j, "checkForUpdates") != false;
   s.dismissed_update = str(j, "dismissedUpdate");
   s.add_games_to_steam = field(j, "addGamesToSteam") != false;
@@ -374,6 +375,7 @@ void Settings::save(const fs::path &data) const {
          {"interfaceSize", interface_size},
          {"parallelDownloads", parallel_downloads},
          {"launchWithConsole", console},
+         {"debugLogging", debug_logging},
          {"checkForUpdates", check_updates},
          {"dismissedUpdate", dismissed_update},
          {"addGamesToSteam", add_games_to_steam},

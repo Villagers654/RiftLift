@@ -1,5 +1,6 @@
 #include "launcher/core.h"
 #include "launcher/debug_report.h"
+#include "launcher/diagnosis.h"
 #include "common/environment.h"
 #include "common/file_ops.h"
 #include "common/http/client.h"
@@ -893,8 +894,11 @@ void Core::launch_game(std::string_view id, std::string_view requested) {
     if (options_.smoke_seconds)
       args.insert(args.end(), {"--run-seconds", std::to_string(options_.smoke_seconds)});
     // RIFTLIFT_LOG_LEVEL: the launcher's log level, 0 (trace) to 4 (error).
+    // RIFTLIFT_PROTON_LOG: Settings > Debug logging decides, over the older
+    // app's debug-logging file.
     Environment environment{{"RIFTLIFT_LOG_LEVEL", std::to_string(settings_.log_level)},
-                            {"RIFTLIFT_DATA_DIR", paths::utf8(data_)}};
+                            {"RIFTLIFT_DATA_DIR", paths::utf8(data_)},
+                            {"RIFTLIFT_PROTON_LOG", settings_.debug_logging ? "1" : "0"}};
     // The game's Platform calls (identity, entitlement) reach Meta through
     // this broker, and only when the game makes them: nothing is asked here.
     PipeChannel::Handler broker;
@@ -980,12 +984,14 @@ playtime::Record Core::playtime_of(std::string_view app_id) const {
   return i ? i->played : playtime::Record{};
 }
 fs::path Core::save_debug_report(std::string_view app_id, std::string_view version) const {
-  DebugReport request{.data = data_, .version = std::string(version)};
+  DebugReport request{.data = data_, .version = std::string(version), .runtime = settings_.runtime,
+                      .debug_logging = settings_.debug_logging};
   // A game no longer installed falls back to the most recent launch.
   for (const auto &install : installs_)
     if (!app_id.empty() && install.plan.app_id == app_id) {
       request.package = install.plan.package;
       request.plan = rift::record_path(data_, install.plan.package);
+      request.game = install.game.name;
       if (auto g = std::ranges::find(games_, app_id, &meta::Game::id); g != games_.end()) request.game = g->name;
     }
   for (const auto &account : account_index_.accounts)
@@ -1231,6 +1237,10 @@ void Core::tick() {
           // A runtime that failed before opening its log still wrote stderr.
           r.failure = library::runtime_failure(
               r.tail.empty() ? tail_log(r.console) : r.tail, *r.exit);
+          // A game that crashed: a known cause in its logs says why.
+          if (r.failure.starts_with("The game stopped unexpectedly"))
+            if (auto d = diagnose(tail_log(r.log, 512 << 10) + "\n" + tail_log(r.console, 512 << 10)))
+              r.failure = std::format("{} {}", i18n::tr(d->cause), i18n::tr(d->advice));
           auto entry = game(id);
           error(i18n::trf("{} stopped: {}", entry ? entry->name : id,
                             r.failure));
