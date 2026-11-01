@@ -1,30 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-<!-- RiftLift: a VR visor lifted above a glowing rift. Gradients use absolute
-     coordinates so nanosvg (the launcher and riftlift.exe icon) draws them smoothly. -->
-<defs>
-<linearGradient id="g" gradientUnits="userSpaceOnUse" x1="40" y1="248" x2="216" y2="8">
-<stop offset="0" stop-color="#1A3FD6"/>
-<stop offset="1" stop-color="#2E9BFF"/>
-</linearGradient>
-<linearGradient id="r" gradientUnits="userSpaceOnUse" x1="36" y1="0" x2="220" y2="0">
-<stop offset="0" stop-color="#7C4DFF" stop-opacity="0"/>
-<stop offset="0.25" stop-color="#9F7BFF"/>
-<stop offset="0.5" stop-color="#F1EAFF"/>
-<stop offset="0.75" stop-color="#9F7BFF"/>
-<stop offset="1" stop-color="#7C4DFF" stop-opacity="0"/>
-</linearGradient>
-<radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="128" cy="194" r="96">
-<stop offset="0" stop-color="#B69CFF" stop-opacity="0.55"/>
-<stop offset="1" stop-color="#B69CFF" stop-opacity="0"/>
-</radialGradient>
-<linearGradient id="beam" gradientUnits="userSpaceOnUse" x1="0" y1="190" x2="0" y2="130">
-<stop offset="0" stop-color="#D9C8FF" stop-opacity="0.7"/>
-<stop offset="1" stop-color="#D9C8FF" stop-opacity="0"/>
-</linearGradient>
-</defs>
-
-<rect x="8" y="8" width="240" height="240" rx="56" fill="url(#g)"/>
-<ellipse cx="128" cy="194" rx="96" ry="40" fill="url(#glow)"/>
-<path d="M36 194 C86 180 170 180 220 194 C170 208 86 208 36 194 Z" fill="url(#r)"/>
-<path d="M72 58 H184 C202 58 212 68 212 86 V118 C212 136 202 146 184 146 H158 C150 146 146 142 142 134 L136 122 C133 116 123 116 120 122 L114 134 C110 142 106 146 98 146 H72 C54 146 44 136 44 118 V86 C44 68 54 58 72 58 Z" fill="#FFFFFF"/>
+<!-- RiftLift: a VR visor split by a rift, its right half lifted. -->
+<rect x="8" y="8" width="240" height="240" rx="56" fill="#1F5BFF"/>
+<path d="M76 82 H130 L108 194 H72 C48 194 34 180 34 156 V124 C34 98 50 82 76 82 Z" fill="#FFFFFF"/>
+<path d="M150 62 H180 C206 62 222 78 222 104 V136 C222 160 208 174 184 174 H128 Z" fill="#FFFFFF"/>
 </svg>
