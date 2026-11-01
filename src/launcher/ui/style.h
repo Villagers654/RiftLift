@@ -113,7 +113,7 @@ bool button(const char* id_label, char32_t glyph, Tone tone, ImVec2 size = {0, 0
             ImTextureID image = 0);
 float button_width(std::string_view label, char32_t glyph = 0);
 // Round icon button; `filled` draws its resting background.
-bool icon_button(const char* id, char32_t glyph, const char* tooltip, float size = 36, bool enabled = true,
+bool icon_button(const char* id, char32_t glyph, float size = 36, bool enabled = true,
                  bool filled = false);
 // Filter chip: light fill when selected. Returns true when clicked.
 bool filter_chip(const char* id_label, bool selected);

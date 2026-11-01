@@ -105,7 +105,6 @@ void draw_description(const std::vector<Block>& blocks, float width) {
           if (!sp.link.empty()) {
             if (hovered) {
               ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-              tooltip(sp.link);
               if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 try { open_url(sp.link); } catch (const std::exception&) {}  // as before, a link may go nowhere
               }

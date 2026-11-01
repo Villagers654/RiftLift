@@ -159,7 +159,7 @@ void empty_state(char32_t glyph, std::string_view headline, std::string_view sub
 // Settings-style row inside a card: a one-line title left, centred on the
 // control right-aligned. The description shows when the title is hovered.
 template <class Control>
-void setting_row(std::string_view title_text, std::string_view description, float control_w, float control_h,
+void setting_row(std::string_view title_text, float control_w, float control_h,
                  Control control) {
   float avail = ImGui::GetContentRegionAvail().x;
   float left = std::max(s(120), avail - control_w - s(24));
@@ -170,9 +170,6 @@ void setting_row(std::string_view title_text, std::string_view description, floa
   float row_h = std::max({ts.y, control_h, s(38)});  // every row the same height
   draw_text(ImGui::GetWindowDrawList(), fonts().regular, kBody,
             {std::round(screen.x), text_y(fonts().regular, kBody, screen.y + pad, row_h)}, color::text, title);
-  if (!description.empty() && ImGui::IsWindowHovered() &&
-      ImGui::IsMouseHoveringRect({screen.x, screen.y}, {screen.x + left, screen.y + pad * 2 + row_h}))
-    tooltip(description);
   ImGui::SetCursorPos({start.x + avail - control_w, start.y + pad + (row_h - control_h) * 0.5f});
   ImGui::BeginGroup();
   control();
@@ -478,7 +475,7 @@ void App::draw_toast() {
   draw_text(dl, fonts().regular, kBody, {std::round(p.x + s(20)), std::round(p.y + s(15))}, color::alpha(color::text, shown),
             last, max_w - s(84));
   ImGui::SetCursorScreenPos({q.x - s(46), p.y + (size.y - s(32)) * 0.5f});
-  if (icon_button("dismiss-toast", icons::cancel, nullptr, 32)) notice_.clear();
+  if (icon_button("dismiss-toast", icons::cancel, 32)) notice_.clear();
   bool hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
   ImGui::End();
   if (hovered) toast_since_ = now;
@@ -627,7 +624,7 @@ void App::draw_library() {
       ImGui::Dummy({s(38), s(38)});
       ImGui::SetCursorScreenPos({p.x + s(10), p.y + s(10)});
       spinner(9, color::text2);
-    } else if (icon_button("refresh", icons::refresh, "Refresh library", 38, session_ && !options_.offline, true)) {
+    } else if (icon_button("refresh", icons::refresh, 38, session_ && !options_.offline, true)) {
       refresh();
     }
   }
@@ -642,7 +639,6 @@ void App::draw_library() {
   auto add_owned_field = [&](float width) {
     if (submit_field("owned-link", "Add a game by store link", &owned_link_, width, icons::add, !adding_))
       add_owned();
-    if (ImGui::IsItemHovered()) tooltip("Meta could not list all your games. Paste the store link of one you own.");
   };
 
   // Filter chips, and the store-link field at the row's end.
@@ -788,7 +784,6 @@ void App::draw_library() {
         gdl->AddCircleFilled(c, cr + (over ? s(1.5f) : 0), color::alpha(over ? IM_COL32_WHITE : color::selected, t), 40);
         draw_glyph(gdl, can_play ? icons::play : icons::download, kBody, {c.x + (can_play ? s(1) : 0), c.y},
                    color::alpha(color::on_selected, t));
-        if (over) tooltip(can_play ? "Play" : "Install");
         if (clicked && over) {
           clicked = false;
           if (can_play)
@@ -1021,13 +1016,13 @@ void App::draw_game_page() {
     auto draw_tools = [&] {
       if (!tools) return;
       ImGui::SameLine(0, s(6));
-      if (icon_button("folder", icons::folder, "Show files", 46, true, true))
+      if (icon_button("folder", icons::folder, 46, true, true))
         action([&] { open_folder(partial->directory); });
       ImGui::SameLine(0, s(6));
       more = ImGui::GetCursorScreenPos();
       // --smoke-view menu opens it once for screenshots.
       static bool smoke_menu = options_.smoke_view == "menu";
-      if (icon_button("more", icons::more, "More", 46, true, true) || std::exchange(smoke_menu, false))
+      if (icon_button("more", icons::more, 46, true, true) || std::exchange(smoke_menu, false))
         ImGui::OpenPopup("game-menu");
     };
     if (local) {
@@ -1057,7 +1052,7 @@ void App::draw_game_page() {
       if (button("Pause download##download", icons::pause, Tone::secondary, {inner - s(52), s(46)}))
         downloads_->cancel(g.id);
       ImGui::SameLine(0, s(6));
-      if (icon_button("show-downloads", icons::download, "Show in Downloads", 46, true, true)) page_ = 1;
+      if (icon_button("show-downloads", icons::download, 46, true, true)) page_ = 1;
     } else {
       // Downloads belong to the active account, so installing a game that only
       // another account owns switches to that account first.
@@ -1309,7 +1304,7 @@ void App::draw_owner(const meta::Game& g, bool installed, float w) {
   ImVec2 p{};
   bool clicked = false;
   ImGui::PushID("owner");
-  setting_row(lead, !installed && key != account_key_ ? "Installing switches to this account." : "", w, h, [&] {
+  setting_row(lead, w, h, [&] {
     p = ImGui::GetCursorScreenPos();
     bool hovered = false;
     if (pick) {
@@ -1433,23 +1428,23 @@ void App::draw_downloads() {
     float by = p.y + (h - s(36)) * 0.5f;
     ImGui::SetCursorScreenPos({right - s(36), by});
     if (j.state == download::State::complete) {
-      if (icon_button("clear", icons::cancel, "Clear from list", 36))
+      if (icon_button("clear", icons::cancel, 36))
         action([&] { downloads_->remove(j, false); });
       draw_glyph(dl, icons::check, kBody + 2, {right - s(58), p.y + h * 0.5f}, color::positive);
     } else {
-      if (icon_button("cancel", icons::cancel, "Cancel download", 36)) cancel_target_ = j;
+      if (icon_button("cancel", icons::cancel, 36)) cancel_target_ = j;
       ImGui::SetCursorScreenPos({right - s(76), by});
       if (active) {
-        if (icon_button("pause", icons::pause, "Pause  \xC2\xB7  keeps downloaded files", 36, true, true))
+        if (icon_button("pause", icons::pause, 36, true, true))
           downloads_->cancel(j.app_id);
-      } else if (icon_button("resume", icons::resume, "Resume", 36, session_ && !options_.offline, true)) {
+      } else if (icon_button("resume", icons::resume, 36, session_ && !options_.offline, true)) {
         action([&] { downloads_->resume(j, session_->access_token); });
       }
       ImGui::SetCursorScreenPos({right - s(116), by});
-      if (icon_button("later", icons::chevron_down, "Move down", 36, index + 1 < jobs.size()))
+      if (icon_button("later", icons::chevron_down, 36, index + 1 < jobs.size()))
         downloads_->move(j, 1);
       ImGui::SetCursorScreenPos({right - s(156), by});
-      if (icon_button("sooner", icons::chevron_up, "Move up", 36, index > 0)) downloads_->move(j, -1);
+      if (icon_button("sooner", icons::chevron_up, 36, index > 0)) downloads_->move(j, -1);
     }
     if (index + 1 < jobs.size()) hline(dl, p.x, right, p.y + h);
     ImGui::SetCursorScreenPos({p.x, p.y + h + s(1)});
@@ -1491,7 +1486,7 @@ void App::draw_settings() {
     int choice = int(std::ranges::find(percents, settings_.interface_size) - std::begin(percents));
     if (choice == 4) choice = 0;
     float dw = s(180);
-    setting_row("Interface size", "Makes text and everything else in RiftLift larger.", dw, s(38), [&] {
+    setting_row("Interface size", dw, s(38), [&] {
       if (dropdown("interface-size", "", sizes, 4, &choice, dw))
         action([this, size = percents[choice]] {
           settings_.interface_size = size;
@@ -1508,7 +1503,7 @@ void App::draw_settings() {
     int choice = int(std::ranges::find_if(codes, [&](const char* c) { return settings_.language == c; }) - std::begin(codes));
     if (choice == 3) choice = 0;
     float dw = s(180);
-    setting_row("Language", "The language of RiftLift's own text.", dw, s(38), [&] {
+    setting_row("Language", dw, s(38), [&] {
       if (dropdown("language", "", languages, 3, &choice, dw))
         action([this, code = codes[choice]] {
           settings_.language = code;
@@ -1523,16 +1518,16 @@ void App::draw_settings() {
 
   heading("Library");
   begin_card("library", w, {22, 2});
-  setting_row("Games folder", "New downloads go here. Games already installed stay where they are.", field_w,
+  setting_row("Games folder", field_w,
               s(38), input("##games", &settings_games_, ""));
   divider();
-  setting_row("Add games to Steam", "Installed games appear in Steam and SteamVR after Steam restarts.", s(44), s(24),
+  setting_row("Add games to Steam", s(44), s(24),
               [&] {
                 if (toggle("steam", &settings_.add_games_to_steam)) action([&] { save_settings(); });
               });
   if (settings_.add_games_to_steam) {
     divider();
-    setting_row("Add new games to Steam", "On by default. Each game's menu can add or remove it later.", s(44), s(24),
+    setting_row("Add new games to Steam", s(44), s(24),
                 [&] {
                   if (toggle("steam-new", &settings_.steam_add_new)) action([&] { save_settings(); });
                 });
@@ -1543,8 +1538,6 @@ void App::draw_settings() {
     int choice = std::clamp(settings_.parallel_downloads, 1, 4) - 1;
     float dw = s(180);
     setting_row("Downloads at once",
-                "More games download side by side on a fast connection. A game's own files still download one "
-                "after another.",
                 dw, s(38), [&] {
       if (dropdown("parallel-downloads", "", counts, 4, &choice, dw))
         action([this, jobs = choice + 1] {
@@ -1554,14 +1547,14 @@ void App::draw_settings() {
     });
   }
   divider();
-  setting_row("Ask when installing", "Installing a new game asks which drive it goes to and whether it goes to Steam.",
+  setting_row("Ask when installing",
               s(44), s(24), [&] {
                 if (toggle("install-ask", &settings_.install_ask)) action([&] { save_settings(); });
               });
   if (steam_pending_ && settings_.add_games_to_steam) {
     divider();
     float bw = row_button_w(steam_restart_ ? "Waiting for Steam to close" : "Restart Steam");
-    setting_row(trf("{} games are waiting for Steam", steam_games_), "Steam adds them the next time it starts.", bw,
+    setting_row(trf("{} games are waiting for Steam", steam_games_), bw,
                 s(38), [&] {
                   if (button(steam_restart_ ? "Waiting for Steam to close" : "Restart Steam", 0, Tone::secondary,
                              {bw, s(38)}, !steam_restart_))
@@ -1574,14 +1567,14 @@ void App::draw_settings() {
 
   heading("Runtime");
   begin_card("runtime", w, {22, 2});
-  setting_row("Runtime", "Leave empty to use the runtime that came with RiftLift.", field_w, s(38),
+  setting_row("Runtime", field_w, s(38),
               input("##runtime", &settings_runtime_, "Included runtime"));
   divider();
-  setting_row("Show runtime console", "Opens a console window with live output when a game starts.", s(44), s(24), [&] {
+  setting_row("Show runtime console", s(44), s(24), [&] {
     if (toggle("console", &settings_.console)) action([&] { save_settings(); });
   });
   divider();
-  setting_row("Check for updates", "RiftLift tells you when a new version is out.", s(44), s(24), [&] {
+  setting_row("Check for updates", s(44), s(24), [&] {
     if (toggle("updates", &settings_.check_updates)) action([&] { save_settings(); });
   });
   ImGui::Dummy({0, 0});  // the last row keeps its bottom padding
@@ -1593,14 +1586,13 @@ void App::draw_settings() {
   {
     const char* levels[] = {"Trace", "Debug", "Info", "Warnings", "Errors"};
     float dw = s(180);
-    setting_row("Log detail", "More detail helps when reporting a problem.", dw, s(38), [&] {
+    setting_row("Log detail", dw, s(38), [&] {
       if (dropdown("log", "", levels, 5, &settings_.log_level, dw)) action([&] { save_settings(); });
     });
   }
 #ifndef _WIN32
   divider();
-  setting_row("Debug logging",
-              "Keeps Proton, graphics and crash logs for debug reports. Games may start and run slower.", s(44),
+  setting_row("Debug logging", s(44),
               s(24), [&] {
                 if (toggle("debug-logging", &settings_.debug_logging)) action([&] { save_settings(); });
               });
@@ -1608,7 +1600,7 @@ void App::draw_settings() {
   divider();
   {
     float bw = row_button_w("Open logs", icons::folder);
-    setting_row("Logs", "Launcher and game logs are kept on this PC.", bw, s(38), [&] {
+    setting_row("Logs", bw, s(38), [&] {
       if (button("Open logs", icons::folder, Tone::secondary, {bw, s(38)}))
         action([&] { open_folder(data_ / "logs"); });
     });
@@ -1617,8 +1609,6 @@ void App::draw_settings() {
   {
     float bw = row_button_w("Upload debug report");
     setting_row("Debug report",
-                "Uploads the last game launch's logs and this PC's setup and gives you a link to put in a bug "
-                "report. Your name, folders and account details are left out.",
                 bw, s(38), [&] {
                   if (button("Upload debug report", 0, Tone::secondary, {bw, s(38)})) share_report({});
                 });
@@ -1706,7 +1696,7 @@ void App::draw_account() {
       float x = p.x + row_w, cy = p.y + row_h * 0.5f;
       x -= s(36);
       ImGui::SetCursorScreenPos({x, cy - s(18)});
-      if (icon_button("more", icons::more, "More", 36)) ImGui::OpenPopup("account-menu");
+      if (icon_button("more", icons::more, 36)) ImGui::OpenPopup("account-menu");
       if (begin_menu("account-menu")) {
         if (active && menu_item("Refresh library", icons::refresh, false, !refreshing_ && !options_.offline)) refresh();
         if (usable && !a.primary && accounts_.size() > 1 && menu_item("Open at startup", icons::star))
@@ -1890,8 +1880,7 @@ void App::draw_add_games() {
   begin_card("add-local", w, {22, 2});
   {
     float bw = row_button_w("Choose .exe\xE2\x80\xA6", icons::folder);
-    setting_row("A game installed in another folder",
-                "Pick the game's Windows .exe, or drop it on this window. Its files stay where they are.", bw, s(38),
+    setting_row("A game installed in another folder", bw, s(38),
                 [&] {
                   if (button("Choose .exe\xE2\x80\xA6##local", icons::folder, Tone::secondary, {bw, s(kControlH)}))
                     choose_exe();
@@ -1905,8 +1894,7 @@ void App::draw_add_games() {
   begin_card("add-steam", w, {22, 2});
   {
     float bw = row_button_w(steam_games_found_.empty() ? "Find games" : "Look again", icons::refresh);
-    setting_row("Installed Steam games that can use the Oculus PC runtime",
-                "Steam keeps owning and updating them; RiftLift launches them in Oculus mode.", bw, s(kControlH), [&] {
+    setting_row("Installed Steam games that can use the Oculus PC runtime", bw, s(kControlH), [&] {
                   if (steam_scanning_) {
                     ImVec2 sp = ImGui::GetCursorScreenPos();
                     ImGui::Dummy({bw, s(kControlH)});
@@ -1962,8 +1950,6 @@ void App::draw_add_games() {
     bool usable = session_ && !options_.offline;
     float fw = std::min(s(360), ImGui::GetContentRegionAvail().x * 0.45f);
     setting_row("A Rift game Meta leaves out of your PC library",
-                "Cross-buy titles bought on a Quest have Rift builds that Meta does not list. Paste the game's store "
-                "link to add it; it installs like any other game you own.",
                 fw, s(34), [&] {
                   if (submit_field("add-link", "meta.com/experiences/pcvr/\xE2\x80\xA6", &owned_link_, fw, icons::add,
                                    usable && !adding_))
@@ -2034,20 +2020,20 @@ void App::draw_launch_settings(const library::Install& install, float width) {
   auto& d = *launch_draft_;
   float field_w = std::min(s(420), width * 0.5f);
   begin_card("launch-settings", width, {22, 2});
-  setting_row("Launch options", "Added after the game's own arguments, as on its command line.", field_w, s(38),
+  setting_row("Launch options", field_w, s(38),
               [&] { field("##options", &d.options, "-screen-fullscreen 0", field_w); });
   if (record.source == "local") {
     divider();
-    setting_row("Game arguments", "What the game always starts with.", field_w, s(38),
+    setting_row("Game arguments", field_w, s(38),
                 [&] { field("##arguments", &d.arguments, "-vr", field_w); });
   }
   divider();
-  setting_row("Wine DLL overrides", "Rules such as version=n,b;winhttp=n,b for mods that replace a DLL.", field_w,
+  setting_row("Wine DLL overrides", field_w,
               s(38), [&] { field("##dlls", &d.dll_overrides, "version=n,b", field_w); });
   divider();
   {
     float h = s(96);
-    setting_row("Environment variables", "One NAME=value per line, set for the game only.", field_w, h, [&] {
+    setting_row("Environment variables", field_w, h, [&] {
       ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {s(14), s(10)});
       ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, s(10));
       ImGui::PushStyleColor(ImGuiCol_FrameBg, color::surface_hi);
@@ -2058,8 +2044,7 @@ void App::draw_launch_settings(const library::Install& install, float width) {
   }
   if (record.source != "steam") {
     divider();
-    setting_row("Platform compatibility",
-                "Lets the game start without Meta's servers. Turn off only if a game fails with it.", s(44), s(24),
+    setting_row("Platform compatibility", s(44), s(24),
                 [&] { toggle("shim", &d.platform_shim); });
   }
   ImGui::Dummy({0, 0});
@@ -2152,16 +2137,15 @@ void App::draw_install_ask() {
       fits = !size || !free || free > size;
       const float dw = w - s(130);
       divider();
-      setting_row("Install to", "", dw,
+      setting_row("Install to", dw,
                   s(38), [&] {
                     dropdown("install-to", "", items.data(), int(items.size()), &install_choice_, dw);
-                    if (ImGui::IsItemHovered()) tooltip(paths::utf8(location.folder));
                   });
       if (!fits) text(fonts().regular, kSmall, color::danger, trf("Not enough space: the game needs {}.", bytes(size)), false);
     }
     if (settings_.add_games_to_steam && (steam_sync_allowed_ || options_.smoke_view == "install")) {
       divider();
-      setting_row("Add to Steam", "Appears in your Steam library and launches in SteamVR.", s(44), s(24),
+      setting_row("Add to Steam", s(44), s(24),
                   [&] { toggle("steam-add", &install_steam_); });
     }
 
@@ -2170,7 +2154,6 @@ void App::draw_install_ask() {
       const ImVec2 row = ImGui::GetCursorScreenPos();
       ImGui::SetCursorScreenPos({row.x, row.y + (h - s(16)) * 0.5f});
       checkbox("install-remember", "Don't ask again", &install_remember_, {}, true);
-      if (ImGui::IsItemHovered()) tooltip("Later installs use these choices. Change them any time in Settings.");
     });
     if (clicked == 1) {
       const auto folder = install_choices_.empty() ? settings_.games : install_choices_[install_choice_].first.folder;

@@ -485,7 +485,7 @@ bool button(const char* id_label, char32_t glyph, Tone tone, ImVec2 size, bool e
   return in.clicked;
 }
 
-bool icon_button(const char* id, char32_t glyph, const char* tip, float size, bool enabled, bool filled) {
+bool icon_button(const char* id, char32_t glyph, float size, bool enabled, bool filled) {
   ImGui::PushID(id);
   ImVec2 dim{s(size), s(size)};
   ImVec2 p = ImGui::GetCursorScreenPos();
@@ -503,7 +503,6 @@ bool icon_button(const char* id, char32_t glyph, const char* tip, float size, bo
   else
     draw_text(dl, g_fonts.semibold, kBody, {std::round(c.x - s(6)), text_y(g_fonts.semibold, kBody, p.y, dim.y)}, fg,
               "...");
-  if (in.hovered && tip && *tip) tooltip(tip);
   ImGui::PopID();
   return in.clicked;
 }
@@ -604,7 +603,7 @@ bool search_field(const char* id, const char* hint, std::string* value, float wi
   ImGui::PopStyleColor(4);
   if (clear) {
     ImGui::SetCursorScreenPos({p.x + width - s(34), p.y + (height - s(26)) * 0.5f});
-    if (icon_button("clear", icons::cancel, nullptr, 26)) {
+    if (icon_button("clear", icons::cancel, 26)) {
       value->clear();
       changed = true;
     }
@@ -646,7 +645,7 @@ bool submit_field(const char* id, const char* hint, std::string* value, float wi
   ImGui::PopStyleColor(4);
   if (!value->empty()) {
     ImGui::SetCursorScreenPos({p.x + width - s(31), p.y + (height - s(26)) * 0.5f});
-    submit |= icon_button("submit", icons::check, nullptr, 26, enabled);
+    submit |= icon_button("submit", icons::check, 26, enabled);
   }
   ImGui::SetCursorScreenPos(p);
   ImGui::Dummy({width, height});
