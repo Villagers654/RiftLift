@@ -85,7 +85,7 @@ App::App(Options options) : Core(std::move(options)) {
     throw std::runtime_error("Could not create an SDL renderer.");
   SDL_SetRenderVSync(renderer_, 1);
   style_native_window(window_, 26, 27, 30);
-  if (SDL_Surface *icon = ui::icon_surface(256)) {
+  if (SDL_Surface *icon = ui::logo_surface(256)) {
     SDL_SetWindowIcon(window_, icon);
     SDL_DestroySurface(icon);
   }
@@ -112,6 +112,8 @@ App::App(Options options) : Core(std::move(options)) {
     page_ = 3;
   if (options_.smoke_view == "add")
     page_ = 4;
+  if (options_.smoke_view == "launch-settings")
+    game_tab_ = 1;
   // The update dialog an installed copy shows (nothing downloads until Update now).
   if (options_.smoke_view == "update") {
     const std::string release = "https://github.com/Villagers654/RiftLift/releases/";

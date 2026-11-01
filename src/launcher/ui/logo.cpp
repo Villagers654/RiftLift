@@ -1,7 +1,6 @@
 #include "launcher/ui/logo.h"
 
 #include <launcher/logo_svg.h>
-#include "launcher/ui/app_icon.h"
 #include <algorithm>
 #include <string>
 
@@ -34,6 +33,5 @@ SDL_Surface* rasterize(std::string source, int pixels) {  // nsvgParse edits its
 }  // namespace
 
 SDL_Surface* logo_surface(int pixels) { return rasterize(kRiftLiftLogoSvg, pixels); }
-SDL_Surface* icon_surface(int pixels) { return rasterize(app_icon_svg(kRiftLiftLogoSvg), pixels); }
 SDL_Surface* steam_logo_surface(int pixels) { return rasterize(kSteamLogoSvg, pixels); }
 }  // namespace riftlift::launcher::ui

@@ -1,6 +1,6 @@
-// Build tool: rasterizes the application icon (ui/app_icon.h around assets/riftlift.svg) into the multi-size icon that riftlift.exe embeds,
+// Build tool: rasterizes the application icon (assets/io.github.villagers654.RiftLift.svg) into the multi-size icon that riftlift.exe embeds,
 // which Windows shows on the taskbar, in the Start menu and on shortcuts.
-// usage: riftlift-make-icon <riftlift.svg> <riftlift.ico>
+// usage: riftlift-make-icon <icon.svg> <riftlift.ico>
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -9,8 +9,6 @@
 #include <iterator>
 #include <string>
 #include <vector>
-
-#include "../../ui/app_icon.h"
 
 #define NANOSVG_IMPLEMENTATION
 #define NANOSVG_ALL_COLOR_KEYWORDS
@@ -22,12 +20,11 @@
 
 int main(int argc, char** argv) {
   if (argc != 3) {
-    std::fprintf(stderr, "usage: riftlift-make-icon <riftlift.svg> <riftlift.ico>\n");
+    std::fprintf(stderr, "usage: riftlift-make-icon <icon.svg> <riftlift.ico>\n");
     return 2;
   }
   std::ifstream in(argv[1], std::ios::binary);
-  std::string svg = riftlift::launcher::ui::app_icon_svg(
-      std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>()));
+  std::string svg((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   NSVGimage* image = nsvgParse(svg.data(), "px", 96);  // nsvgParse edits its input
   NSVGrasterizer* raster = nsvgCreateRasterizer();
   if (!image || !raster || image->width <= 0 || image->height <= 0) {

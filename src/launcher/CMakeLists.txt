@@ -39,11 +39,11 @@ target_include_directories(riftlift_imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR} ${im
 target_link_libraries(riftlift_imgui PUBLIC SDL3::SDL3-static freetype)
 target_compile_definitions(riftlift_imgui PUBLIC IMGUI_ENABLE_FREETYPE IMGUI_USE_WCHAR32)
 add_executable(riftlift WIN32 main.cpp app.cpp ui/style.cpp ui/views.cpp ui/chrome.cpp ui/logo.cpp ui/rich_text.cpp assets/texture_cache.cpp)
-# The logos ship inside the executable; assets/riftlift.svg and assets/steam.svg
+# The logos ship inside the executable; the app icon (assets/ at the top) and assets/steam.svg
 # are their only sources.
-file(READ ${CMAKE_CURRENT_SOURCE_DIR}/assets/riftlift.svg RIFTLIFT_LOGO_SVG)
+file(READ ${PROJECT_SOURCE_DIR}/assets/io.github.villagers654.RiftLift.svg RIFTLIFT_LOGO_SVG)
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/assets/steam.svg STEAM_LOGO_SVG)
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/riftlift.svg
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/assets/io.github.villagers654.RiftLift.svg
   ${CMAKE_CURRENT_SOURCE_DIR}/assets/steam.svg)
 file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/launcher/logo_svg.h
   CONTENT "#pragma once
@@ -59,14 +59,14 @@ if(WIN32)
   target_include_directories(riftlift PRIVATE platform/win32)
   target_compile_options(riftlift PRIVATE -fms-extensions)
   target_link_libraries(riftlift PRIVATE dwmapi)
-  # The executable's icon (taskbar, Start menu, shortcuts) is rasterized from assets/riftlift.svg at build time.
+  # The executable's icon (taskbar, Start menu, shortcuts) is rasterized from the app icon SVG at build time.
   add_executable(riftlift-make-icon platform/win32/make_icon.cpp)
   set_target_properties(riftlift-make-icon PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
   target_include_directories(riftlift-make-icon SYSTEM PRIVATE ${stb_SOURCE_DIR} ${nanosvg_SOURCE_DIR}/src)
   set(RIFTLIFT_ICON ${CMAKE_CURRENT_BINARY_DIR}/generated/launcher/riftlift.ico)
   add_custom_command(OUTPUT ${RIFTLIFT_ICON}
-    COMMAND riftlift-make-icon ${CMAKE_CURRENT_SOURCE_DIR}/assets/riftlift.svg ${RIFTLIFT_ICON}
-    DEPENDS riftlift-make-icon ${CMAKE_CURRENT_SOURCE_DIR}/assets/riftlift.svg ${CMAKE_CURRENT_SOURCE_DIR}/ui/app_icon.h VERBATIM)
+    COMMAND riftlift-make-icon ${PROJECT_SOURCE_DIR}/assets/io.github.villagers654.RiftLift.svg ${RIFTLIFT_ICON}
+    DEPENDS riftlift-make-icon ${PROJECT_SOURCE_DIR}/assets/io.github.villagers654.RiftLift.svg VERBATIM)
   file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/launcher/launcher.rc
     CONTENT "1 ICON \"${RIFTLIFT_ICON}\"\n" @ONLY)
   set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/generated/launcher/launcher.rc PROPERTIES OBJECT_DEPENDS ${RIFTLIFT_ICON})
