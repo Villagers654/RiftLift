@@ -449,15 +449,61 @@ void request_shutdown(const fs::path &root) {
 void start_client(const fs::path &root) { client_command(root, "-silent"); }
 // Implemented separately with the same bounded decoders used by the launcher.
 bool install_art(const fs::path &source, const fs::path &destination);
+// Steam keeps grid artwork as <appid><suffix> with the image's own extension;
+// the file there, if any.
+fs::path artwork_present(const fs::path &png) {
+  std::error_code ec;
+  for (auto ext : {".png", ".jpg", ".jpeg", ".webp", ".gif"})
+    if (auto file = fs::path(png).replace_extension(ext); fs::is_regular_file(file, ec))
+      return file;
+  return {};
+}
 fs::path best_art(const fs::path &cache, std::string_view id,
                   std::string_view kind);
+// While Steam runs its shortcuts cannot change. They need a restart only when
+// a game is missing or stale there, or a removed game is still listed; art
+// waits for the next sync with Steam closed.
+bool listed(const fs::path &root, const fs::path &executable,
+            const std::vector<Game> &games) {
+  try {
+    auto config = account_config(root);
+    auto target = config / "shortcuts.vdf";
+    safe_target(config, target);
+    if (!fs::exists(target))
+      return games.empty();
+    auto doc = read_vdf(paths::read(target, limit));
+    auto list = field(doc, "shortcuts");
+    std::map<std::string, Vdf *> owned;
+    if (list)
+      for (auto &e : list->children)
+        if (auto package = owned_package(e); !package.empty())
+          owned.try_emplace(package, &e);
+    std::string exe = "\"" + paths::utf8(fs::absolute(executable)) + "\"";
+    std::string start = "\"" + paths::utf8(fs::absolute(executable).parent_path()) + "\"";
+    std::set<std::string> packages;
+    for (const auto &g : games) {
+      if (!paths::safe_package(g.package) || !packages.insert(g.package).second)
+        continue;
+      auto found = owned.find(g.package);
+      if (found == owned.end() || text(*found->second, "appname") != g.name ||
+          text(*found->second, "exe") != exe || text(*found->second, "StartDir") != start)
+        return false;
+    }
+    return std::ranges::all_of(owned, [&](const auto &e) { return packages.contains(e.first); });
+  } catch (const std::exception &) {
+    return false;
+  }
+}
 Result sync(const fs::path &root, const fs::path &executable,
             const fs::path &art, const std::vector<Game> &games,
             const std::function<bool()> &probe) {
   if (root.empty())
     return {};
+  auto deferred = [&]() -> Result {
+    return {!listed(root, executable, games), games.size()};
+  };
   if (probe())
-    return {true, games.size()};
+    return deferred();
   auto config = account_config(root);
   auto target = config / "shortcuts.vdf";
   safe_target(config, target);
@@ -524,11 +570,24 @@ Result sync(const fs::path &root, const fs::path &executable,
       entry.children.push_back(tags);
     }
     for (auto kind : {"portrait", "hero", "logo", "header", "icon"}) {
+      auto destination = config / "grid" / artwork_name(id, kind);
+      safe_target(config, destination);
+      // Artwork is added once. What Steam already has there, ours from an
+      // earlier sync or a custom image the user set in Steam (any image
+      // type), stays; a custom icon is the shortcut's own icon field.
+      const bool icon_kind = std::string_view(kind) == "icon";
+      if (icon_kind)
+        if (auto *icon = field(entry, "icon"); icon && !icon->value.empty() &&
+            fs::exists(paths::from_utf8(icon->value.c_str())))
+          continue;
+      if (auto existing = artwork_present(destination); !existing.empty()) {
+        if (icon_kind)
+          put(entry, "icon", paths::utf8(existing));
+        continue;
+      }
       auto source = best_art(art, g.art_id, kind);
       if (source.empty())
         continue;
-      auto destination = config / "grid" / artwork_name(id, kind);
-      safe_target(config, destination);
       artwork.push_back({source, destination, retained.size(),
                          std::string_view(kind) == "icon"});
     }
@@ -537,16 +596,16 @@ Result sync(const fs::path &root, const fs::path &executable,
   list->children = std::move(retained);
   auto bytes = write_vdf(doc);
   if (probe())
-    return {true, games.size()};
+    return deferred();
   for (auto &a : artwork) {
     if (probe())
-      return {true, games.size()};
+      return deferred();
     if (install_art(a.source, a.destination) && a.icon)
       put(list->children[a.index], "icon", paths::utf8(a.destination));
   }
   bytes = write_vdf(doc);
   if (probe())
-    return {true, games.size()};
+    return deferred();
   if (bytes != old) {
     if (fs::exists(target) != existed ||
         (existed && paths::read(target, limit) != old))

@@ -5,6 +5,7 @@
 #include "common/log.h"
 #include "common/meta/accounts.h"
 #include "common/rift/game.h"
+#include <algorithm>
 #include <atomic>
 #include <format>
 #include <fstream>
@@ -120,14 +121,22 @@ Manager::Manager(fs::path data, std::function<void()> wake, Services services, b
     log::warn("downloads", "Could not read the previous queue.");
   }
   save_locked();
-  thread_ = std::jthread([this](std::stop_token s) { run(s); });
+  for (unsigned i = 0; i < max_parallel; ++i)
+    threads_.emplace_back([this](std::stop_token s) { run(s); });
 }
 Manager::~Manager() {
   cancel_all();
-  thread_.request_stop();
+  for (auto &thread : threads_)
+    thread.request_stop();
   cv_.notify_all();
-  if (thread_.joinable())
-    thread_.join();
+  threads_.clear();
+}
+void Manager::set_parallel(unsigned jobs) {
+  {
+    std::lock_guard lock(mutex_);
+    parallel_ = std::clamp(jobs, 1u, max_parallel);
+  }
+  cv_.notify_all();
 }
 void Manager::save_locked() {
   if (file_.empty()) return;
@@ -238,6 +247,8 @@ void Manager::remove(const Job &job, bool discard) {
   wake_();
 }
 void Manager::release(const std::shared_ptr<Entry> &e) {
+  // The job's slot is free for another worker.
+  cv_.notify_all();
   {
     std::lock_guard lock(mutex_);
     if (!e->removed)
@@ -569,19 +580,23 @@ void Manager::run(std::stop_token shutdown) {
     std::stop_token stop;
     {
       std::unique_lock lock(mutex_);
-      cv_.wait(lock, shutdown, [&] {
-        return std::ranges::any_of(
-            jobs_, [](auto &x) { return x->job.state == State::queued; });
-      });
-      if (shutdown.stop_requested())
+      // The first queued job in list order whose game has no running job,
+      // while fewer than parallel_ run.
+      auto next = [&]() -> std::shared_ptr<Entry> {
+        const auto running = [](const auto &x) {
+          return x->job.state == State::checking || x->job.state == State::downloading;
+        };
+        if (std::size_t(std::ranges::count_if(jobs_, running)) >= parallel_)
+          return nullptr;
+        for (auto &x : jobs_)
+          if (x->job.state == State::queued &&
+              std::ranges::none_of(jobs_, [&](auto &y) { return running(y) && y->job.app_id == x->job.app_id; }))
+            return x;
+        return nullptr;
+      };
+      cv_.wait(lock, shutdown, [&] { return (e = next()) != nullptr; });
+      if (shutdown.stop_requested() || !e)
         return;
-      for (auto &x : jobs_)
-        if (x->job.state == State::queued) {
-          e = x;
-          break;
-        }
-      if (!e)
-        continue;
       e->job.state = State::checking;
       e->job.phase.clear();
       token = std::exchange(e->token, {});
@@ -628,6 +643,8 @@ void Manager::run(std::stop_token shutdown) {
                          : error.what();
       e->job.bytes_per_second = 0;
       save_locked();
+      if (!stop.stop_requested())
+        log::warn("downloads", "Download of {} failed: {}", e->job.app_id, error.what());
     }
     wake_();
   }

@@ -100,8 +100,8 @@ Game card(const Json &j) {
   g.publisher = str(j, "publisher_name");
   if (g.publisher.empty())
     g.publisher = str(j, "developer_name");
-  for (auto key :
-       {"cover_landscape_image", "hero", "cover_square_image", "icon_image"}) {
+  for (auto key : {"cover_landscape_image", "hero", "medium_landscape_image",
+                   "cover_square_image", "icon_image"}) {
     g.image = str(field(j, key), "uri");
     if (!g.image.empty())
       break;

@@ -62,6 +62,10 @@ public:
   std::vector<Job> snapshot(std::string_view account) const;
   std::vector<Job> snapshot() const;
   bool busy() const;
+  // How many jobs transfer at once (1 to max_parallel); jobs of one game
+  // always run one after another.
+  void set_parallel(unsigned jobs);
+  static constexpr unsigned max_parallel = 4;
 
 private:
   struct Entry {
@@ -78,6 +82,8 @@ private:
   std::string active_account_;
   std::uint64_t next_generation_ = 1, discarded_ = 0;
   std::function<void()> wake_;
+  unsigned parallel_ = 1;
+  std::vector<std::jthread> threads_;
   Services services_;
   std::jthread thread_;
   std::string active_key() const;

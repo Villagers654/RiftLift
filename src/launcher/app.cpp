@@ -114,6 +114,9 @@ App::App(Options options) : Core(std::move(options)) {
     page_ = 4;
   if (options_.smoke_view == "launch-settings")
     game_tab_ = 1;
+  // The dialog Report issue / Upload debug report shows; nothing is saved or uploaded.
+  if (options_.smoke_view == "report")
+    report_ = SharedReport{{}, "https://dpaste.com/EXAMPLE00", {}};
   // The update dialog an installed copy shows (nothing downloads until Update now).
   if (options_.smoke_view == "update") {
     const std::string release = "https://github.com/Villagers654/RiftLift/releases/";
@@ -446,6 +449,18 @@ int App::run() {
       // The install dialog of a game that is not installed (nothing downloads offline).
       if (options_.smoke_view == "install" && game(options_.smoke_select))
         action([&] { request_install(*game(options_.smoke_select)); });
+      // The other confirmations and notices, opened for screenshots (nothing is acted on).
+      const auto& v = options_.smoke_view;
+      const auto visible = visible_games();
+      const auto g = std::ranges::find(visible, options_.smoke_select, &meta::Game::id);
+      if (v == "uninstall" && installed(g->id, false)) uninstall_target_ = *installed(g->id, false);
+      if (v == "cancel-download")
+        cancel_target_ = download::Job{.app_id = g->id, .name = g->name, .done = 1ull << 30, .total = 3ull << 30};
+      if (v == "remove-account" && !accounts_.empty()) remove_account_ = accounts_.front().key;
+      if (v == "report") report_ = SharedReport{.file = "riftlift-debug-report.txt", .url = "https://dpaste.com/EXAMPLE"};
+      if (v == "report-uploading") report_ = SharedReport{.file = "riftlift-debug-report.txt"};
+      if (v == "report-failed")
+        report_ = SharedReport{.file = "riftlift-debug-report.txt", .error = "The paste service did not answer."};
     }
     // Ownership comes from the library refresh; without a cached library a
     // play before it finishes is refused as not owned.

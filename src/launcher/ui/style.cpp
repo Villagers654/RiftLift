@@ -1,6 +1,7 @@
 #include "launcher/ui/style.h"
 #include "launcher/i18n.h"
 #include "launcher/system_fonts.h"
+#include "launcher/icon_font.h"
 #include "common/paths.h"
 
 #include <algorithm>
@@ -56,6 +57,8 @@ constexpr const char* kFontDir = "C:/Windows/Fonts/";
 #endif
 
 std::vector<std::string> g_fallbacks;  // merged after each base font: symbols, emoji
+// No system icon font: the embedded one (Lucide icons at Segoe's code points).
+constexpr const char* kEmbeddedIcons = "<embedded>";
 
 ImFont* add_font(const std::string& path, const std::string& icon_path) {
   auto& io = ImGui::GetIO();
@@ -69,7 +72,12 @@ ImFont* add_font(const std::string& path, const std::string& icon_path) {
     merge.MergeMode = true;
     merge.PixelSnapH = true;
     merge.FontLoaderFlags = ImGuiFreeTypeLoaderFlags_LightHinting;
-    io.Fonts->AddFontFromFileTTF(icon_path.c_str(), kBody, &merge);
+    if (icon_path == kEmbeddedIcons) {
+      merge.FontDataOwnedByAtlas = false;
+      io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(kIconFont), int(sizeof kIconFont), kBody, &merge);
+    } else {
+      io.Fonts->AddFontFromFileTTF(icon_path.c_str(), kBody, &merge);
+    }
   }
   for (const std::string& fallback : g_fallbacks) {
     ImFontConfig merge;
@@ -117,7 +125,7 @@ void load_fonts() {
   // Symbols and color emoji only when those families are installed.
   for (const char* fallback : {"Noto Sans Symbols 2", "Noto Color Emoji"})
     if (std::string path = system_font(fallback, true); !path.empty()) g_fallbacks.push_back(path);
-  std::string icons;  // no system icon font on Linux yet; controls fall back to text only
+  std::string icons = kEmbeddedIcons;
   std::string regular = system_font("Inter,Noto Sans,sans-serif:style=Regular");
   std::string semilight = regular;
   std::string semibold = system_font("Inter,Noto Sans,sans-serif:weight=semibold");
@@ -134,6 +142,7 @@ void load_fonts() {
     }
   }
 #endif
+  if (icons.empty()) icons = kEmbeddedIcons;
   g_fonts.regular = add_font(regular, icons);
   if (!g_fonts.regular) {
     g_fonts.regular = io.Fonts->AddFontDefault();
@@ -624,8 +633,9 @@ bool submit_field(const char* id, const char* hint, std::string* value, float wi
   dl->AddRectFilled(p, {p.x + width, p.y + height}, field_bg(std::max(t, h * 0.6f)), height * 0.5f);
   if (t > 0.01f)
     dl->AddRect(p, {p.x + width, p.y + height}, color::alpha(color::selected, 0.55f * t), height * 0.5f, 0, s(1.5f));
-  draw_glyph(dl, glyph, kSmall, {p.x + s(20), p.y + height * 0.5f}, color::text2);
-  const float left = s(36), right = s(36);
+  // Without an icon font the text starts where the glyph would be.
+  if (g_fonts.icons) draw_glyph(dl, glyph, kSmall, {p.x + s(20), p.y + height * 0.5f}, color::text2);
+  const float left = g_fonts.icons ? s(36) : s(16), right = s(36);
   ImGui::SetCursorScreenPos({p.x + left, p.y});
   ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0, 0, 0, 0));
   ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, IM_COL32(0, 0, 0, 0));
@@ -706,8 +716,9 @@ bool dropdown(const char* id, const char* prefix, const char* const* items, int 
   bool open = ImGui::IsPopupOpen("##menu");
   ImDrawList* dl = ImGui::GetWindowDrawList();
   dl->AddRectFilled(p, {p.x + size.x, p.y + size.y}, field_bg(std::max(in.hover, open ? 1.f : 0.f)), size.y * 0.5f);
-  draw_text(dl, font, kSmall + 1, {std::round(p.x + s(15)), text_y(font, kSmall + 1, p.y, size.y)}, color::text,
-            shown);
+  // Centered in the field; a long label stops short of the chevron.
+  const float text_x = std::max(p.x + s(15), std::min(p.x + (size.x - ts.x) * 0.5f, p.x + size.x - chev_w - s(15) - ts.x));
+  draw_text(dl, font, kSmall + 1, {std::round(text_x), text_y(font, kSmall + 1, p.y, size.y)}, color::text, shown);
   if (*chev) draw_glyph(dl, icons::chevron_down, kLabel, {p.x + size.x - s(20), p.y + size.y * 0.5f}, color::text2);
   if (in.clicked) ImGui::OpenPopup("##menu");
   bool changed = false;

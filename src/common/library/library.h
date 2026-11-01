@@ -79,6 +79,8 @@ struct Settings {
   int interface_size = 100;
   // "auto" follows the system; otherwise a language code (en, fr).
   std::string language = "auto";
+  // Games that download at once (Settings > Library); one by default.
+  int parallel_downloads = 1;
   bool runtime_override() const;
   // `games` first, then the other library folders.
   std::vector<fs::path> roots() const;

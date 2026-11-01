@@ -171,6 +171,7 @@ void Core::start(bool refresh_library) {
   downloads_ = std::make_unique<download::Manager>(data_, [this] { wake(); },
       std::move(services), persistent);
   downloads_->set_account(account_key_);
+  downloads_->set_parallel(unsigned(settings_.parallel_downloads));
   rescan();
   if (refresh_library && session_ && !options_.offline && !options_.launch_requested)
     refresh();
@@ -223,6 +224,7 @@ void Core::apply_settings(library::Settings next, bool announce) {
   std::erase(next.libraries, next.games);
   next.save(data_);
   settings_ = std::move(next);
+  if (downloads_) downloads_->set_parallel(unsigned(settings_.parallel_downloads));
   log::set_level(static_cast<log::Level>(settings_.log_level));
   if (announce)
     notice_ = "Settings saved.";
@@ -431,6 +433,7 @@ void Core::switch_account(std::string_view key) {
   reload_accounts();
   downloads_->set_account(account_key_);
   warning_.clear();
+  library_partial_ = false;
   auth_status_.clear();
   if (!options_.offline)
     refresh();
@@ -453,6 +456,7 @@ void Core::sign_out_account(std::string_view key) {
     details_pending_.clear();
     detail_errors_.clear();
     warning_.clear();
+    library_partial_ = false;
     auth_status_.clear();
     downloads_->set_account({});
   }
@@ -655,6 +659,7 @@ void Core::refresh() {
             downloads_->set_account(account_key_);
           }
           warning_ = snapshot.warning;
+          library_partial_ = !snapshot.complete;
           save_library();
           log::info("library", "Refreshed {} Rift titles; complete={}",
                     snapshot.games.size(), snapshot.complete);
@@ -767,6 +772,7 @@ void Core::sign_out() {
   details_pending_.clear();
   detail_errors_.clear();
   warning_.clear();
+  library_partial_ = false;
   auth_status_.clear();
   secrets_.clear();
   notice_ = "Signed out. Installed games remain on this PC.";
@@ -1148,6 +1154,7 @@ void Core::tick() {
               if (snapshot) {
                 library::merge(games_, *snapshot, account_scope_);
                 warning_ = snapshot->warning;
+                library_partial_ = !snapshot->complete;
               } else {
                 refresh_error_ = library_error;
                 error(library_error);

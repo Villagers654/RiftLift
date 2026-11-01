@@ -7,6 +7,7 @@
 #include "launcher/ui/chrome.h"
 #include <imgui.h>
 #include <atomic>
+#include <map>
 #include <memory>
 namespace riftlift::launcher {
 class App : public Core {
@@ -125,7 +126,7 @@ private:
   // The Install button: a new game asks where it goes and about Steam first,
   // unless installs do not ask or there is nothing to choose.
   void request_install(const meta::Game &game);
-  void draw_owner(const meta::Game &game, bool installed);
+  void draw_owner(const meta::Game &game, bool installed, float width);
   void smoke_install();
   // Settings' text fields applied (launcher::Core::apply_settings).
   void save_settings(bool announce = true);

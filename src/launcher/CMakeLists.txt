@@ -50,6 +50,14 @@ file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/launcher/logo_svg.h
 inline constexpr char kRiftLiftLogoSvg[] = R\"svg(${RIFTLIFT_LOGO_SVG})svg\";
 inline constexpr char kSteamLogoSvg[] = R\"svg(${STEAM_LOGO_SVG})svg\";
 " @ONLY)
+# The icon font for systems without Segoe's (scripts/make_icon_font.py builds it).
+file(READ ${PROJECT_SOURCE_DIR}/assets/riftlift-icons.ttf ICON_FONT_HEX HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," ICON_FONT_BYTES "${ICON_FONT_HEX}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/assets/riftlift-icons.ttf)
+file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/launcher/icon_font.h
+  CONTENT "#pragma once
+inline constexpr unsigned char kIconFont[] = {${ICON_FONT_BYTES}};
+" @ONLY)
 target_include_directories(riftlift PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_compile_definitions(riftlift PRIVATE RIFTLIFT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(riftlift PRIVATE riftlift_launcher_core riftlift_imgui webpdecoder)

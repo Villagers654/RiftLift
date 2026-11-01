@@ -146,6 +146,7 @@ protected:
   bool in_steam(std::string_view app_id) const { return !settings_.steam_skip.contains(std::string(app_id)); }
   void launch_game(std::string_view app_id, std::string_view account);
   std::string selected_, notice_, warning_, auth_status_;
+  bool library_partial_ = false;  // Meta did not confirm the whole library
   bool refreshing_ = false, scanning_ = false, signing_in_ = false,
        verifying_ = false;
   bool auth_page_loaded_ = false; // the Meta sign-in page finished loading

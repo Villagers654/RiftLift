@@ -4,6 +4,7 @@
 #include "common/log.h"
 #include "common/rift/detection.h"
 #include <algorithm>
+#include <cstdlib>
 #include <fstream>
 #include <set>
 namespace riftlift::library {
@@ -332,6 +333,8 @@ Settings Settings::load(const fs::path &data) {
     s.log_level = 2;
   if (const auto size = number(j, "interfaceSize"); size >= 100 && size <= 200)
     s.interface_size = int(size);
+  if (auto jobs = number(j, "parallelDownloads"); jobs >= 1 && jobs <= 4)
+    s.parallel_downloads = int(jobs);
   s.console = field(j, "launchWithConsole") == true;
   s.check_updates = field(j, "checkForUpdates") != false;
   s.dismissed_update = str(j, "dismissedUpdate");
@@ -360,6 +363,7 @@ void Settings::save(const fs::path &data) const {
          {"gamesDirectory", paths::utf8(games)},
          {"logLevel", log_level},
          {"interfaceSize", interface_size},
+         {"parallelDownloads", parallel_downloads},
          {"launchWithConsole", console},
          {"checkForUpdates", check_updates},
          {"dismissedUpdate", dismissed_update},
