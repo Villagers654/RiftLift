@@ -4,6 +4,7 @@
 #include "common/file_ops.h"
 #include "common/http/client.h"
 #include "common/log.h"
+#include "common/meta/platform.h"
 #include "common/rift/detection.h"
 #include "common/rift/local_games.h"
 #include "launcher/i18n.h"
@@ -892,7 +893,20 @@ void Core::launch_game(std::string_view id, std::string_view requested) {
     // RIFTLIFT_LOG_LEVEL: the launcher's log level, 0 (trace) to 4 (error).
     Environment environment{{"RIFTLIFT_LOG_LEVEL", std::to_string(settings_.log_level)},
                             {"RIFTLIFT_DATA_DIR", paths::utf8(data_)}};
-    r.process.spawn(settings_.runtime, args, r.console, settings_.console, {}, environment);
+    // The game's Platform calls (identity, entitlement) reach Meta through
+    // this broker, and only when the game makes them: nothing is asked here.
+    PipeChannel::Handler broker;
+    if (install.game.platform_shim) {
+      const auto key = choice.account_key;
+      auto platform = std::make_shared<meta::PlatformBroker>(
+          install.game.app_id, [data = data_, key]() -> std::optional<Session> {
+            if (key.empty())
+              return std::nullopt;
+            return meta::AccountVault(data).load(key);
+          });
+      broker = [platform](const Json &request) { return platform->handle(request); };
+    }
+    r.process.spawn(settings_.runtime, args, r.console, settings_.console, broker, environment);
     success = true;  // the process is running, even if bookkeeping fails
     r.exit.reset();
     r.tail.clear();

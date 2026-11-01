@@ -283,7 +283,7 @@ std::vector<Build> Store::builds(std::string_view id, std::string *name) const {
   }
   const auto &node = field(field(response, "data"), "node");
   if (!node.is_object())
-    throw std::runtime_error("Meta returned no Rift application for that app ID.");
+    throw NotListed("Meta returned no Rift application for that app ID.");
   if (name) {
     *name = str(node, "displayName");
     if (name->empty())
@@ -302,7 +302,7 @@ std::vector<Build> Store::builds(std::string_view id, std::string *name) const {
     out.push_back(std::move(b));
   }
   if (out.empty())
-    throw std::runtime_error("Meta has no Rift (PC VR) build of this app for this account.");
+    throw NotListed("Meta has no Rift (PC VR) build of this app for this account.");
   std::ranges::stable_sort(out, std::greater<>{}, [](const Build &b) { return number(Json(b.version_code)); });
   return out;
 }
@@ -502,9 +502,5 @@ Snapshot Store::owned_listing(std::string_view id) const {
   g.owned = true;
   s.games.push_back(std::move(g));
   return s;
-}
-bool Store::owns(std::string_view id) const {
-  const auto entitlement = library();
-  return std::ranges::find(entitlement.games, std::string(id), &Game::id) != entitlement.games.end();
 }
 } // namespace riftlift::meta

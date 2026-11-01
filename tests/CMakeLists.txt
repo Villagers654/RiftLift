@@ -4,6 +4,7 @@ add_executable(riftlift_tests
   playtime_test.cpp
   i18n_test.cpp
   library_test.cpp
+  platform_test.cpp
 )
 target_link_libraries(riftlift_tests PRIVATE riftlift_launcher_core doctest::doctest)
 target_include_directories(riftlift_tests PRIVATE ${PROJECT_SOURCE_DIR})

@@ -84,8 +84,5 @@ void configure_openvr_environment(Env &env, const fs::path &config_dir, const fs
 // POSIX shell-like splitting (Python's shlex.split); throws on an unclosed quote.
 std::vector<std::string> shell_split(std::string_view text);
 
-// RIFTLIFT_USER_ID / platform-user-id contents: a positive 64-bit integer,
-// normalized; throws naming `source` otherwise.
-std::string validate_user_id(std::string_view value, std::string_view source);
 
 } // namespace riftlift::runtime

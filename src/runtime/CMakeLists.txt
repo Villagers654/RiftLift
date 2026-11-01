@@ -15,6 +15,7 @@ add_library(riftlift_runtime_core STATIC
   files.cpp
   layout.cpp
   meta_runtime.cpp
+  platform_relay.cpp
   options.cpp
   rules.cpp
   xr.cpp
@@ -23,7 +24,9 @@ target_include_directories(riftlift_runtime_core PUBLIC ${PROJECT_SOURCE_DIR}/sr
 target_compile_definitions(riftlift_runtime_core PUBLIC
   RIFTLIFT_PAYLOAD_VERSION="${RIFTLIFT_PAYLOAD_VERSION}")
 target_link_libraries(riftlift_runtime_core PUBLIC riftlift_common PRIVATE miniz)
-if(NOT WIN32)
+if(WIN32)
+  target_link_libraries(riftlift_runtime_core PUBLIC ws2_32)
+else()
   target_link_libraries(riftlift_runtime_core PUBLIC ${CMAKE_DL_LIBS})
 endif()
 

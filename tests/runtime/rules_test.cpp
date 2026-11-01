@@ -194,12 +194,3 @@ TEST_CASE("runtime: shell splitting matches shlex") {
   CHECK(shell_split("").empty());
   CHECK_THROWS(shell_split("'open"));
 }
-
-TEST_CASE("runtime: platform user IDs") {
-  CHECK(validate_user_id(" 0042\n", "id") == "42");
-  CHECK(validate_user_id("18446744073709551615", "id") == "18446744073709551615");
-  CHECK_THROWS(validate_user_id("0", "id"));
-  CHECK_THROWS(validate_user_id("18446744073709551616", "id"));
-  CHECK_THROWS(validate_user_id("-5", "id"));
-  CHECK_THROWS(validate_user_id("abc", "id"));
-}

@@ -1,5 +1,5 @@
 #pragma once
-// The user's XR runtime selection and the platform identity games see.
+// The user's XR runtime selection.
 #include "runtime/child.h"
 #include "runtime/layout.h"
 #include <optional>
@@ -12,8 +12,5 @@ fs::path active_runtime_json(const Env &env);
 // SteamVR's root when `manifest` is Valve's OpenXR manifest beside a usable
 // OpenVR client (bin/linux64/vrclient.so).
 std::optional<fs::path> steamvr_runtime_for_openxr(const fs::path &manifest);
-// A stable user ID for the platform shim: RIFTLIFT_USER_ID, else
-// <config>/platform-user-id, created once with a random 62-bit value.
-std::string platform_user_id(const Layout &layout, const Env &env);
 
 } // namespace riftlift::runtime

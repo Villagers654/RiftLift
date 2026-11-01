@@ -55,6 +55,11 @@ playtime and launch settings.
    tracks playtime locally. **Launch settings** on a game's page holds its
    launch options, Wine DLL overrides and environment variables.
 
+   A game that checks its owner or Meta sign-in asks Meta while it runs, as
+   the account it launched with; RiftLift itself never checks before
+   starting a game. Games started without a signed-in account still run, but
+   those checks then fail, so sign in with the account that owns the game.
+
 ### Add Game
 
 ![Add Game](docs/images/riftlift-add-game.png)
@@ -144,8 +149,9 @@ RiftLift's Oculus API translation is derived from the MIT-licensed
 contributors.
 
 RiftLift is unaffiliated with Meta, Oculus or Valve. It only downloads games your
-Meta account owns, after checking your entitlement. It is compatibility software,
-not a DRM bypass.
+Meta account owns, and the ownership checks games make while running are
+answered by Meta for your account. It is compatibility software, not a DRM
+bypass.
 
 RiftLift is MIT-licensed. Bundled components keep their own licenses; see
 [third-party notices](THIRD_PARTY_NOTICES.md).

@@ -322,8 +322,6 @@ int launch(const LaunchRequest &request) {
     env["PATH"] = native(native_dir.directory) + (path.empty() ? "" : ";" + path);
     env["RIFTLIFT_PLATFORM_DLL"] = native(native_dir.directory / "LibOVRPlatformImpl64_1.dll");
     env["LIBOVR_DLL_DIR"] = native(native_dir.directory) + "\\";
-    // The shim's fallback ID is too small for engines that validate Oculus IDs.
-    env["RIFTLIFT_USER_ID"] = platform_user_id(layout, request.env);
     if (game.platform_offline)
       env["RIFTLIFT_PLATFORM_OFFLINE"] = "1";
   }

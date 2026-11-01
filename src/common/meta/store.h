@@ -48,6 +48,11 @@ Snapshot parse_library(const Json &response);
 std::string cover_from_page(std::string_view html);
 // A Meta store link or app id -> the app id; empty when there is none.
 std::string app_id_from_link(std::string_view link);
+// Meta lists no Rift application or build of this app to the account.
+class NotListed : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
 struct Build {
   std::string binary_id, version, version_code, change_log;
 };
@@ -83,7 +88,6 @@ public:
   // One app as this account sees it: the app alone, owned, when it is in the
   // account's library; no games when it is not.
   Snapshot owned_listing(std::string_view id) const;
-  bool owns(std::string_view id) const;
   // The newest build (or `binary_id`) with its file list, from Meta's manifest.
   Plan owned_plan(std::string_view id, std::string_view binary_id = {}) const;
   // The raw manifest.json of a build.

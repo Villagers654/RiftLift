@@ -644,7 +644,6 @@ Env Installer::launch_environment(const fs::path &game_dir, bool platform_shim, 
     // One canonical public Platform SDK DLL: the vendor loader rejects a
     // loaded DLL path that differs from the installed runtime's.
     env["WINEPATH"] = std::string(meta_runtime_windows);
-    env["RIFTLIFT_USER_ID"] = platform_user_id(layout_, base_);
     if (platform_offline)
       env["RIFTLIFT_PLATFORM_OFFLINE"] = "1";
   }

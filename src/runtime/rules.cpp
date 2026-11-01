@@ -404,16 +404,4 @@ std::vector<std::string> shell_split(std::string_view text) {
   return words;
 }
 
-std::string validate_user_id(std::string_view value, std::string_view source) {
-  auto text = strip(value);
-  if (text.starts_with('+'))
-    text.erase(0, 1);
-  std::uint64_t parsed = 0;
-  auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), parsed);
-  if (text.empty() || text.find_first_not_of("0123456789") != text.npos)
-    throw std::runtime_error(std::string(source) + " must contain a positive integer");
-  if (error != std::errc{} || end != text.data() + text.size() || parsed == 0)
-    throw std::runtime_error(std::string(source) + " must contain a positive 64-bit integer");
-  return std::to_string(parsed);
-}
 } // namespace riftlift::runtime

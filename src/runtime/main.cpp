@@ -7,6 +7,7 @@
 #include "runtime/launch.h"
 #include "runtime/layout.h"
 #include "runtime/options.h"
+#include "runtime/platform_relay.h"
 #include <atomic>
 #include <limits>
 #include <thread>
@@ -166,6 +167,15 @@ int main(int argc, char **argv) {
       request.root = paths::data_dir();  // honours RIFTLIFT_DATA_DIR
       request.game = rift::load(request.root, options.game);
       request.env = runtime::current_environment();
+      // The game reaches the launcher's Platform broker through this relay;
+      // without a broker its Platform calls answer that Meta is unavailable.
+      std::unique_ptr<runtime::PlatformRelay> relay;
+      request.env.erase("RIFTLIFT_PLATFORM_BROKER");
+      if (options.credential_read) {
+        relay = std::make_unique<runtime::PlatformRelay>(
+            PipeChannel::inherited(options.credential_read, options.credential_write));
+        request.env["RIFTLIFT_PLATFORM_BROKER"] = relay->endpoint();
+      }
       request.stop = watcher.token();
       request.started = [&watcher] { watcher.game_started(); };
       log::info("runtime", "RiftLift runtime {} starting {} (account {}).", runtime::payload_version,

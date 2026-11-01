@@ -8,6 +8,7 @@ import sys
 
 def generate_forwarders(symbols: str, source: str) -> str:
     overrides = set(re.findall(r"__cdecl\s+(ovr\w+)\(", source))
+    overrides |= set(re.findall(r"^(?:USER|ERROR)_STRING_GETTER\((ovr\w+)", source, re.M))
     names = re.findall(r"^\s+\d+\s+[\dA-F]+\s+[\dA-F]+\s+(ovr\w+)", symbols, re.M)
     if not names:
         raise ValueError("No platform exports found")

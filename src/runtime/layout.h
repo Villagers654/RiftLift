@@ -15,7 +15,7 @@ std::string release_url();
 struct Layout {
   fs::path data;    // game records, diagnostics
   fs::path cache;   // downloaded archives
-  fs::path config;  // platform-user-id, debug-logging, OpenVR registry
+  fs::path config;  // debug-logging, OpenVR registry
   fs::path prefix;  // Proton compat data (the Wine prefix is prefix/pfx)
   fs::path tools;   // installed payloads
 };

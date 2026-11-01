@@ -11,6 +11,13 @@ std::uint32_t number(const std::string &option, const std::string &value) {
     throw std::invalid_argument(option + " needs a number, not '" + value + "'.");
   return n;
 }
+std::uintptr_t handle(const std::string &option, const std::string &value) {
+  std::uintptr_t n = 0;
+  auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), n);
+  if (value.empty() || error != std::errc{} || end != value.data() + value.size() || !n)
+    throw std::invalid_argument(option + " needs a handle, not '" + value + "'.");
+  return n;
+}
 } // namespace
 Options parse_options(const std::vector<std::string> &args) {
   Options o;
@@ -35,13 +42,18 @@ Options parse_options(const std::vector<std::string> &args) {
       o.run_seconds = number(option, value());
     else if (option == "--probe-openvr")
       o.probe_openvr = value();
-    // Accepted for compatibility: the package is the game, and the runtime
-    // needs no credential channel.
-    else if (option == "--package" || option == "--credential-read" || option == "--credential-write")
+    else if (option == "--credential-read")
+      o.credential_read = handle(option, value());
+    else if (option == "--credential-write")
+      o.credential_write = handle(option, value());
+    // Accepted for compatibility: the package is the game.
+    else if (option == "--package")
       o.ignored.push_back(option + " " + value());
     else
       o.ignored.push_back(option);
   }
+  if (!o.credential_read != !o.credential_write)
+    throw std::invalid_argument("Both credential channel handles are required.");
   if (o.game.empty() && o.probe_openvr.empty())
     throw std::invalid_argument("--game is required.");
   return o;

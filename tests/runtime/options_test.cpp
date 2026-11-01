@@ -24,6 +24,12 @@ TEST_CASE("runtime: command line") {
   CHECK_THROWS(parse_options({"--game"}));
   CHECK_THROWS(parse_options({"--game", "x", "--run-seconds", "soon"}));
   CHECK(parse_options({"--probe-openvr", "/x.so"}).probe_openvr == "/x.so");
+  auto brokered = parse_options({"--game", "x", "--credential-read", "64", "--credential-write", "65"});
+  CHECK(brokered.credential_read == 64);
+  CHECK(brokered.credential_write == 65);
+  CHECK(brokered.ignored.empty());
+  CHECK_THROWS(parse_options({"--game", "x", "--credential-read", "64"}));
+  CHECK_THROWS(parse_options({"--game", "x", "--credential-read", "0", "--credential-write", "65"}));
 }
 
 TEST_CASE("runtime: archive members stay inside their folder") {

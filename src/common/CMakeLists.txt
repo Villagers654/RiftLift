@@ -12,6 +12,7 @@ add_library(riftlift_common STATIC
   meta/auth.cpp
   meta/accounts.cpp
   meta/store.cpp
+  meta/platform.cpp
   library/library.cpp
   download/manager.cpp
   rift/game.cpp
