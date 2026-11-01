@@ -70,11 +70,10 @@ jobs:
                   compat/*|scripts/build-platform-shim.sh)
                     compatibility=true
                     ;;
-                  scripts/build-glslc.sh|src/riftlift/runtime.py)
-                    app=true
+                  scripts/build-glslc.sh)
                     xrizer=true
                     ;;
-                  src/*|tests/*|scripts/*|assets/*|install.sh|pyproject.toml)
+                  src/*|tests/*|scripts/*|assets/*|cmake/*|CMakeLists.txt|CMakePresets.json|install.sh)
                     app=true
                     ;;
                   runtime/*)
@@ -101,74 +100,59 @@ jobs:
           echo "dxvk=$dxvk" >> "$GITHUB_OUTPUT"
           echo "compatibility=$compatibility" >> "$GITHUB_OUTPUT"
 
-  test:
+  linux:
     needs: changes
-    if: needs.changes.outputs.app == 'true' || needs.changes.outputs.runtime == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.12"]
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - name: Install build dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y clang ninja-build pkg-config libssl-dev
+          libsecret-1-dev libwayland-dev libxkbcommon-dev libegl-dev libgl-dev libdbus-1-dev python3-pytest
+      - uses: actions/cache@v4
         with:
-          python-version: ${{ matrix.python-version }}
-      - name: Ensure EGL runtime is available
-        run: dpkg-query -W libegl1 >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y libegl1)
-      - run: python -m pip install pytest ruff "cryptography>=42" .
-      - run: pytest -q
-      - if: matrix.python-version == '3.12'
-        run: ruff check src tests
-      - if: matrix.python-version == '3.12'
-        run: ruff format --check src tests
-      - run: python -m compileall -q src
-      - run: bash -n install.sh scripts/*.sh
-      - name: Verify release installer generation
-        shell: bash
-        run: |
-          release_dir=$(mktemp -d)
-          touch "$release_dir/riftlift-compat.zip"
-          touch "$release_dir/riftlift-xrizer.tar.gz"
-          touch "$release_dir/riftlift-dxvk.tar.gz"
-          touch "$release_dir/riftlift-0.0.0a0-py3-none-any.whl"
-          scripts/generate-release-installer.sh \
-            v0.0.0-alpha.0 \
-            "$release_dir" \
-            /tmp/riftlift-installer.sh
-          bash -n /tmp/riftlift-installer.sh
-          grep -F "wheel_sha256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'" /tmp/riftlift-installer.sh
-          grep -F "runtime_sha256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'" /tmp/riftlift-installer.sh
-          grep -F "openvr_sha256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'" /tmp/riftlift-installer.sh
-          grep -F "dxvk_sha256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'" /tmp/riftlift-installer.sh
-          grep -F "desktop_base64='$(base64 -w0 assets/io.github.villagers654.RiftLift.desktop)'" /tmp/riftlift-installer.sh
-          grep -F "icon_base64='$(base64 -w0 assets/io.github.villagers654.RiftLift.svg)'" /tmp/riftlift-installer.sh
-          install_home=$(mktemp -d)
-          mkdir -p "$install_home/data/riftlift/venv"
-          echo preserved > "$install_home/data/riftlift/venv/marker"
-          if HOME="$install_home/home" \
-            XDG_DATA_HOME="$install_home/data" \
-            XDG_BIN_HOME="$install_home/bin" \
-            RIFTLIFT_INSTALLER_WHEEL="$release_dir/riftlift-0.0.0a0-py3-none-any.whl" \
-            /tmp/riftlift-installer.sh --no-setup; then
-            echo 'invalid wheel unexpectedly installed' >&2
-            exit 1
-          fi
-          grep -Fx preserved "$install_home/data/riftlift/venv/marker"
-          test ! -e "$install_home/data/riftlift/.venv-previous"
-          rm "$release_dir/riftlift-0.0.0a0-py3-none-any.whl"
-          touch "$release_dir/riftlift-0.0.0-py3-none-any.whl"
-          scripts/generate-release-installer.sh \
-            v0.0.0 \
-            "$release_dir" \
-            /tmp/riftlift-stable-installer.sh
-          bash -n /tmp/riftlift-stable-installer.sh
-          rm "$release_dir/riftlift-0.0.0-py3-none-any.whl"
-          touch "$release_dir/riftlift-0.0.0.1-py3-none-any.whl"
-          scripts/generate-release-installer.sh \
-            v0.0.0.1 \
-            "$release_dir" \
-            /tmp/riftlift-patch-installer.sh
-          bash -n /tmp/riftlift-patch-installer.sh
+          path: |
+            .deps/fetch
+            !.deps/fetch/*-build
+            !.deps/fetch/*-subbuild
+          key: linux-fetch-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'src/**/CMakeLists.txt') }}
+          restore-keys: linux-fetch-
+      - run: cmake --preset linux-release
+      - run: cmake --build build/linux-release
+      - run: ctest --test-dir build/linux-release --output-on-failure
+      - name: Command line
+        run: build/linux-release/bin/riftlift-cli --help
+      - name: Native code tests (Windows bridge input, D3D swapchains, platform exports)
+        run: python3 -m pytest -q tests/tooling
+      - run: bash -n install.sh scripts/*.sh scripts/packaging/linux/*.sh
+
+  windows:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .deps/llvm-mingw
+            .deps/cmake
+            .deps/ninja
+          key: windows-tools-${{ hashFiles('scripts/bootstrap-windows.py') }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .deps/fetch
+            !.deps/fetch/*-build
+            !.deps/fetch/*-subbuild
+          key: windows-fetch-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'src/**/CMakeLists.txt') }}
+          restore-keys: windows-fetch-
+      - run: python scripts/bootstrap-windows.py
+      - run: .deps/cmake/bin/cmake --preset windows-release
+      - run: .deps/cmake/bin/cmake --build build/windows-release
+      - run: .deps/cmake/bin/ctest --test-dir build/windows-release --output-on-failure
+      - run: build/windows-release/bin/riftlift-cli.exe --help
 
   xrizer:
     needs: changes
@@ -207,7 +191,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets
       - run: cargo build --locked
       - name: Verify XRizer loads on the supported baseline
-        run: PYTHONPATH=../../src python3 -c 'from pathlib import Path; from riftlift.runtime import validate_openvr_library; validate_openvr_library(Path("target/debug/libxrizer.so"))'
+        run: python3 -c 'import ctypes, sys; lib = ctypes.CDLL(sys.argv[1]); lib.HmdSystemFactory; lib.VRClientCoreFactory' target/debug/libxrizer.so
 
   dxvk-patch:
     needs: changes

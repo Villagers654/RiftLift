@@ -6,11 +6,10 @@ on:
   pull_request:
     paths:
       - '.github/workflows/windows-package.yml'
-      - 'scripts/*windows*'
-      - 'src/riftlift/**'
+      - 'scripts/packaging/windows/**'
+      - 'scripts/bootstrap-windows.py'
       - 'runtime/**'
       - 'compat/**'
-      - 'pyproject.toml'
 
 permissions:
   contents: read
@@ -23,7 +22,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: python -m pip install . pyinstaller==6.22.0 pefile ninja cmake pytest
+      - run: python -m pip install ninja cmake
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
@@ -51,22 +50,41 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native configuration failed' }
           cmake --build build/native -j 4
           if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
-      - name: Build self-contained app and per-user installer
-        run: ./scripts/build-windows.ps1 -RuntimeDirectory build/native/bin
-      - name: Check installation, upgrade, launch and uninstall
-        run: ./scripts/test-windows-install.ps1
-      - name: Windows regression tests
-        run: python -m pytest tests/test_windows_package.py tests/test_windows_native.py tests/test_playtime.py tests/test_util.py tests/test_library.py tests/test_platform_exports.py -q
-        env:
-          QT_QPA_PLATFORM: offscreen
+      - name: Fetch the app's toolchain
+        run: python scripts/bootstrap-windows.py
+      - name: Build the app
+        run: |
+          .deps/cmake/bin/cmake --preset windows-release -DRIFTLIFT_BUILD_TESTS=OFF
+          .deps/cmake/bin/cmake --build build/windows-release
+      - name: NSIS
+        shell: pwsh
+        run: |
+          $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
+          for ($i = 1; $i -le 5 -and -not (Test-Path $makensis); $i++) {
+            choco install nsis -y --no-progress
+            if (-not (Test-Path $makensis)) { Start-Sleep -Seconds (30 * $i) }
+          }
+          if (-not (Test-Path $makensis)) { throw 'NSIS did not install' }
+      - name: Zip and per-user installer (the native bridge ships in native\)
+        run: python scripts/packaging/windows/build_installer.py --build build/windows-release --native build/native/bin --makensis "C:\Program Files (x86)\NSIS\makensis.exe"
+      - name: Install, upgrade and uninstall
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\RiftLift'
+          foreach ($pass in 1, 2) {
+            Start-Process dist\RiftLift-windows64-setup.exe -ArgumentList '/S' -Wait
+            foreach ($name in 'riftlift.exe', 'riftlift-cli.exe', 'riftlift-runtime.exe', 'native\RiftLiftLauncher.exe', 'uninstall.exe') {
+              if (-not (Test-Path (Join-Path $dir $name))) { throw "Install pass $pass lacks $name" }
+            }
+          }
+          & (Join-Path $dir 'riftlift-cli.exe') --help
+          if ($LASTEXITCODE -ne 0) { throw 'riftlift-cli failed' }
+          Start-Process (Join-Path $dir 'uninstall.exe') -ArgumentList '/S' -Wait
+          Start-Sleep -Seconds 5
+          if (Test-Path (Join-Path $dir 'riftlift.exe')) { throw 'Uninstall left riftlift.exe' }
       - uses: actions/upload-artifact@v4
         with:
-          name: riftlift-windows-installer
+          name: riftlift-windows
           path: |
-            dist/windows/RiftLift-Setup-*.exe
-            dist/windows/RiftLift-Setup-*.exe.sha256
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: riftlift-windows-install-checks
-          path: build/install-check/
+            dist/RiftLift-windows64-setup.exe
+            dist/RiftLift-windows64.zip

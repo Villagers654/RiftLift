@@ -1,0 +1,146 @@
+#pragma once
+// The launcher window: an ImGui view over launcher::Core (launcher/core.h).
+#include "launcher/assets/texture_cache.h"
+#include "launcher/core.h"
+#include "launcher/drives.h"
+#include "launcher/updater.h"
+#include "launcher/ui/chrome.h"
+#include <imgui.h>
+#include <atomic>
+#include <memory>
+namespace riftlift::launcher {
+class App : public Core {
+public:
+  explicit App(Options options);
+  ~App() override;
+  int run();
+
+private:
+  void wake() override;
+  void fit_window();  // size from the display scale, within the screen
+  void on_refresh() override;
+  void on_install_queued() override;
+  void tick() override;
+  SDL_Window *window_ = nullptr;
+  SDL_Renderer *renderer_ = nullptr;
+  uint32_t wake_event_ = 0;
+  std::unique_ptr<TextureCache> textures_;
+  std::optional<std::string> remove_account_;  // pending removal confirmation
+  // The install dialog: where the game goes (free bytes there), Steam, and "don't ask again".
+  std::vector<std::pair<launcher::InstallLocation, uint64_t>> install_choices_;
+  int install_choice_ = 0;
+  bool install_steam_ = true, install_remember_ = false;
+  std::string direct_app_;
+  bool direct_started_ = false;
+  std::string backdrop_; // game whose ambient art tints the game page
+  std::string search_, settings_games_, settings_runtime_;
+  std::string toast_;         // notice_ as currently shown
+  double toast_since_ = 0;    // ImGui time it appeared
+  std::set<std::string> log_open_; // games whose runtime log is expanded
+  int page_ = 0, sort_ = 1, game_tab_ = 0;
+  std::map<int, SDL_Texture *> logos_; // rasterized logo by pixel size
+  SDL_Texture *logo(int pixels);
+  std::map<int, SDL_Texture *> steam_logos_;
+  SDL_Texture *steam_logo(int pixels);
+  bool installed_only_ = false, quit_ = false;
+  bool smoke_played_ = false, smoke_auth_opened_ = false, smoke_reported_ = false;
+  bool smoke_detail_started_ = false;
+  uint64_t smoke_play_requested_unix_ms_ = 0;
+  // --smoke-install: accounts whose library was read, the queued job, the
+  // post-download rescan step, the outcome and the process exit code.
+  std::set<std::string> smoke_install_tried_;
+  bool smoke_install_queued_ = false;
+  int smoke_install_scan_ = 0;
+  std::string smoke_install_error_;
+  std::string smoke_install_state_;                // the job's last state
+  std::optional<std::string> smoke_install_home_;  // active account at start
+  std::optional<int> smoke_exit_;
+  std::string exit_reason_;
+  float scale_ = 1;
+  chrome::Frame chrome_{};  // last frame's window chrome, for the hit test
+  uint64_t last_input_ = 0;
+  std::optional<library::Install> uninstall_target_;
+  std::optional<download::Job> cancel_target_;
+  struct SharedReport {
+    fs::path file;
+    std::string url, error;  // the upload's link or why it failed; neither while uploading
+    bool copied = false;
+  };
+  std::optional<SharedReport> report_;
+  // A newer published release than this build, offered once per version.
+  struct Update {
+    std::string version, url;
+    // "Update now" downloads `file` (checked against `sums`) where the method allows it.
+    update::Method method = update::Method::page;
+    std::optional<update::Asset> file, sums;
+    bool downloading = false;
+    std::shared_ptr<std::atomic<uint64_t>> done = std::make_shared<std::atomic<uint64_t>>(0),
+                                           total = std::make_shared<std::atomic<uint64_t>>(0);
+    std::string error;
+  };
+  std::optional<Update> update_;
+  std::unique_ptr<Worker> update_worker_;  // the update download, off the library worker
+  void start_update();
+  bool update_checked_ = false;
+  void check_update();
+  void draw_update();
+  // Saves a debug report about the game's last launch and uploads it.
+  void share_report(std::string_view app_id);
+  void upload_report();  // (again) for the report in report_
+  // Add Game: an .exe picked in the file dialog (answered on another thread)
+  // or dropped on the window, then named before it is added.
+  std::mutex pick_mutex_;
+  std::vector<fs::path> exe_picks_;
+  void choose_exe();
+  void take_exe_picks();
+  bool steam_scanned_ = false;  // a Steam scan ran since the launcher opened
+  struct LocalDraft {
+    fs::path executable;
+    std::string name, arguments;
+  };
+  std::optional<LocalDraft> local_draft_;
+  void draw_add_games();
+  void draw_add_local();
+  // The game page's Launch settings tab, edited as text until saved.
+  struct LaunchDraft {
+    std::string slug, options, dll_overrides, environment, arguments;
+    bool platform_shim = true;
+    std::string error;
+  };
+  std::optional<LaunchDraft> launch_draft_;
+  void draw_launch_settings(const library::Install &install, float width);
+  void theme();
+  void draw();
+  void draw_library();
+  void draw_details();
+  void download_progress(const download::Job& job, float width);
+  void draw_downloads();
+  void draw_settings();
+  void draw_account();
+  void draw_uninstall();
+  void draw_cancel_download();
+  void draw_report();
+  void draw_remove_account();
+  void draw_install_ask();
+  // The Install button: a new game asks where it goes and about Steam first,
+  // unless installs do not ask or there is nothing to choose.
+  void request_install(const meta::Game &game);
+  void draw_owner(const meta::Game &game, bool installed);
+  void smoke_install();
+  // Settings' text fields applied (launcher::Core::apply_settings).
+  void save_settings(bool announce = true);
+  void report_smoke();
+  // Cover art (or a placeholder) filling `size` at the cursor; `zoom` > 0 crops
+  // in.
+  void art(std::string_view id, ImVec2 size, float rounding, float zoom = 0,
+           ImDrawFlags corners = 0);
+  void draw_sidebar();
+  void draw_game_page();
+  void draw_toast();
+  void draw_chrome();
+  void draw_about(const meta::Game &game, float width);
+  void draw_backdrop(std::string_view id, ImVec2 a, ImVec2 b, float strength);
+  float s(float value) const { return value * scale_; }
+};
+int run(Options options);
+} // namespace riftlift::launcher

@@ -23,111 +23,117 @@ RiftLift doesn't install headset drivers or VR runtimes.
 
 ## Install
 
-**Windows:** download `RiftLift-Setup-<version>-x64.exe` from the
+**Windows:** download `RiftLift-windows64-setup.exe` from the
 [latest release](https://github.com/Villagers654/RiftLift/releases/latest) and
 run it. No administrator rights are needed. The installer isn't code-signed yet,
-so if SmartScreen appears, choose **More info → Run anyway**. To update, run a
-newer installer; to uninstall, use **Settings → Apps → Installed apps**. Your
-games and settings are kept.
+so if SmartScreen appears, choose **More info → Run anyway**. Meta sign-in uses
+the Microsoft Edge WebView2 Runtime, which Windows 10 and 11 usually have. To
+uninstall, use **Settings → Apps → Installed apps**. Your games and settings are
+kept.
 
-**Linux:** download `riftlift-installer.sh` from the
-[latest release](https://github.com/Villagers654/RiftLift/releases/latest) and run:
+**Linux:** download `RiftLift-<version>-linux-x86_64.AppImage` from the
+[latest release](https://github.com/Villagers654/RiftLift/releases/latest), make
+it executable and run it. A `.tar.gz` of the same programs is there too. Games
+run under GE-Proton, which RiftLift downloads the first time you play.
 
-```bash
-bash riftlift-installer.sh
-```
-
-It verifies every download, installs the compatibility stack, and adds RiftLift
-to your app menu. Run a newer installer to update.
+RiftLift tells you when a new version is out and can update itself in place.
+Updating from the older Python-based RiftLift keeps your games, sign-ins,
+playtime and launch settings.
 
 ## Getting started
 
-1. **Sign in.** Click **Sign In** and finish Meta's sign-in page in your browser.
-   Your password and security codes go only to Meta.
-   To add games from another Meta account, open **Account** and click
-   **Add another account**; games owned by every signed-in account appear
-   together in your library.
+1. **Sign in.** Click **Sign in** and finish Meta's sign-in page. Your password
+   and security codes go only to Meta. Up to four Meta accounts can be signed
+   in at once; their games appear together in your library.
 
-   ![Sign in to Meta](docs/images/riftlift-account.png)
+2. **Install a game.** Pick one of your games in **Library** and click
+   **Install**.
 
-2. **Add a game.** Your owned games appear under **Not installed**. Select one
-   and click **Install**, or click **Add Game** and paste a game's Meta
-   **Rift / PC VR** store link.
+   ![A game in the library](docs/images/riftlift-game.png)
 
-   ![Add Game](docs/images/riftlift-add-game.png)
+3. **Play.** Click **Play**. RiftLift picks your VR runtime automatically and
+   tracks playtime locally. **Launch settings** on a game's page holds its
+   launch options, Wine DLL overrides and environment variables.
 
-3. **Play.** Select the game and click **Launch**. RiftLift picks your VR
-   runtime automatically and tracks playtime locally.
+### Add Game
 
-### More
+![Add Game](docs/images/riftlift-add-game.png)
 
-- **Games installed elsewhere:** in **Add Game**, choose **Add a local game…**
-  and pick the game's `.exe`. RiftLift uses it in place.
+- **From this PC:** choose a Rift game's `.exe` (or drop it on the window).
+  RiftLift launches it in place, with playtime and launch settings.
+- **Steam games with an Oculus mode:** finds installed Steam games that can use
+  the Oculus PC runtime. Steam still owns and updates them; RiftLift launches
+  them in Oculus mode.
+- **By store link:** cross-buy games bought on a Quest have Rift builds Meta
+  leaves out of your PC library. Paste the game's Rift store link to add it.
 
-  ![Add a local game](docs/images/riftlift-local-game.png)
+### Command line
 
-- **Steam games with an Oculus mode** (Linux): click **Steam Games** to find
-  installed Steam titles RiftLift can launch in Oculus mode. Steam still owns and
-  updates them. On Linux, RiftLift can also add Steam shortcuts for your games.
+`riftlift-cli` does what the window does: `library`, `install`, `play`,
+`add` (an `.exe`, `--steam` games or a store link), `configure`, `accounts`,
+`downloads` and more. Run `riftlift-cli --help` for everything. In the
+AppImage, run it as `RiftLift-…AppImage cli --help`.
 
-  ![Steam games with an Oculus mode](docs/images/riftlift-steam-games.png)
-
-- **Command line** (Linux): `riftlift login`, `riftlift add <store-url>`,
-  `riftlift list`, `riftlift launch <game>` and `riftlift doctor` mirror the app.
-  Run `riftlift login` again to add another account; `riftlift accounts` and
-  `riftlift logout [account]` manage them. Run `riftlift --help` for everything
-  else.
+RiftLift's window and text are in English or French; **Settings → Language**
+switches between them.
 
 ## Troubleshooting
 
-Open **Settings** to check whether everything is ready. If a game won't start:
+If a game won't start:
 
-1. Turn on **Settings → Debug logging** and try the game once more.
-2. Click **Generate a diagnostic report** (or run `riftlift doctor`) and attach it
-   to a [new issue](https://github.com/Villagers654/RiftLift/issues).
+1. Set **Settings → Log detail** to **Debug** and try the game once more.
+2. Click **Upload debug report** and put the link in a
+   [new issue](https://github.com/Villagers654/RiftLift/issues).
 
-Reports are redacted: no credentials, email addresses or home paths.
+Reports leave out your name, folders and account details.
 
 Common fixes:
 
 - **No VR runtime found:** start SteamVR (or your OpenXR runtime) and try again.
-- **Meta asks you to sign in again:** click **Sign In** and finish Meta's page.
-- **A game is missing from Steam (Linux):** close Steam, run `riftlift steam-sync`,
-  and reopen it.
+- **Meta asks you to sign in again:** click **Reconnect** on the account in
+  **Settings → Accounts**.
+- **A game says its files are missing:** Steam may have updated it; add it again
+  from **Add Game**.
 
 ## Contributing
 
-RiftLift is a Python/Qt desktop app plus a native runtime that translates the
-Oculus API for each game.
+RiftLift is a native C++ app (Dear ImGui on SDL3) plus a runtime that translates
+the Oculus API for each game.
 
 | Path | What it is |
 | --- | --- |
-| `src/riftlift/` | The app: UI (PySide6), Meta sign-in and downloads, library, launching |
+| `src/launcher/` | The window (`riftlift`) and the command line (`riftlift-cli`) |
+| `src/common/` | Meta sign-in, store and downloads, the library, game records, playtime, Steam |
+| `src/runtime/` | `riftlift-runtime`: sets up and starts one game (Proton on Linux, the bridges on Windows) |
 | `runtime/` | C++ Oculus → OpenVR/OpenXR bridges and the Windows launcher, derived from [Revive](https://github.com/LibreVR/Revive) |
 | `runtime/openxr-layer/` | OpenXR layer that lets OVRPlugin (Unity/Unreal) games use non-Oculus runtimes |
 | `compat/` | Oculus Platform SDK compatibility shim |
 | `components/xrizer/` | Submodule: RiftLift's [xrizer fork](https://github.com/Villagers654/xrizer) (OpenVR → OpenXR, Linux) |
-| `scripts/`, `.github/workflows/` | Packaging and CI (Windows installer, AppImage, Linux installer, release) |
+| `scripts/`, `.github/workflows/` | Packaging and CI (AppImage, Windows installer, release payloads) |
 
 On Windows, games run natively through the bridges. On Linux they run under
 GE-Proton, and the bridges reach the host's OpenXR runtime or SteamVR through
 Wine's in-process `unixlib` boundary.
 
-**Set up a dev environment**
+**Build**
 
-- Linux: `./install.sh` installs from your checkout.
-- Windows: with Python 3.12 and Git, run `./install-windows.ps1`, then start
-  `RiftLift.cmd`.
+- Linux (clang 18 or newer, CMake, Ninja, and the OpenSSL, Wayland and
+  libsecret headers): `cmake --preset linux-release && cmake --build build/linux-release`.
+  `./install.sh` builds and installs your checkout for your user.
+- Windows: `python scripts/bootstrap-windows.py` fetches the pinned llvm-mingw,
+  CMake and Ninja into `.deps/`, then
+  `.deps/cmake/bin/cmake --preset windows-release` and
+  `.deps/cmake/bin/cmake --build build/windows-release`.
 
 **Before opening a PR**
 
 ```bash
-python -m pytest
-ruff check src tests && ruff format --check src tests
+ctest --test-dir build/linux-release --output-on-failure
+python3 -m pytest tests/tooling
 ```
 
-CI builds the native runtime and the Windows installer, and runs the Linux and
-Windows tests. To test without hardware,
+`tests/tooling` compiles parts of the Windows bridges on the host. CI builds and
+tests Linux and Windows. To test without hardware,
 [`runtime/tests/steamvr-touch-sim`](runtime/tests/steamvr-touch-sim/README.md)
 adds simulated Touch controllers to SteamVR's null headset.
 

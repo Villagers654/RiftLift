@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs><linearGradient id="riftlift-blue" x1="0.15" y1="0.85" x2="0.85" y2="0.15"><stop offset="0" stop-color="#0057E7"/><stop offset="0.55" stop-color="#0A7CFF"/><stop offset="1" stop-color="#2FB3FF"/></linearGradient></defs>
-  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#riftlift-blue)"/>
-  <path d="M34.83 18.24A17 17 0 0 0 26.07 50.93ZM37.93 13.07A17 17 0 0 1 29.17 45.76Z" fill="#FFFFFF"/>
-</svg>

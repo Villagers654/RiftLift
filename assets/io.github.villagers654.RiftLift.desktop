@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=RiftLift
-Comment=Run owned Meta Rift games on Linux OpenXR
-Exec=riftlift-gui
+Comment=Play your Meta Rift games
+Exec=riftlift
 Icon=io.github.villagers654.RiftLift
 Terminal=false
 Categories=Game;Utility;

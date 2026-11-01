@@ -13,3 +13,4 @@ logConfig.xml
 # Native Windows install and local verification output.
 portable/
 *.local.log
+.deps/
