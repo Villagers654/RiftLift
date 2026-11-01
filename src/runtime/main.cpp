@@ -24,8 +24,8 @@ using namespace riftlift;
 using namespace std::chrono_literals;
 
 namespace {
-std::atomic<bool> terminate_requested{false};
 #ifndef _WIN32
+std::atomic<bool> terminate_requested{false};
 extern "C" void on_signal(int) { terminate_requested = true; }
 #endif
 
@@ -80,6 +80,7 @@ public:
     thread_ = std::jthread([this, parent](std::stop_token done) {
       while (!done.stop_requested() && !source_.stop_requested()) {
 #ifdef _WIN32
+        (void)parent;  // parent_ holds its handle
         HANDLE handles[2];
         DWORD count = 0;
         if (stop_event_) handles[count++] = stop_event_;

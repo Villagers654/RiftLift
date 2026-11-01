@@ -14,14 +14,23 @@ std::string g_language = "en";
 const std::unordered_map<std::string_view, std::string_view> *g_table = nullptr;
 std::string system_language() {
 #ifdef _WIN32
+  // The display language, not the regional format.
   wchar_t name[LOCALE_NAME_MAX_LENGTH] = {};
-  if (GetUserDefaultLocaleName(name, LOCALE_NAME_MAX_LENGTH) > 1)
+  if (LCIDToLocaleName(MAKELCID(GetUserDefaultUILanguage(), SORT_DEFAULT), name, LOCALE_NAME_MAX_LENGTH, 0) > 1)
     return {char(name[0]), char(name[1])};
 #else
-  // POSIX precedence: LC_ALL, then LC_MESSAGES, then LANG.
+  // gettext's precedence: LANGUAGE (a list; its first entry), unless the
+  // locale is C; then LC_ALL, LC_MESSAGES, LANG.
+  std::string locale;
   for (const char *variable : {"LC_ALL", "LC_MESSAGES", "LANG"})
-    if (const char *value = std::getenv(variable); value && *value)
-      return std::string(value).substr(0, 2);
+    if (const char *value = std::getenv(variable); value && *value) {
+      locale = value;
+      break;
+    }
+  if (const char *list = std::getenv("LANGUAGE"); list && *list && locale != "C" && locale != "POSIX")
+    return std::string(list).substr(0, 2);
+  if (!locale.empty())
+    return locale.substr(0, 2);
 #endif
   return "en";
 }

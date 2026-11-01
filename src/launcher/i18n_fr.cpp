@@ -26,7 +26,6 @@ constexpr std::pair<std::string_view, std::string_view> kFrench[] = {
     {"{} accounts"sv, "{} comptes"sv},
     {"Name"sv, "Nom"sv},
     {"Recently played"sv, "Joués récemment"sv},
-    {"Sort by: Recently played"sv, "Trier par : Joués récemment"sv},
     {"Sort by: "sv, "Trier par : "sv},
     {"Search"sv, "Rechercher"sv},
     {"Refresh library"sv, "Actualiser la bibliothèque"sv},
@@ -301,6 +300,14 @@ constexpr std::pair<std::string_view, std::string_view> kFrench[] = {
     {"Verifying your Meta account..."sv, "Vérification de ton compte Meta..."sv},
     {"Meta did not return a numeric account identity. Sign-in was not saved."sv, "Meta n'a pas renvoyé d'identifiant de compte numérique. La connexion n'a pas été enregistrée."sv},
     {"{} stopped: {}"sv, "{} s'est arrêté : {}"sv},
+    {"{} stopped unexpectedly"sv, "{} s'est arrêté de façon inattendue"sv},
+    {"{} closed"sv, "{} s'est fermé"sv},
+    {"Remove {}?"sv, "Retirer {} ?"sv},
+    {"Remove this account?"sv, "Retirer ce compte ?"sv},
+    {"Version {}"sv, "Version {}"sv},
+    {"{} closed: {}"sv, "{} s'est fermé : {}"sv},
+    {"It needs a Meta account. Sign in with the account that owns it, then start it again."sv, "Il a besoin d'un compte Meta. Connecte-toi avec le compte qui le possède, puis relance-le."sv},
+    {"The Meta account it started with does not own it. Choose the account that owns it, then start it again."sv, "Le compte Meta avec lequel il a démarré ne le possède pas. Choisis le compte qui le possède, puis relance-le."sv},
 };
 } // namespace
 std::span<const std::pair<std::string_view, std::string_view>> french() { return kFrench; }

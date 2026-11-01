@@ -1,50 +1,58 @@
+# A version tag (v1.2.3, or v1.2.3-rc1 for a pre-release) builds every download and runtime payload
+# from source, runs the app's tests on the shipped configurations, and attaches everything (with
+# SHA256SUMS, which the launcher's updater verifies against) to a DRAFT GitHub release named after the
+# tag; the release text is reviewed before it is published. riftlift-runtime installs the compat,
+# xrizer and DXVK payloads from the release named after its version, so the tag must match the CMake
+# project version. Run manually on a branch, it builds and uploads the riftlift-release artifact only;
+# run on a tag ("Use workflow from" > Tags), it rebuilds that release's downloads.
 name: Build RiftLift compatibility payloads
 
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-jobs:
-  windows-app:
-    uses: ./.github/workflows/windows-package.yml
+concurrency:
+  group: release-${{ github.ref_name }}
 
-  linux-app:
-    runs-on: ubuntu-24.04
-    env:
-      APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
-      APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
-      # Runners have no FUSE; appimagetool extracts itself instead.
-      APPIMAGE_EXTRACT_AND_RUN: 1
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      payload: ${{ steps.version.outputs.payload }}
     steps:
       - uses: actions/checkout@v5
-      # glibc 2.35 baseline with static libc++ and OpenSSL: the programs need only glibc.
-      - name: Build in the release baseline
+      - id: version
+        name: Tag and project version agree
         run: |
-          docker build -t riftlift-baseline -f scripts/packaging/linux/Containerfile scripts/packaging/linux
-          docker run --rm -v "$PWD:/src" -w /src riftlift-baseline bash -c \
-            'cmake --preset linux-baseline && cmake --build build/linux-baseline && chown -R '"$(id -u):$(id -g)"' build .deps'
-      - name: Check the programs need only glibc 2.35
-        run: |
-          for program in build/linux-baseline/bin/riftlift*; do
-            objdump -p "$program" | awk '/NEEDED/ {print $2}' | grep -vxE 'lib(c|m)\.so\.6|ld-linux-x86-64\.so\.2' && exit 1
-            objdump -T "$program" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1 | awk -F'[_.]' '$3 > 35 {exit 1}'
-          done
-          build/linux-baseline/bin/riftlift-cli --help
-      - name: Packages
-        run: |
-          sudo apt-get update && sudo apt-get install -y file
-          curl -fsSL -o "$RUNNER_TEMP/appimagetool" "$APPIMAGETOOL_URL"
-          echo "$APPIMAGETOOL_SHA256  $RUNNER_TEMP/appimagetool" | sha256sum -c -
-          chmod +x "$RUNNER_TEMP/appimagetool"
-          APPIMAGETOOL="$RUNNER_TEMP/appimagetool" scripts/packaging/linux/build_packages.sh --build build/linux-baseline --out dist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: riftlift-linux
-          path: |
-            dist/RiftLift-*-linux-x86_64.AppImage
-            dist/RiftLift-*-linux-x86_64.tar.gz
+          project=$(sed -n 's/^project(RiftLift VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          payload=
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            payload=${GITHUB_REF_NAME#v}
+            if [[ "${payload%%-*}" != "$project" ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match the CMake project version $project"
+              exit 1
+            fi
+          fi
+          echo "payload=$payload" >> "$GITHUB_OUTPUT"
+
+  windows-app:
+    needs: version
+    uses: ./.github/workflows/windows-package.yml
+    with:
+      test: true
+
+  # The linux-baseline build, its tests in the baseline container, and the AppImage and tarball.
+  linux-app:
+    needs: version
+    uses: ./.github/workflows/linux.yml
+    with:
+      test: true
+      package: true
+      payload-version: ${{ needs.version.outputs.payload }}
 
   windows-bridge:
     runs-on: windows-2022
@@ -262,7 +270,7 @@ jobs:
       - name: Checksums
         working-directory: release
         run: |
-          rm -f -- *.sha256
+          rm -f -- *.sha256 SHA256SUMS
           version=$(sed -n 's/^project(RiftLift VERSION \([0-9.]*\).*/\1/p' ../CMakeLists.txt)
           for name in RiftLift-windows64-setup.exe RiftLift-windows64.zip "RiftLift-$version-linux-x86_64.AppImage" \
             "RiftLift-$version-linux-x86_64.tar.gz" riftlift-compat.zip riftlift-xrizer.tar.gz riftlift-dxvk.tar.gz; do
@@ -274,3 +282,33 @@ jobs:
         with:
           name: riftlift-release
           path: release/
+
+  # Tags only: a draft release with every download and SHA256SUMS ("<sha256>  <name>" per line, the
+  # format update::expected_sum reads). Re-running on an existing release replaces its files.
+  publish:
+    needs: release-bundle
+    if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'Villagers654/RiftLift'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: riftlift-release
+          path: assets
+      - name: Verify checksums
+        working-directory: assets
+        run: sha256sum -c SHA256SUMS
+      - name: Draft release
+        run: |
+          version="${TAG#v}"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --clobber -R "$GITHUB_REPOSITORY"
+          else
+            flags=(--draft --verify-tag --generate-notes --title "RiftLift ${version}")
+            [[ "$version" == *-* ]] && flags+=(--prerelease)  # v1.2.3-rc1, v1.2.3-beta2
+            gh release create "$TAG" assets/* "${flags[@]}" -R "$GITHUB_REPOSITORY"
+          fi

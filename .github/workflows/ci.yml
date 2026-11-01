@@ -100,32 +100,31 @@ jobs:
           echo "dxvk=$dxvk" >> "$GITHUB_OUTPUT"
           echo "compatibility=$compatibility" >> "$GITHUB_OUTPUT"
 
+  # The shipped configuration (linux-baseline in the release container), its tests and the
+  # packaged layout's licenses and audit; see linux.yml.
   linux:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    uses: ./.github/workflows/linux.yml
+    with:
+      test: true
+      package: false
+
+  tooling:
     needs: changes
     if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - name: Install build dependencies
-        run: >-
-          sudo apt-get update && sudo apt-get install -y clang ninja-build pkg-config libssl-dev
-          libsecret-1-dev libwayland-dev libxkbcommon-dev libegl-dev libgl-dev libdbus-1-dev python3-pytest
-      - uses: actions/cache@v4
-        with:
-          path: |
-            .deps/fetch
-            !.deps/fetch/*-build
-            !.deps/fetch/*-subbuild
-          key: linux-fetch-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'src/**/CMakeLists.txt') }}
-          restore-keys: linux-fetch-
-      - run: cmake --preset linux-release
-      - run: cmake --build build/linux-release
-      - run: ctest --test-dir build/linux-release --output-on-failure
-      - name: Command line
-        run: build/linux-release/bin/riftlift-cli --help
+      - name: Install test tools
+        run: sudo apt-get update && sudo apt-get install -y clang python3-pytest python3-yaml
       - name: Native code tests (Windows bridge input, D3D swapchains, platform exports)
         run: python3 -m pytest -q tests/tooling
-      - run: bash -n install.sh scripts/*.sh scripts/packaging/linux/*.sh
+      - name: Scripts and workflows parse
+        run: |
+          bash -n install.sh scripts/*.sh scripts/packaging/linux/*.sh
+          python3 -m py_compile scripts/*.py scripts/packaging/*.py scripts/packaging/windows/*.py
+          python3 -c 'import sys, yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' .github/workflows/*.yml
 
   windows:
     needs: changes

@@ -15,7 +15,6 @@
         "CMAKE_RC_COMPILER": "${sourceDir}/.deps/llvm-mingw/bin/llvm-rc.exe",
         "CMAKE_MAKE_PROGRAM": "${sourceDir}/.deps/ninja/ninja.exe",
         "FETCHCONTENT_BASE_DIR": "${sourceDir}/.deps/fetch",
-        "RIFTLIFT_PROBE_CACHE": "ON",
         "FETCHCONTENT_UPDATES_DISCONNECTED": "ON"
       },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
@@ -39,14 +38,13 @@
         "CMAKE_C_COMPILER": "clang",
         "CMAKE_CXX_COMPILER": "clang++",
         "FETCHCONTENT_BASE_DIR": "${sourceDir}/.deps/fetch",
-        "RIFTLIFT_PROBE_CACHE": "ON",
         "FETCHCONTENT_UPDATES_DISCONNECTED": "ON"
       },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
     },
     {
       "name": "linux-baseline",
-      "displayName": "Linux release baseline (run inside tools/linux-baseline, glibc 2.35)",
+      "displayName": "Linux release baseline (run inside scripts/packaging/linux/Containerfile, glibc 2.35)",
       "inherits": "linux-release",
       "toolchainFile": "${sourceDir}/cmake/toolchains/linux-baseline.cmake",
       "cacheVariables": {
@@ -56,26 +54,17 @@
         "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "-O2 -DNDEBUG",
         "RIFTLIFT_BUILD_TESTS": "OFF"
       }
-    },
-    {
-      "name": "windows-agent", "inherits": "windows-release",
-      "cacheVariables": { "RIFTLIFT_AGENT_CACHE": "ON" }
-    },
-    {
-      "name": "linux-agent", "inherits": "linux-release",
-      "cacheVariables": { "RIFTLIFT_AGENT_CACHE": "ON" }
     }
   ],
   "buildPresets": [
     { "name": "windows-debug", "configurePreset": "windows-debug" },
     { "name": "windows-release", "configurePreset": "windows-release" },
     { "name": "linux-release", "configurePreset": "linux-release" },
-    { "name": "linux-baseline", "configurePreset": "linux-baseline" },
-    { "name": "windows-agent", "configurePreset": "windows-agent" },
-    { "name": "linux-agent", "configurePreset": "linux-agent" }
+    { "name": "linux-baseline", "configurePreset": "linux-baseline" }
   ],
   "testPresets": [
     { "name": "windows-release", "configurePreset": "windows-release", "output": { "outputOnFailure": true } },
-    { "name": "linux-release", "configurePreset": "linux-release", "output": { "outputOnFailure": true } }
+    { "name": "linux-release", "configurePreset": "linux-release", "output": { "outputOnFailure": true } },
+    { "name": "linux-baseline", "configurePreset": "linux-baseline", "output": { "outputOnFailure": true } }
   ]
 }

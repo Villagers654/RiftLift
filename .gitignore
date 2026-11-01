@@ -14,3 +14,15 @@ logConfig.xml
 portable/
 *.local.log
 .deps/
+
+# Local CMake presets and editor folders.
+CMakeUserPresets.json
+.vs/
+.vscode/
+.idea/
+.cache/
+*.swp
+*~
+
+# Never commit Meta sign-in sessions.
+meta-session.*

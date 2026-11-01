@@ -1,9 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=RiftLift
+GenericName=VR Game Launcher
 Comment=Play your Meta Rift games
-Exec=riftlift
+Exec=riftlift %U
 Icon=io.github.villagers654.RiftLift
 Terminal=false
 Categories=Game;Utility;
 Keywords=VR;Rift;OpenXR;Meta;
+StartupWMClass=riftlift

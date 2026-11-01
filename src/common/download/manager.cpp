@@ -417,10 +417,20 @@ void Manager::install(Entry &e, meta::Store &store, std::stop_token stop) {
     fetch.push_back(sha);
     download_total += sized ? compressed : 1;
   }
-  // Cached segments count against the space they free once assembled.
-  if (fs::space(dir).available < remaining + 256 * 1024 * 1024)
+  // Segments stay in the cache until the whole build is assembled, so a cache
+  // on the games folder's disk needs room for both at the peak.
+  constexpr uint64_t kMargin = 256 * 1024 * 1024;
+  const uint64_t fetched = sized ? download_total : 0;
+  const auto games_space = fs::space(dir), cache_space = fs::space(segments_);
+  const bool shared = games_space.capacity == cache_space.capacity && games_space.free == cache_space.free;
+  const uint64_t games_needed = remaining + (shared ? fetched : 0);
+  if (games_space.available < games_needed + kMargin)
     throw std::runtime_error(std::format("Not enough free space: {:.1f} GiB needed. Free disk space or choose "
-                                         "another games folder in Settings.", double(remaining) / (1ull << 30)));
+                                         "another games folder in Settings.", double(games_needed) / (1ull << 30)));
+  if (!shared && cache_space.available < fetched + kMargin)
+    throw std::runtime_error(std::format("Not enough free space for the download: {:.1f} GiB needed in {}. Free "
+                                         "disk space there.", double(fetched) / (1ull << 30),
+                                         paths::utf8(segments_.parent_path())));
   {
     std::lock_guard lock(mutex_);
     e.job.state = State::downloading;

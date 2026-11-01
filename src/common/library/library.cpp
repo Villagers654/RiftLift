@@ -271,6 +271,15 @@ std::string runtime_failure(std::string_view tail, int code) {
     message += std::format(" Last error: {}", last);
   return message;
 }
+int entitlement_error(const fs::path &log) {
+  constexpr std::string_view marker = "[platform] Game asked for entitlement: error ";
+  std::ifstream in(log, std::ios::binary);
+  int error = 0;
+  for (std::string line; std::getline(in, line);)
+    if (auto at = line.find(marker); at != line.npos)
+      error = std::atoi(line.c_str() + at + marker.size());
+  return error;
+}
 void rotate_log(const fs::path &log) {
   std::error_code ec;
   if (!fs::exists(log, ec))

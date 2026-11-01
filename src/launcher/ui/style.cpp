@@ -44,6 +44,7 @@ std::string encode(char32_t cp) {
   return out;
 }
 
+#ifdef _WIN32
 std::string first_existing(std::initializer_list<const char*> candidates) {
   for (const char* path : candidates) {
     std::error_code ec;
@@ -52,13 +53,27 @@ std::string first_existing(std::initializer_list<const char*> candidates) {
   return {};
 }
 
-#ifdef _WIN32
 constexpr const char* kFontDir = "C:/Windows/Fonts/";
 #endif
 
 std::vector<std::string> g_fallbacks;  // merged after each base font: symbols, emoji
 // No system icon font: the embedded one (Lucide icons at Segoe's code points).
 constexpr const char* kEmbeddedIcons = "<embedded>";
+
+// Merges the icons into the font added last.
+void merge_icons(const std::string& icon_path) {
+  auto& io = ImGui::GetIO();
+  ImFontConfig merge;
+  merge.MergeMode = true;
+  merge.PixelSnapH = true;
+  merge.FontLoaderFlags = ImGuiFreeTypeLoaderFlags_LightHinting;
+  if (icon_path == kEmbeddedIcons) {
+    merge.FontDataOwnedByAtlas = false;
+    io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(kIconFont), int(sizeof kIconFont), kBody, &merge);
+  } else {
+    io.Fonts->AddFontFromFileTTF(icon_path.c_str(), kBody, &merge);
+  }
+}
 
 ImFont* add_font(const std::string& path, const std::string& icon_path) {
   auto& io = ImGui::GetIO();
@@ -67,18 +82,7 @@ ImFont* add_font(const std::string& path, const std::string& icon_path) {
   base.FontLoaderFlags = ImGuiFreeTypeLoaderFlags_LightHinting;
   ImFont* font = io.Fonts->AddFontFromFileTTF(path.c_str(), kBody, &base);
   if (!font) return nullptr;
-  if (!icon_path.empty()) {
-    ImFontConfig merge;
-    merge.MergeMode = true;
-    merge.PixelSnapH = true;
-    merge.FontLoaderFlags = ImGuiFreeTypeLoaderFlags_LightHinting;
-    if (icon_path == kEmbeddedIcons) {
-      merge.FontDataOwnedByAtlas = false;
-      io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(kIconFont), int(sizeof kIconFont), kBody, &merge);
-    } else {
-      io.Fonts->AddFontFromFileTTF(icon_path.c_str(), kBody, &merge);
-    }
-  }
+  if (!icon_path.empty()) merge_icons(icon_path);
   for (const std::string& fallback : g_fallbacks) {
     ImFontConfig merge;
     merge.MergeMode = true;
@@ -131,22 +135,14 @@ void load_fonts() {
   std::string semibold = system_font("Inter,Noto Sans,sans-serif:weight=semibold");
   std::string bold = semibold;
   std::string italic = system_font("Inter,Noto Sans,sans-serif:slant=italic");
-  // No fontconfig or fonts: the release's bundled DejaVu Sans (the JRE's fonts).
-  if (regular.empty()) {
-    std::error_code ec;
-    auto fonts = paths::executable().parent_path() / "java/jdk/lib/fonts";
-    if (fs::exists(fonts / "DejaVuSans.ttf", ec)) {
-      regular = semilight = italic = (fonts / "DejaVuSans.ttf").string();
-      semibold = bold = fs::exists(fonts / "DejaVuSans-Bold.ttf", ec)
-          ? (fonts / "DejaVuSans-Bold.ttf").string() : regular;
-    }
-  }
 #endif
   if (icons.empty()) icons = kEmbeddedIcons;
   g_fonts.regular = add_font(regular, icons);
   if (!g_fonts.regular) {
     g_fonts.regular = io.Fonts->AddFontDefault();
-    icons.clear();
+    // ImGui's own font still gets the embedded icons.
+    icons = kEmbeddedIcons;
+    merge_icons(icons);
   }
   g_fonts.semilight = add_font(semilight, icons);
   g_fonts.semibold = add_font(semibold, icons);
@@ -705,7 +701,8 @@ bool menu_item(const char* label, char32_t glyph, bool danger, bool enabled, ImT
 
 bool dropdown(const char* id, const char* prefix, const char* const* items, int count, int* current, float width) {
   ImGui::PushID(id);
-  std::string shown = std::string(prefix) + items[*current];
+  // Prefix and item translate separately ("Sort by: " + "Name").
+  std::string shown = std::string(i18n::tr(prefix)) + std::string(i18n::tr(items[*current]));
   ImFont* font = g_fonts.semibold;
   ImVec2 ts = measure(font, kSmall + 1, shown);
   const char* chev = icon(icons::chevron_down);

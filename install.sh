@@ -35,7 +35,7 @@ rm -rf -- "$data_home/riftlift/venv" "$data_home/riftlift/.venv-previous"
 applications_root=$data_home/applications
 icons_root=$data_home/icons/hicolor/scalable/apps
 mkdir -p "$applications_root" "$icons_root"
-sed "s|^Exec=.*|Exec=\"$app_root/riftlift\"|" \
+sed "s|^Exec=riftlift|Exec=\"$app_root/riftlift\"|" \
   "$repo_root/assets/io.github.villagers654.RiftLift.desktop" \
   >"$applications_root/io.github.villagers654.RiftLift.desktop"
 cp "$repo_root/assets/io.github.villagers654.RiftLift.svg" "$icons_root/"

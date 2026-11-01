@@ -64,3 +64,16 @@ TEST_CASE("install folders stay inside their root") {
   CHECK_THROWS(download::install_dir(games.path, "../x"));
   CHECK_THROWS(download::install_dir("relative", "lone-echo"));
 }
+
+TEST_CASE("the game's last entitlement answer is read from its log") {
+  test::TempDir dir("entitlement");
+  auto log = dir / "runtime.log";
+  CHECK(library::entitlement_error(log) == 0);
+  test::write(log, "[platform] Game asked for credentials: error 0.\n"
+                   "[platform] Game asked for entitlement: error -20001.\n"
+                   "other line\n"
+                   "[platform] Game asked for entitlement: error -20002.\n");
+  CHECK(library::entitlement_error(log) == -20002);
+  test::write(log, "[platform] Game asked for entitlement: error 0.\n");
+  CHECK(library::entitlement_error(log) == 0);
+}

@@ -991,7 +991,7 @@ void App::draw_game_page() {
     if (local) {
       ImGui::SameLine(0, s(10));
       ImVec2 b = ImGui::GetCursorScreenPos();
-      std::string build = (local->plan.version.empty() ? std::string() : "Version " + local->plan.version + "  \xC2\xB7  ") +
+      std::string build = (local->plan.version.empty() ? std::string() : trf("Version {}", local->plan.version) + "  \xC2\xB7  ") +
                           bytes(local->bytes);
       std::string shown = ellipsize(fonts().regular, kSmall, build, ImGui::GetContentRegionAvail().x);
       draw_text(ImGui::GetWindowDrawList(), fonts().regular, kSmall, {std::round(b.x), text_y(fonts().regular, kSmall, b.y, s(22))},
@@ -1151,7 +1151,7 @@ void App::draw_game_page() {
     begin_card("stopped", ImGui::GetContentRegionAvail().x, {22, 18}, color::alpha(color::danger, 0.12f));
     float right = ImGui::GetWindowContentRegionMax().x;
     float y = ImGui::GetCursorPosY();
-    text(fonts().semibold, kBody, color::text, g.name + (*r->second.exit != 0 ? " stopped unexpectedly" : " closed"),
+    text(fonts().semibold, kBody, color::text, *r->second.exit != 0 ? trf("{} stopped unexpectedly", g.name) : trf("{} closed", g.name),
          false);
     const std::string failure =
         r->second.failure.empty() ? trf("Exit code {}", *r->second.exit) : r->second.failure;
@@ -1334,7 +1334,7 @@ void App::draw_owner(const meta::Game& g, bool installed, float w) {
       draw_glyph(dl, icons::chevron_down, kLabel, {p.x + (w + content) * 0.5f - s(6), p.y + h * 0.5f}, color::text2);
   });
   if (clicked) ImGui::OpenPopup("owner-picker");
-  ImGui::SetNextWindowPos({p.x + w, p.y + h + s(6)}, ImGuiCond_Always, {1, 0});  ImGui::SetNextWindowPos({p.x, p.y + h + s(6)});
+  ImGui::SetNextWindowPos({p.x + w, p.y + h + s(6)}, ImGuiCond_Always, {1, 0});
   if (begin_menu("owner-picker")) {
     for (const auto& k : owners) {
       const AccountView* o = account(k);
@@ -1811,7 +1811,7 @@ void App::draw_remove_account() {
   if (remove_account_ && !ImGui::IsPopupOpen("Remove account?")) ImGui::OpenPopup("Remove account?");
   if (begin_dialog("Remove account?", 460)) {
     const AccountView* a = remove_account_ ? account(*remove_account_) : nullptr;
-    dialog_text("Remove " + (a ? account_name(*a) : std::string("this account")) + "?",
+    dialog_text(a ? trf("Remove {}?", account_name(*a)) : std::string(tr("Remove this account?")),
                 "RiftLift forgets this account's sign-in. Installed games stay on this PC, and you can add the account "
                 "again any time.");
     const int clicked = dialog_footer({{"Cancel"}, {"Remove", Tone::danger}});

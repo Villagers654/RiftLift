@@ -1,0 +1,15 @@
+* text=auto eol=lf
+# Patches apply to pinned upstream sources byte for byte.
+*.patch -whitespace
+
+*.ttf binary
+*.otf binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.dll binary
+*.exe binary
+*.so binary
+*.zip binary
+*.gz binary
+*.pkg binary

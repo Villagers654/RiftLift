@@ -10,6 +10,8 @@
   </description>
   <launchable type="desktop-id">io.github.villagers654.RiftLift.desktop</launchable>
   <url type="homepage">https://github.com/Villagers654/RiftLift</url>
+  <url type="bugtracker">https://github.com/Villagers654/RiftLift/issues</url>
+  <content_rating type="oars-1.1"/>
   <provides>
     <binary>riftlift</binary>
   </provides>

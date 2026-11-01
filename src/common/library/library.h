@@ -54,6 +54,10 @@ std::string runtime_failure(std::string_view log_tail, int exit_code);
 // Before a launch: moves the previous run's log to <stem>.prev.log (replacing
 // an older one), so the runtime, which appends, starts a log of this run only.
 void rotate_log(const fs::path &log);
+// The Platform error (common/meta/platform.h) the last entitlement check of a
+// run's game got, as riftlift-runtime's relay logged it; 0 when it passed or
+// the game made none.
+int entitlement_error(const fs::path &log);
 struct Settings {
   // `runtime` is the bundled runtime beside the launcher unless the user set
   // another one; only such an override is saved.

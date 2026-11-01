@@ -3,6 +3,11 @@ name: Windows installer
 on:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      test:
+        description: Build and run the app's tests on the packaged configuration (releases)
+        type: boolean
+        default: false
   pull_request:
     paths:
       - '.github/workflows/windows-package.yml'
@@ -54,8 +59,11 @@ jobs:
         run: python scripts/bootstrap-windows.py
       - name: Build the app
         run: |
-          .deps/cmake/bin/cmake --preset windows-release -DRIFTLIFT_BUILD_TESTS=OFF
+          .deps/cmake/bin/cmake --preset windows-release -DRIFTLIFT_BUILD_TESTS=${{ inputs.test && 'ON' || 'OFF' }}
           .deps/cmake/bin/cmake --build build/windows-release
+      - name: Test the app
+        if: inputs.test
+        run: .deps/cmake/bin/ctest --test-dir build/windows-release --output-on-failure
       - name: NSIS
         shell: pwsh
         run: |
@@ -65,6 +73,8 @@ jobs:
             if (-not (Test-Path $makensis)) { Start-Sleep -Seconds (30 * $i) }
           }
           if (-not (Test-Path $makensis)) { throw 'NSIS did not install' }
+      # Also copies the licenses (licenses\<component>\) and audits the layout: no build paths or
+      # runner identity, and every DLL import shipped or provided by Windows 10/11.
       - name: Zip and per-user installer (the native bridge ships in native\)
         run: python scripts/packaging/windows/build_installer.py --build build/windows-release --native build/native/bin --makensis "C:\Program Files (x86)\NSIS\makensis.exe"
       - name: Install, upgrade and uninstall

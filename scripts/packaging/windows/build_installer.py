@@ -2,11 +2,16 @@
 r"""Turn a Windows build into RiftLift-windows64.zip and RiftLift-windows64-setup.exe.
 
 The layout is riftlift.exe, riftlift-cli.exe, riftlift-runtime.exe and WebView2Loader.dll from the
-build's bin folder, the licenses and, with --native, the Windows bridge
+build's bin folder, the licenses (licenses/<component>/, see
+scripts/packaging/release_notices.py) and, with --native, the Windows bridge
 payload (RiftLiftLauncher.exe and its DLLs, built from runtime/) in native\,
 where riftlift-runtime.exe looks for it first. The zip extracts to a RiftLift folder;
 the installer is built with NSIS (makensis runs on Windows and Linux). The
 launcher's updater looks for RiftLift-windows64-setup.exe.
+
+Before anything is archived the layout is audited (scripts/packaging/release_audit.py):
+no build path or packager identity in any file, and every DLL import either
+shipped beside the module or guaranteed by Windows 10/11.
 """
 from __future__ import annotations
 import argparse
@@ -16,12 +21,17 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+import release_audit  # noqa: E402
+import release_notices  # noqa: E402
+
 NSI = HERE / "riftlift.nsi"
 # WebView2Loader.dll: Meta sign-in in riftlift.exe.
 PROGRAMS = ("riftlift.exe", "riftlift-cli.exe", "riftlift-runtime.exe", "WebView2Loader.dll")
@@ -47,8 +57,16 @@ def find_strip(explicit=None):
     return next((Path(c) for c in candidates if c and Path(c).is_file()), None)
 
 
-def stage_layout(build, layout, native=None, strip=None):
-    """Copy the shipped files into layout and return their relative names."""
+def find_readobj(explicit=None, strip=None):
+    candidates = [explicit] if explicit else [
+        str(Path(strip).with_name(Path(strip).name.replace("strip", "readobj"))) if strip else None,
+        str(ROOT / ".deps/llvm-mingw/bin/llvm-readobj.exe"), shutil.which("llvm-readobj"), shutil.which("llvm-readobj.exe")]
+    return next((Path(c) for c in candidates if c and Path(c).is_file()), None)
+
+
+def stage_layout(build, layout, native=None, strip=None, readobj=None):
+    """Copy the shipped files into layout, add the licenses, audit it and
+    return the relative names of its files."""
     if layout.exists():
         shutil.rmtree(layout)
     layout.mkdir(parents=True)
@@ -60,6 +78,8 @@ def stage_layout(build, layout, native=None, strip=None):
         # The build keeps debug info (RelWithDebInfo); releases ship without it.
         if strip and name.endswith(".exe"):
             subprocess.run([str(strip), "--strip-debug", str(layout / name)], check=True)
+        if name.endswith(".exe"):
+            release_audit.remap_pe_source_names(layout / name)
     for name in EXTRA:
         shutil.copy2(ROOT / name, layout / name)
     if native:
@@ -68,6 +88,16 @@ def stage_layout(build, layout, native=None, strip=None):
             raise RuntimeError("Incomplete native bridge in %s: %s" % (native, ", ".join(missing) or "Input/*.json"))
         shutil.copytree(native, layout / "native", ignore=lambda folder, names: [
             n for n in names if n.lower().endswith(BUILD_LEFTOVERS) or n in ("CMakeFiles", "tests")])
+        # Built here (MSVC): blank absolute source paths; Meta's signed DLLs stay untouched.
+        for path in sorted((layout / "native").glob("*")):
+            name = "native/" + path.name
+            if path.suffix.lower() in (".exe", ".dll") and not release_audit.is_third_party(name):
+                release_audit.remap_pe_source_names(path)
+    release_notices.stage(build, layout, "windows", native=bool(native))
+    if readobj is None:
+        raise RuntimeError("llvm-readobj not found; pass --readobj (it checks the release's DLL imports)")
+    release_audit.scan(layout, *release_audit.identity(build))
+    release_audit.check_imports(layout, readobj)
     return sorted(path.relative_to(layout).as_posix() for path in layout.rglob("*") if path.is_file())
 
 
@@ -162,14 +192,16 @@ def main(argv=None):
     parser.add_argument("--icon", default=None,
                         help=".ico for the installer and uninstaller (default: the one the build generated)")
     parser.add_argument("--strip", help="llvm-strip (default: .deps/llvm-mingw or PATH)")
+    parser.add_argument("--readobj", help="llvm-readobj for the import audit (default: beside llvm-strip, .deps/llvm-mingw or PATH)")
     parser.add_argument("--no-zip", action="store_true")
     parser.add_argument("--no-installer", action="store_true")
     args = parser.parse_args(argv)
     version = args.version or project_version()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     layout = args.output_dir / "RiftLift-win64"
+    strip = find_strip(args.strip)
     names = stage_layout(args.build.resolve(), layout, args.native.resolve() if args.native else None,
-                         find_strip(args.strip))
+                         strip, find_readobj(args.readobj, strip))
     icon = args.icon or args.build / "src/launcher/generated/launcher/riftlift.ico"
     icon = icon if Path(icon).is_file() else None
     outputs = []

@@ -1,4 +1,4 @@
-# Linux release baseline (tools/linux-baseline/Containerfile, glibc 2.35).
+# Linux release baseline (scripts/packaging/linux/Containerfile, glibc 2.35).
 # The C++ runtime (libc++/libc++abi), libgcc and libatomic are linked
 # statically, so shipped binaries need only glibc and kernel/desktop libraries.
 # Archive symbols stay local: no libc++ or libatomic symbol is exported to
@@ -7,6 +7,8 @@ set(CMAKE_C_COMPILER clang)
 set(CMAKE_CXX_COMPILER clang++)
 set(CMAKE_CXX_FLAGS_INIT "-stdlib=libc++")
 set(riftlift_baseline_link "-stdlib=libc++ -static-libstdc++ -static-libgcc -fuse-ld=lld -Wl,--exclude-libs,ALL -Wl,--as-needed")
+# The Containerfile links libatomic.a alone into this directory, searched
+# before the system one, so -latomic resolves to the static archive.
 if(EXISTS /opt/riftlift-baseline/static)
   string(APPEND riftlift_baseline_link " -L/opt/riftlift-baseline/static")
 endif()

@@ -26,7 +26,11 @@ if(WIN32)
   # Ship self-contained executables: libc++/libunwind linked statically, UCRT from the OS.
   add_link_options(-static)
 else()
+  # Set before dependency targets so their static archives are PIC as well.
   set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+  # CMP0083: executables link as PIE only after this check (tests included).
+  include(CheckPIESupported)
+  check_pie_supported(LANGUAGES C CXX)
 endif()
 
 # Keep compiler-generated file names relocatable, including linked dependencies.
@@ -35,6 +39,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     "$<$<COMPILE_LANGUAGE:C,CXX,ASM>:-ffile-prefix-map=${PROJECT_SOURCE_DIR}/.deps=deps>")
 endif()
 include(cmake/Dependencies.cmake)
+# Our own code only: dependencies are already declared above.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Wno-missing-field-initializers>")
+endif()
 
 add_subdirectory(src/common)
 if(RIFTLIFT_BUILD_RUNTIME)

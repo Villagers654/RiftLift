@@ -880,7 +880,9 @@ void Core::launch_game(std::string_view id, std::string_view requested) {
     // The runtime writes its log itself; Proton's and the game's output go
     // to a separate file so lines are not written twice into one.
     r.console = data_ / "logs" / ("runtime-" + install.plan.package + ".console.log");
+    // The last run's logs stay beside the new ones for debug reports.
     library::rotate_log(r.log);
+    library::rotate_log(r.console);
     std::vector<std::string> args{
         "--game",       install.plan.package,
         "--log",        paths::utf8(r.log),
@@ -1214,7 +1216,18 @@ void Core::tick() {
         log::info("runtime", "Rift application {} exited with code {}.", id,
                   *r.exit);
         exited = true;
-        if (*r.exit != 0 && !r.quitting) {
+        const int entitlement = r.quitting ? 0 : library::entitlement_error(r.log);
+        if (entitlement == int(meta::PlatformError::unauthenticated) ||
+            entitlement == int(meta::PlatformError::not_entitled)) {
+          // The game quit after Meta refused its ownership check.
+          auto entry = game(id);
+          r.failure = entitlement == int(meta::PlatformError::unauthenticated)
+                          ? i18n::tr("It needs a Meta account. Sign in with the account that owns it, then start "
+                                     "it again.")
+                          : i18n::tr("The Meta account it started with does not own it. Choose the account that "
+                                     "owns it, then start it again.");
+          error(i18n::trf("{} closed: {}", entry ? entry->name : id, r.failure));
+        } else if (*r.exit != 0 && !r.quitting) {
           // A runtime that failed before opening its log still wrote stderr.
           r.failure = library::runtime_failure(
               r.tail.empty() ? tail_log(r.console) : r.tail, *r.exit);

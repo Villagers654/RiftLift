@@ -1,0 +1,155 @@
+# The shipped Linux configuration: the linux-baseline preset (static libc++/OpenSSL) built in the
+# glibc 2.35 baseline container (scripts/packaging/linux/Containerfile), its tests run in the same
+# container, then the release layout is packaged with its licenses and audited. Releases also make the
+# AppImage and upload the packages. Called by ci.yml and release.yml.
+#
+# The container image is cached by its Containerfile, FetchContent sources by the CMake files, and
+# compiles go through ccache (compiler_check=content); the caches are saved even when a step fails.
+name: Linux
+
+on:
+  workflow_call:
+    inputs:
+      test:
+        type: boolean
+        default: true
+      package:
+        type: boolean
+        default: false
+      payload-version:
+        description: RiftLift release the runtime installs its payloads from (default the CMake project version)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER: docker
+  CCACHE_DIR: ${{ github.workspace }}/build/.ccache
+  CCACHE_MAXSIZE: 2G
+  CCACHE_KEY: linux-ccache-${{ inputs.package && 'release' || 'ci' }}
+  APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+  APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+  # Runners have no FUSE; appimagetool extracts itself instead.
+  APPIMAGE_EXTRACT_AND_RUN: 1
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      # hashFiles only exists inside steps.
+      - name: Cache keys
+        run: |
+          {
+            echo "IMAGE_KEY=linux-image-${{ hashFiles('scripts/packaging/linux/Containerfile') }}"
+            echo "FETCH_KEY=linux-fetch-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'src/**/CMakeLists.txt') }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Restore baseline image
+        id: image
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/baseline-image.tar
+          key: ${{ env.IMAGE_KEY }}
+      - name: Baseline image
+        run: |
+          if [ -f "$RUNNER_TEMP/baseline-image.tar" ]; then
+            docker load -q -i "$RUNNER_TEMP/baseline-image.tar"
+          else
+            scripts/packaging/linux/baseline.sh image
+            docker save -o "$RUNNER_TEMP/baseline-image.tar" localhost/riftlift-baseline
+          fi
+      - name: Save baseline image
+        if: steps.image.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/baseline-image.tar
+          key: ${{ env.IMAGE_KEY }}
+
+      - name: Restore FetchContent sources
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .deps/fetch
+            !.deps/fetch/*-build
+            !.deps/fetch/*-subbuild
+          key: ${{ env.FETCH_KEY }}
+          restore-keys: linux-fetch-
+      - name: Restore compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: build/.ccache
+          key: ${{ env.CCACHE_KEY }}-${{ github.run_id }}
+          # Release and CI compile alike; CI's cache is the newest (the last push).
+          restore-keys: |
+            linux-ccache-ci-
+            linux-ccache-release-
+
+      # Always the shipped configuration (the preset's toolchain file selects static libc++ and
+      # OpenSSL); tests are built here and run below, in the same container.
+      - name: Build
+        env:
+          PAYLOAD_VERSION: ${{ inputs.payload-version }}
+        run: >-
+          scripts/packaging/linux/baseline.sh run bash -c
+          "ccache -z && cmake --preset linux-baseline -DRIFTLIFT_BUILD_TESTS=${{ inputs.test && 'ON' || 'OFF' }}
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          ${PAYLOAD_VERSION:+-DRIFTLIFT_PAYLOAD_VERSION=$PAYLOAD_VERSION} &&
+          cmake --build build/linux-baseline && ccache -s"
+      - name: Test
+        if: inputs.test
+        run: scripts/packaging/linux/baseline.sh run ctest --test-dir build/linux-baseline --output-on-failure
+      - name: Check the programs need only glibc 2.35
+        run: |
+          for program in build/linux-baseline/bin/riftlift build/linux-baseline/bin/riftlift-cli build/linux-baseline/bin/riftlift-runtime; do
+            objdump -p "$program" | awk '/NEEDED/ {print $2}' | grep -vxE 'lib(c|m)\.so\.6|ld-linux-x86-64\.so\.2' && exit 1
+            objdump -T "$program" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1 | awk -F'[_.]' '$3 > 35 {exit 1}'
+          done
+          build/linux-baseline/bin/riftlift-cli --help
+
+      - name: Save FetchContent sources
+        if: always()
+        continue-on-error: true  # the key already exists when the CMake files did not change
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .deps/fetch
+            !.deps/fetch/*-build
+            !.deps/fetch/*-subbuild
+          key: ${{ env.FETCH_KEY }}
+      - name: Save compiler cache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: build/.ccache
+          key: ${{ env.CCACHE_KEY }}-${{ github.run_id }}
+
+      # Packaging copies every linked component's license (scripts/packaging/release_notices.py) and
+      # audits the layout for build paths and identities (scripts/packaging/release_audit.py), in the
+      # container that built it. CI packages the tarball only; releases add the AppImage.
+      - name: Packages
+        env:
+          PACKAGE: ${{ inputs.package }}
+        run: |
+          formats=tar
+          if [ "$PACKAGE" = true ]; then
+            curl -fsSL -o build/appimagetool "$APPIMAGETOOL_URL"
+            echo "$APPIMAGETOOL_SHA256  build/appimagetool" | sha256sum -c -
+            chmod +x build/appimagetool
+            export APPIMAGETOOL=$PWD/build/appimagetool
+            formats="tar appimage"
+          fi
+          scripts/packaging/linux/baseline.sh run scripts/packaging/linux/build_packages.sh \
+            --build build/linux-baseline --out dist $formats
+          tar -tzf dist/RiftLift-*-linux-x86_64.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: inputs.package
+        with:
+          name: riftlift-linux
+          path: |
+            dist/RiftLift-*-linux-x86_64.AppImage
+            dist/RiftLift-*-linux-x86_64.tar.gz
+          if-no-files-found: error

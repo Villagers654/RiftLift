@@ -6,6 +6,13 @@ GE-Proton is distributed under its upstream component licenses.
 Their separate licenses and notices remain effective; see runtime/LICENSE and
 the respective component sources.
 
+The release packages carry the license of every component linked into
+riftlift, riftlift-cli and riftlift-runtime (curl, SDL3, Dear ImGui, FreeType,
+libwebp, miniz, nlohmann/json, stb, NanoSVG, zlib as bundled in FreeType, and
+the statically linked C++ runtime, OpenSSL on Linux and the WebView2 loader on
+Windows), and of the Windows bridge in `native\`, in their `licenses` folder
+(scripts/packaging/release_notices.py).
+
 ## Lucide
 
 The launcher's built-in icon font (`assets/riftlift-icons.ttf`) holds icons
