@@ -150,6 +150,16 @@ protected:
   bool refreshing_ = false, scanning_ = false, signing_in_ = false,
        verifying_ = false;
   bool auth_page_loaded_ = false; // the Meta sign-in page finished loading
+  // Manual sign-in: Meta's sign-in link to open in any browser, and whether that
+  // section is open (by itself when the sign-in window could not open).
+  std::string auth_url_, auth_paste_, auth_paste_error_;
+  bool auth_manual_ = false;
+  bool auth_window_ = true;  // open Meta's sign-in window (the CLI's --manual doesn't)
+  void cancel_sign_in();
+  // Finishes the waiting sign-in with Meta's oculus:// address.
+  void complete_sign_in(std::string callback);
+  // The same with an address pasted by the user (or a console message holding one).
+  void paste_sign_in(std::string_view text);
   std::string refresh_error_;     // last library refresh
   std::string owned_link_;        // store link of a game to add when Meta cannot list the library
   bool adding_ = false;

@@ -77,7 +77,9 @@ Downloads
 
 Accounts
   accounts                       Signed-in Meta accounts
-  accounts sign-in               Add an account (opens Meta's sign-in window)
+  accounts sign-in [--manual]    Add an account (opens Meta's sign-in window);
+                                 --manual prints Meta's link for any browser and
+                                 reads back the oculus:// address it ends on
   accounts use ACCOUNT           Make an account active
   accounts primary ACCOUNT       Mark the primary account
   accounts sign-out ACCOUNT      Sign out; its games stay
@@ -123,7 +125,8 @@ Args parse(const std::vector<std::string> &argv) {
   static const std::set<std::string> with_value{"--as",      "--to",      "--search",        "--lines", "--name",
                                                 "--args",    "--options", "--dll-overrides", "--shim"};
   static const std::set<std::string> known{"--json", "--offline",   "--yes",   "-y",        "--all",    "--installed",
-                                           "--steam", "--clear-env", "--help", "-h",        "--version", "--upload"};
+                                           "--steam", "--clear-env", "--help", "-h",        "--version", "--upload",
+                                           "--manual"};
   Args out;
   for (size_t i = 1; i < argv.size(); ++i) {
     const auto &a = argv[i];
@@ -1081,16 +1084,36 @@ int Cli::accounts_cmd(const Args &args) {
     if (options_.offline)
       throw std::runtime_error("Sign-in needs a connection. Run without --offline.");
     notice_.clear();
+    const bool manual = args.flag("--manual");
+    auth_window_ = !manual;
     add_account();
     std::string shown;
-    if (!json_)
+    auto status = [&] {
+      if (!json_ && auth_status_ != shown && !auth_status_.empty())
+        std::cout << auth_status_ << "\n" << std::flush;
+      shown = auth_status_;
+    };
+    if (!json_ && !manual)
       std::cout << "Complete sign-in in the Meta window.\n" << std::flush;
-    wait([&] { return !signing_in_; },
-         [&] {
-           if (!json_ && auth_status_ != shown && !auth_status_.empty())
-             std::cout << auth_status_ << "\n" << std::flush;
-           shown = auth_status_;
-         });
+    // Manually, or when the window could not open: the link out, the address back.
+    wait([&] { return !signing_in_ || (!auth_url_.empty() && (manual || auth_manual_)); }, status);
+    if (signing_in_ && !verifying_) {
+      std::cerr << "1. Open this link in any browser and sign in to Meta:\n\n" << auth_url_ << "\n\n"
+                << "2. Paste the oculus:// address that Meta's Continue button tries to open\n"
+                << "   (or the whole browser console message; see " << "https://github.com/Villagers654/RiftLift/blob/main/docs/MANUAL_SIGN_IN.md):\n"
+                << std::flush;
+      std::string line;
+      while (signing_in_ && !verifying_ && std::getline(std::cin, line)) {
+        paste_sign_in(line);
+        if (!verifying_ && !auth_paste_error_.empty())
+          std::cerr << auth_paste_error_ << "\n" << std::flush;
+      }
+      if (signing_in_ && !verifying_) {  // input ended
+        cancel_sign_in();
+        throw std::runtime_error("Sign-in did not finish.");
+      }
+    }
+    wait([&] { return !signing_in_; }, status);
     if (!notice_.empty())
       throw std::runtime_error(notice_);
     if (!session_ || auth_status_ == "Sign-in cancelled.")

@@ -118,6 +118,7 @@ private:
   void draw_downloads();
   void draw_settings();
   void draw_account();
+  void manual_sign_in();  // the account page's "Sign in manually" section
   void draw_uninstall();
   void draw_cancel_download();
   void draw_report();

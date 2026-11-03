@@ -136,7 +136,23 @@ bool generated_alias(std::string_view alias) {
   return std::ranges::all_of(alias.substr(5), [](char ch) { return ch >= '0' && ch <= '9'; });
 }
 
-// Centered empty state: glyph, headline, one line of guidance.
+// A text link at the cursor, flush with the text beside it.
+bool link(const char* id_label, ImU32 col = color::text) {
+  std::string_view label = id_label;
+  label = i18n::tr(label.substr(0, label.find("##")));
+  ImFont* f = fonts().semibold;
+  ImVec2 size = measure(f, kSmall, label);
+  ImVec2 p = ImGui::GetCursorScreenPos();
+  bool clicked = ImGui::InvisibleButton(id_label, size);
+  bool hov = ImGui::IsItemHovered();
+  if (hov) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  draw_text(dl, f, kSmall, p, hov ? color::text : col, label);
+  if (hov) hline(dl, p.x, p.x + size.x, p.y + size.y - s(1), color::text);
+  return clicked;
+}
+
+// Centered empty state: glyph, headline, and a line of guidance when there is one.
 void empty_state(char32_t glyph, std::string_view headline, std::string_view sub) {
   float w = ImGui::GetContentRegionAvail().x;
   ImVec2 p = ImGui::GetCursorScreenPos();
@@ -152,6 +168,7 @@ void empty_state(char32_t glyph, std::string_view headline, std::string_view sub
     text(fonts().semibold, kTitle, color::text, headline, false);
     gap(2);
   }
+  if (sub.empty()) return;
   ImVec2 ss = measure(fonts().regular, kBody, sub);
   ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.f, (w - ss.x) * 0.5f));
   text(fonts().regular, kBody, color::text2, sub, false);
@@ -189,6 +206,7 @@ void description(std::string_view raw, float width) {
 
 // Where problems are reported.
 constexpr const char* kIssues = "https://github.com/Villagers654/RiftLift/issues";
+constexpr const char* kSignInGuide = "https://github.com/Villagers654/RiftLift/blob/main/docs/MANUAL_SIGN_IN.md";
 
 // A modal dialog in the house style; returns true while open. Every dialog is
 // a title, a short message, optional settings-style rows, and dialog_footer().
@@ -483,6 +501,56 @@ void App::draw_toast() {
   if (!toast_.empty() && now - toast_since_ > 7.0) notice_.clear();
 }
 
+// Signing in from any browser: Meta's link to open there, then the oculus://
+// address its Continue button tries to open, pasted back (docs/MANUAL_SIGN_IN.md).
+void App::manual_sign_in() {
+  ImFont* rf = fonts().regular;
+  ImFont* sf = fonts().semibold;
+  gap(6);
+  if (!auth_manual_) {
+    gap(4);
+    if (link("Sign in manually##manual", color::text2)) auth_manual_ = true;
+    return;
+  }
+  const float w = ImGui::GetContentRegionAvail().x;
+  gap(6);
+  text(sf, kSmall, color::text, "1. Open this link in any browser and sign in to Meta.");
+  gap(8);
+  const float copy_w = button_width("Copy link");
+  ImVec2 p = ImGui::GetCursorScreenPos();
+  const float field_w = w - copy_w - s(10), h = s(34);
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  dl->AddRectFilled(p, {p.x + field_w, p.y + h}, color::surface_hi, h * 0.5f);
+  draw_text(dl, rf, kSmall, {p.x + s(16), text_y(rf, kSmall, p.y, h)}, color::text2,
+            ellipsize(rf, kSmall, auth_url_, field_w - s(32)));
+  ImGui::Dummy({field_w, h});
+  ImGui::SameLine(0, s(10));
+  ImGui::SetCursorScreenPos({p.x + field_w + s(10), p.y - (s(40) - h) * 0.5f});
+  if (button("Copy link##manual-copy", 0, Tone::secondary, {copy_w, s(40)})) {
+    ImGui::SetClipboardText(auth_url_.c_str());
+    auth_paste_error_ = "Link copied.";
+  }
+  ImGui::SetCursorScreenPos({p.x, p.y + h});
+  gap(14);
+  text(sf, kSmall, color::text, "2. Paste the oculus:// address that Meta's Continue button tries to open.");
+  gap(8);
+  if (submit_field("manual-paste", "oculus://\xE2\x80\xA6", &auth_paste_, w, icons::lock)) {
+    paste_sign_in(auth_paste_);
+    if (verifying_) auth_paste_.clear();
+  }
+  gap(8);
+  if (!auth_paste_error_.empty()) {
+    text(rf, kSmall, auth_paste_error_ == "Link copied." ? color::text2 : color::warning, auth_paste_error_);
+    gap(4);
+  }
+  if (link("How do I find that address?##manual-guide", color::text2)) {
+    // Opening a page can report success with nothing to show it, so the address is copied too.
+    ImGui::SetClipboardText(kSignInGuide);
+    auth_paste_error_ = "The guide's address is copied too, in case no browser opens it.";
+    action([] { open_url(kSignInGuide); });
+  }
+}
+
 void App::draw_sidebar() {
   ImGui::PushStyleColor(ImGuiCol_ChildBg, color::bg);
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {s(16), s(24)});
@@ -691,18 +759,17 @@ void App::draw_library() {
   if (all.empty()) {
     gap(80);
     if (refreshing_)
-      empty_state(icons::library, "Finding your games\xE2\x80\xA6", "Reading your Meta library.");
+      empty_state(icons::library, "Finding your games\xE2\x80\xA6", "");
     else if (!search_.empty())
-      empty_state(icons::search, "No results", "Try a different name, or clear the search.");
+      empty_state(icons::search, "No results", "");
     else if (installed_only_)
-      empty_state(icons::download, "Nothing installed yet", "Install a game from your library to play it here.");
+      empty_state(icons::download, "Nothing installed yet", "");
     else if (!session_)
       empty_state(icons::library, "No games yet",
-                  "Sign in with the Meta account that owns your Rift games, or add a game from Add Game.");
+                  "Sign in, or add a game from Add Game.");
     else
       empty_state(icons::library, "No games yet",
-                  refresh_error_.empty() ? "Rift games you own on Meta will appear here."
-                                         : refresh_error_);
+                  refresh_error_);
     if (session_ && !refreshing_ && search_.empty() && !installed_only_ && !options_.offline) {
       gap(22);
       float bw = s(200);
@@ -1374,7 +1441,7 @@ void App::draw_downloads() {
     const float block = storage->GetFloat(id, s(260)), top = ImGui::GetCursorPosY();
     ImGui::SetCursorPosY(top + std::max(0.f, (ImGui::GetContentRegionAvail().y - block) * 0.5f - s(kHeaderHeight)));
     const float start = ImGui::GetCursorPosY();
-    empty_state(icons::download, "No downloads", "Games you install will show up here.");
+    empty_state(icons::download, "No downloads", "");
     gap(22);
     float bw = row_button_w("Go to library");
     ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - bw) * 0.5f + ImGui::GetCursorPosX());
@@ -1452,9 +1519,6 @@ void App::draw_downloads() {
     ImGui::PopID();
   }
   end_card();
-  gap(12);
-  text(fonts().regular, kSmall, color::text3,
-       "Queued downloads start in list order. Paused and interrupted downloads resume where they left off.", false);
 }
 
 // ---------------------------------------------------------------------------
@@ -1647,29 +1711,14 @@ void App::draw_settings() {
 // ---------------------------------------------------------------------------
 void App::draw_account() {
   page_title("Accounts");
-  ImGui::SetCursorPosY(ImGui::GetCursorPosY() - ImGui::GetStyle().ItemSpacing.y + s(2));
-  text(fonts().regular, kBody, color::text2, "Each Meta account keeps its own library and downloads on this PC.", false);
-  gap(kAfterHeader);
+  gap(kAfterHeader - 8);
   float w = std::min(ImGui::GetContentRegionAvail().x, s(kPageWidth));
   ImFont* rf = fonts().regular;
   ImFont* sf = fonts().semibold;
   if (accounts_.empty()) {
     begin_card("connect", w, {28, 28});
-    if (SDL_Texture* mark = logo(int(std::ceil(s(48))))) {
-      ImVec2 p = ImGui::GetCursorScreenPos();
-      draw_image(ImGui::GetWindowDrawList(), ImTextureID(reinterpret_cast<uintptr_t>(mark)), p,
-                                           {p.x + s(48), p.y + s(48)});
-      ImGui::Dummy({s(48), s(48)});
-      gap(14);
-    }
     text(sf, kTitle, color::text, "Connect your Meta account", false);
-    gap(4);
-    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w - s(56));
-    text(rf, kBody, color::text2,
-         "Sign in with the account that owns your Rift games. RiftLift shows your library and downloads the games "
-         "you own \xE2\x80\x94 nothing else.");
-    ImGui::PopTextWrapPos();
-    gap(22);
+    gap(18);
     if (button(signing_in_ ? "Waiting for Meta\xE2\x80\xA6##signin" : "Sign in with Meta##signin", 0, Tone::primary,
                {s(220), s(46)}, !signing_in_))
       sign_in();
@@ -1772,37 +1821,27 @@ void App::draw_account() {
   }
   if (signing_in_ || !auth_status_.empty()) {
     gap(10);
-    ImGui::BeginGroup();
+    // Spinner, status and Cancel share one line, centred on the text.
+    ImVec2 row = ImGui::GetCursorScreenPos();
+    const float line = measure(rf, kSmall, "Ag").y;
+    float x = row.x;
     if (signing_in_) {
+      ImGui::SetCursorScreenPos({x, row.y + (line - s(14)) * 0.5f});
       spinner(7, color::text2);
-      ImGui::SameLine(0, s(10));
+      x += s(14) + s(10);
     }
+    ImGui::SetCursorScreenPos({x, row.y});
     text(rf, kSmall, color::text2, auth_status_, false);
     if (signing_in_) {
-      ImGui::SameLine(0, s(14));
-      if (button("Cancel##signin-cancel", 0, Tone::ghost, {0, s(30)})) {
-        ++epoch_;
-        browser_.close();
-        auth_.reset();
-        signing_in_ = verifying_ = false;
-        auth_status_ = "Sign-in cancelled.";
-      }
+      ImGui::SetCursorScreenPos({x + measure(rf, kSmall, i18n::tr(auth_status_)).x + s(14), row.y});
+      if (link("Cancel##signin-cancel", color::text2)) cancel_sign_in();
     }
-    ImGui::EndGroup();
+    ImGui::SetCursorScreenPos({row.x, row.y + line});
+    ImGui::Dummy({0, 0});
+    if (signing_in_ && !verifying_ && !auth_url_.empty()) manual_sign_in();
   }
   end_card();
   gap(18);
-  ImGui::BeginGroup();
-  ImVec2 p = ImGui::GetCursorScreenPos();
-  draw_glyph(ImGui::GetWindowDrawList(), icons::lock, kSmall, {p.x + s(8), cap_center(fonts().regular, kSmall, p.y)},
-             color::text3);
-  ImGui::SetCursorScreenPos({p.x + s(26), p.y});
-  ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w - s(26));
-  text(rf, kSmall, color::text3,
-       std::string("Sign-ins are ") + SecretStore::protection() +
-           " and only used to talk to Meta.");
-  ImGui::PopTextWrapPos();
-  ImGui::EndGroup();
 }
 
 void App::draw_remove_account() {
@@ -1869,12 +1908,6 @@ void App::draw_add_games() {
   page_title("Add Game");
   gap(kAfterHeader - 8);
   float w = std::min(ImGui::GetContentRegionAvail().x, s(kPageWidth));
-  ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
-  text(fonts().regular, kBody, color::text2,
-       "Rift games you did not download with RiftLift launch the same way: through its runtime, with playtime "
-       "and launch settings.");
-  ImGui::PopTextWrapPos();
-  gap(24);
 
   heading("From this PC");
   begin_card("add-local", w, {22, 2});

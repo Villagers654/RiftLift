@@ -110,6 +110,13 @@ App::App(Options options) : Core(std::move(options)) {
     page_ = 2;
   if (options_.smoke_view == "account")
     page_ = 3;
+  // The manual sign-in steps, with an example link (nothing is sent to Meta).
+  if (options_.smoke_view == "manual-sign-in") {
+    page_ = 3;
+    signing_in_ = auth_manual_ = true;
+    auth_url_ = "https://auth.meta.com/native_sso/confirm?native_app_id=512466987071624&native_sso_etoken=EXAMPLE";
+    auth_status_ = "Meta's sign-in window could not open. Sign in manually below.";
+  }
   if (options_.smoke_view == "add")
     page_ = 4;
   if (options_.smoke_view == "launch-settings")

@@ -63,6 +63,7 @@ Set **Settings → Log detail** to **Debug** (and on Linux turn on **Debug loggi
 
 - **No VR runtime found:** start SteamVR (or your OpenXR runtime) and try again.
 - **Meta asks you to sign in again:** choose **Reconnect** on the account in **Settings → Accounts**.
+- **Meta's sign-in window doesn't open, or you'd rather use your own browser:** [sign in manually](docs/MANUAL_SIGN_IN.md).
 - **A game says its files are missing:** Steam may have updated it; add it again from **Add Game**.
 
 ### Build (Windows)

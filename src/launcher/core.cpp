@@ -743,7 +743,11 @@ void Core::sign_in() {
         if (epoch != epoch_)
           return;
         auth_ = auth;
-        action([&] { browser_.open(url, data_); });
+        auth_url_ = url;
+        auth_manual_ = false;
+        auth_paste_error_.clear();
+        if (auth_window_)
+          action([&] { browser_.open(url, data_); });
         auth_status_ = "Complete sign-in in the Meta window.";
       };
     } catch (...) {
@@ -1102,6 +1106,95 @@ void Core::restart_steam() {
     steam_restart_ = true; // Start only after the observed close and safe sync.
   });
 }
+void Core::complete_sign_in(std::string callback) {
+  if (!auth_ || !signing_in_ || verifying_)
+    return;
+  verifying_ = true;
+  auth_status_ = "Verifying your Meta account...";
+  auto auth = auth_;
+  auto epoch = epoch_;
+  worker_->submit([this, auth, callback,
+                   epoch](std::stop_token stop) -> Worker::Completion {
+    try {
+      auto session = auth->complete(callback, stop);
+      meta::Store store(session.access_token, stop);
+      auto who = store.identity();
+      session.account_id = who.account_id;
+      session.alias = who.alias;
+      session.display_name = who.display_name;
+      // The account is saved even when its library cannot be listed yet;
+      // Refresh lists it later.
+      std::optional<meta::Snapshot> snapshot;
+      std::string library_error;
+      try {
+        snapshot = store.library();
+      } catch (...) {
+        library_error = exception_text();
+        log::warn("library", "Signed in, but the library could not be listed: {}", library_error);
+      }
+      return [this, session, snapshot, library_error, epoch] {
+        if (epoch != epoch_)
+          return;
+        action([&] {
+          if (!digits(session.account_id))
+            throw std::runtime_error(
+                "Meta did not return a numeric account identity. Sign-in "
+                "was not saved.");
+          const bool first = vault_.index().accounts.empty();
+          account_key_ = vault_.upsert(session);
+          session_ = session;
+          account_scope_ = session.account_id;
+          reload_accounts();
+          downloads_->set_account(account_key_);
+          downloads_->adopt_legacy(account_index_.primary);
+          (void)first;
+          if (snapshot) {
+            library::merge(games_, *snapshot, account_scope_);
+            warning_ = snapshot->warning;
+            library_partial_ = !snapshot->complete;
+          } else {
+            refresh_error_ = library_error;
+            error(library_error);
+          }
+          save_library();
+        });
+        signing_in_ = verifying_ = false;
+        auth_.reset();
+        auth_status_.clear();
+      };
+    } catch (...) {
+      auto e = exception_text();
+      return [this, epoch, e] {
+        if (epoch == epoch_) {
+          signing_in_ = verifying_ = false;
+          auth_.reset();
+          auth_status_.clear();
+          error(e);
+        }
+      };
+    }
+  });
+}
+void Core::cancel_sign_in() {
+  ++epoch_;
+  browser_.close();
+  auth_.reset();
+  signing_in_ = verifying_ = false;
+  auth_status_ = "Sign-in cancelled.";
+}
+void Core::paste_sign_in(std::string_view text) {
+  if (!auth_ || !signing_in_ || verifying_)
+    return;
+  auto callback = meta::find_callback(text);
+  if (callback.empty())
+    auth_paste_error_ = "That has no oculus:// address. Copy the whole console message or the address itself.";
+  else if (!auth_->accepts(callback))
+    auth_paste_error_ = "That address is from an earlier sign-in. Copy the one Meta gave for this sign-in.";
+  else {
+    auth_paste_error_.clear();
+    complete_sign_in(std::move(callback));
+  }
+}
 void Core::tick() {
   worker_->drain();
   if ((steam_pending_ || steam_restart_) && !steam_busy_ && now_ms() - steam_poll_ > 2000) {
@@ -1120,9 +1213,16 @@ void Core::tick() {
       log::info("auth", "Meta sign-in page loaded.");
     }
     if (event->kind == AuthBrowser::Kind::error) {
-      signing_in_ = false;
-      auth_status_.clear();
-      error(event->value);
+      log::warn("auth", "Meta's sign-in window could not open: {}", event->value);
+      if (signing_in_ && auth_ && !verifying_) {
+        // The sign-in still works in any browser: keep waiting for its address.
+        auth_manual_ = true;
+        auth_status_ = "Meta's sign-in window could not open. Sign in manually below.";
+      } else {
+        signing_in_ = false;
+        auth_status_.clear();
+        error(event->value);
+      }
     }
     if (event->kind == AuthBrowser::Kind::closed && signing_in_ &&
         !verifying_) {
@@ -1131,75 +1231,8 @@ void Core::tick() {
       auth_.reset();
       auth_status_ = "Sign-in cancelled.";
     }
-    if (event->kind == AuthBrowser::Kind::callback && auth_ && signing_in_ &&
-        !verifying_) {
-      verifying_ = true;
-      auth_status_ = "Verifying your Meta account...";
-      auto auth = auth_;
-      auto callback = std::move(event->value);
-      auto epoch = epoch_;
-      worker_->submit([this, auth, callback,
-                       epoch](std::stop_token stop) -> Worker::Completion {
-        try {
-          auto session = auth->complete(callback, stop);
-          meta::Store store(session.access_token, stop);
-          auto who = store.identity();
-          session.account_id = who.account_id;
-          session.alias = who.alias;
-          session.display_name = who.display_name;
-          // The account is saved even when its library cannot be listed yet;
-          // Refresh lists it later.
-          std::optional<meta::Snapshot> snapshot;
-          std::string library_error;
-          try {
-            snapshot = store.library();
-          } catch (...) {
-            library_error = exception_text();
-            log::warn("library", "Signed in, but the library could not be listed: {}", library_error);
-          }
-          return [this, session, snapshot, library_error, epoch] {
-            if (epoch != epoch_)
-              return;
-            action([&] {
-              if (!digits(session.account_id))
-                throw std::runtime_error(
-                    "Meta did not return a numeric account identity. Sign-in "
-                    "was not saved.");
-              const bool first = vault_.index().accounts.empty();
-              account_key_ = vault_.upsert(session);
-              session_ = session;
-              account_scope_ = session.account_id;
-              reload_accounts();
-              downloads_->set_account(account_key_);
-              downloads_->adopt_legacy(account_index_.primary);
-              (void)first;
-              if (snapshot) {
-                library::merge(games_, *snapshot, account_scope_);
-                warning_ = snapshot->warning;
-                library_partial_ = !snapshot->complete;
-              } else {
-                refresh_error_ = library_error;
-                error(library_error);
-              }
-              save_library();
-            });
-            signing_in_ = verifying_ = false;
-            auth_.reset();
-            auth_status_.clear();
-          };
-        } catch (...) {
-          auto e = exception_text();
-          return [this, epoch, e] {
-            if (epoch == epoch_) {
-              signing_in_ = verifying_ = false;
-              auth_.reset();
-              auth_status_.clear();
-              error(e);
-            }
-          };
-        }
-      });
-    }
+    if (event->kind == AuthBrowser::Kind::callback)
+      complete_sign_in(std::move(event->value));
   }
   auto now = now_ms();
   if (now - last_poll_ > 400) {
