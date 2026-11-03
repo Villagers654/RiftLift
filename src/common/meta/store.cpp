@@ -14,6 +14,8 @@ namespace riftlift::meta {
 namespace {
 constexpr std::string_view kLibraryDoc = "4850747515044496";
 constexpr std::string_view kBuildsDoc = "1586217024733717";
+// An app's every uploaded binary with its release channels.
+constexpr std::string_view kHistoryDoc = "2885322071572384";
 // Waits `delay` unless a stop is requested first; false when stopped.
 bool pause_for(std::stop_token stop, std::chrono::milliseconds delay) {
   std::mutex mutex;
@@ -306,6 +308,52 @@ std::vector<Build> Store::builds(std::string_view id, std::string *name) const {
   std::ranges::stable_sort(out, std::greater<>{}, [](const Build &b) { return number(Json(b.version_code)); });
   return out;
 }
+std::string Build::label() const { return version + " (" + (version_code.empty() ? "0" : version_code) + ")"; }
+std::vector<Build> parse_history(const Json &response) {
+  const auto &node = field(field(response, "data"), "node");
+  const auto &list = field(field(node, "primary_binaries"), "nodes");
+  if (!list.is_array())
+    throw std::runtime_error("Meta returned no build history for that app.");
+  std::vector<Build> out;
+  for (const auto &binary : list) {
+    if (str(binary, "__typename") != "PCBinary")
+      continue;
+    Build b{str(binary, "id"), str(binary, "version"), str(binary, "version_code"), {}, {}, false};
+    for (const auto &channel : nodes(field(binary, "binary_release_channels")))
+      if (auto name = str(channel, "channel_name"); !name.empty())
+        b.channels.push_back(name);
+    if (!digits(b.binary_id) || b.channels.empty())
+      continue;
+    if (b.version.empty())
+      b.version = "unknown";
+    out.push_back(std::move(b));
+  }
+  return out;
+}
+std::vector<Build> merge_builds(std::vector<Build> offered, const std::vector<Build> &history) {
+  for (auto &b : offered) {
+    b.offered = true;
+    if (auto known = std::ranges::find(history, b.binary_id, &Build::binary_id); known != history.end())
+      b.channels = known->channels;
+  }
+  for (const auto &h : history)
+    if (std::ranges::find(offered, h.binary_id, &Build::binary_id) == offered.end())
+      offered.push_back(h);
+  std::ranges::stable_sort(offered, std::greater<>{}, [](const Build &b) { return number(Json(b.version_code)); });
+  return offered;
+}
+std::vector<Build> Store::all_builds(std::string_view id, std::string *name) const {
+  auto offered = builds(id, name);
+  std::vector<Build> history;
+  try {
+    history = parse_history(query(kHistoryDoc, {{"applicationID", id}}));
+  } catch (...) {
+    if (stop_.stop_requested())
+      throw;
+    log::warn("store", "Could not read the full build history of {}; listing the newest builds only.", id);
+  }
+  return merge_builds(std::move(offered), history);
+}
 Json Store::manifest(std::string_view binary_id) const {
   if (!digits(binary_id))
     throw std::runtime_error("Invalid Meta build ID.");
@@ -366,8 +414,13 @@ Plan Store::owned_plan(std::string_view id, std::string_view binary_id) const {
   auto build = list.front();
   if (!binary_id.empty()) {
     auto found = std::ranges::find(list, binary_id, &Build::binary_id);
-    if (found == list.end())
-      throw std::runtime_error("Meta no longer offers this build of the game.");
+    if (found == list.end()) {
+      // An older or other-channel build: the full history lists it.
+      list = all_builds(id);
+      found = std::ranges::find(list, binary_id, &Build::binary_id);
+      if (found == list.end())
+        throw std::runtime_error("Meta no longer offers this build of the game.");
+    }
     build = *found;
   }
   auto plan = parse_manifest(id, build.binary_id, manifest(build.binary_id));

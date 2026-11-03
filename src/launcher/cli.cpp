@@ -41,10 +41,14 @@ Library
                                  Games your accounts own and games added here
   info GAME                      Store details, installation, launch settings
                                  and playtime
-  install GAME [--as ACCOUNT] [--to FOLDER]
+  install GAME [--as ACCOUNT] [--to FOLDER] [--build VERSION|all]
                                  Download and install (or update) a Rift game;
                                  a new one goes to FOLDER instead of the games
-                                 folder
+                                 folder. --build installs that version (or
+                                 every one) beside the others, each in its
+                                 own folder and library entry
+  builds GAME [--as ACCOUNT]     Every version you can download, with its
+                                 build code, binary id and release channels
   uninstall GAME [--yes]         Remove a game from RiftLift; a store install's
                                  files go too, never a local or Steam game's
   play GAME [--as ACCOUNT|local] Launch a game and wait for it to exit
@@ -123,7 +127,7 @@ struct Args {
 
 Args parse(const std::vector<std::string> &argv) {
   static const std::set<std::string> with_value{"--as",      "--to",      "--search",        "--lines", "--name",
-                                                "--args",    "--options", "--dll-overrides", "--shim"};
+                                                "--args",    "--options", "--dll-overrides", "--shim", "--build"};
   static const std::set<std::string> known{"--json", "--offline",   "--yes",   "-y",        "--all",    "--installed",
                                            "--steam", "--clear-env", "--help", "-h",        "--version", "--upload",
                                            "--manual"};
@@ -480,7 +484,8 @@ private:
   }
 
   // Follows one queued job to its end, printing progress.
-  download::Job follow(const std::string &id, const std::string &verb) {
+  // `binary`: the download of that chosen version rather than the game's own.
+  download::Job follow(const std::string &id, const std::string &verb, const std::string &binary = {}) {
     const bool tty = terminal(stdout) && !json_;
     std::optional<download::Job> last;
     auto started = std::chrono::steady_clock::now();
@@ -493,7 +498,7 @@ private:
         if (a.key != account_key_)
           std::ranges::move(downloads_->snapshot(a.key), std::back_inserter(jobs));
       for (auto &j : jobs)
-        if (j.app_id == id)
+        if (j.app_id == id && j.pinned == !binary.empty() && (binary.empty() || j.binary_id == binary))
           return j;
       return std::nullopt;
     };
@@ -548,6 +553,9 @@ private:
   int library_list(const Args &);
   int info(const Args &);
   int install_game(const Args &);
+  int install_builds(const Args &, const meta::Game &g, const std::string &which);
+  int list_builds(const Args &);
+  std::vector<meta::Build> owner_builds(const Args &, const meta::Game &g);
   int uninstall_game(const Args &);
   int play_game(const Args &);
   int logs(const Args &);
@@ -697,6 +705,8 @@ int Cli::install_game(const Args &args) {
   if (game_owners(g.id).empty())
     throw std::runtime_error(std::format("No signed-in account owns {}.", g.name));
   pick_owner(args, g);
+  if (auto which = args.value("--build"))
+    return install_builds(args, g, *which);
   if (installed(g.id)) {
     wait_details(g.id);
     if (!update_available(g.id)) {
@@ -740,6 +750,107 @@ int Cli::install_game(const Args &args) {
   return 0;
 }
 
+std::vector<meta::Build> Cli::owner_builds(const Args &, const meta::Game &g) {
+  const auto owner = owner_for(g.id);
+  if (!owner.empty() && owner != account_key_)
+    action([&] { switch_account(owner); });
+  if (!session_)
+    throw std::runtime_error("Sign in to list this game's versions.");
+  return meta::Store(session_->access_token).all_builds(g.id);
+}
+int Cli::list_builds(const Args &args) {
+  need_online();
+  wait_library();
+  auto g = resolve_game(args.word(1, "game"));
+  if (game_owners(g.id).empty())
+    throw std::runtime_error(std::format("No signed-in account owns {}.", g.name));
+  pick_owner(args, g);
+  const auto home = account_key_;
+  auto list = owner_builds(args, g);
+  if (!home.empty() && account_key_ != home)
+    action([&] { switch_account(home); });
+  auto state = [&](const meta::Build &b) {
+    std::string out = installed_build(g.id, b.binary_id) ? "installed" : "";
+    if (b.offered && &b == &*std::ranges::find_if(list, &meta::Build::offered))
+      out += out.empty() ? "default" : ", default";
+    return out;
+  };
+  if (json_) {
+    Json out = Json::array();
+    for (auto &b : list)
+      out.push_back({{"version", b.version}, {"version_code", b.version_code}, {"binary_id", b.binary_id},
+                     {"channels", b.channels}, {"offered", b.offered},
+                     {"installed", installed_build(g.id, b.binary_id) != nullptr}});
+    return print(out), 0;
+  }
+  std::vector<std::vector<std::string>> rows;
+  for (auto &b : list) {
+    std::string channels;
+    for (auto &c : b.channels)
+      channels += (channels.empty() ? "" : ", ") + c;
+    rows.push_back({b.version, b.version_code, b.binary_id, channels.empty() ? "-" : channels, state(b)});
+  }
+  table({"Version", "Code", "Binary ID", "Channels", "Status"}, rows);
+  std::cout << std::format("\n{} versions of {}\n", list.size(), g.name);
+  return 0;
+}
+int Cli::install_builds(const Args &args, const meta::Game &g, const std::string &which) {
+  const auto home = account_key_;
+  auto restore = [&] {
+    if (!home.empty() && account_key_ != home)
+      action([&] { switch_account(home); });
+  };
+  std::vector<meta::Build> chosen;
+  size_t queued = 0;
+  std::vector<std::string> failed;
+  try {
+    auto list = owner_builds(args, g);
+    if (which == "all")
+      chosen = list;
+    else {
+      for (auto &b : list)
+        if (b.binary_id == which || b.version == which)
+          chosen.push_back(b);
+      if (chosen.empty())
+        throw std::runtime_error(std::format("{} has no version {}. See riftlift-cli builds \"{}\".", g.name, which, g.name));
+      if (chosen.size() > 1)
+        throw std::runtime_error(std::format("{} has {} builds of version {}; pass the binary id instead (riftlift-cli builds).",
+                                             g.name, chosen.size(), which));
+    }
+    auto entry = game(g.id);
+    if (!entry)
+      throw std::runtime_error(std::format("{} is not in the Meta library.", g.name));
+    const auto to = args.value("--to");
+    queued = install_versions(*entry, chosen, to ? fs::absolute(paths::from_utf8(*to)).lexically_normal() : fs::path{});
+    if (!json_ && queued < chosen.size())
+      std::cout << std::format("{} of {} versions are installed already.\n", chosen.size() - queued, chosen.size());
+    for (auto &b : chosen) {
+      if (installed_build(g.id, b.binary_id))
+        continue;  // here already, nothing queued
+      // A version that fails doesn't stop the others.
+      try {
+        follow(g.id, "Downloading " + b.version + " of", b.binary_id);
+      } catch (const Interrupted &) {
+        throw;
+      } catch (const std::exception &e) {
+        failed.push_back(std::format("{}: {}", b.label(), e.what()));
+      }
+    }
+    wait_scan();
+    rescan();
+    wait_scan();
+  } catch (...) {
+    restore();
+    throw;
+  }
+  restore();
+  if (json_)
+    return print(Json{{"queued", queued}, {"failed", failed}}), failed.empty() ? 0 : 1;
+  std::cout << std::format("Installed {} of {} versions of {}.\n", queued - std::min(queued, failed.size()), queued, g.name);
+  for (auto &f : failed)
+    std::cerr << "  " << f << "\n";
+  return failed.empty() ? 0 : 1;
+}
 int Cli::uninstall_game(const Args &args) {
   wait_scan();
   auto g = resolve_game(args.word(1, "game"));
@@ -1215,6 +1326,7 @@ int Cli::run(const Args &args) {
   if (cmd == "library") return library_list(args);
   if (cmd == "info") return info(args);
   if (cmd == "install") return install_game(args);
+  if (cmd == "builds") return list_builds(args);
   if (cmd == "uninstall") return uninstall_game(args);
   if (cmd == "play") return play_game(args);
   if (cmd == "logs") return logs(args);
@@ -1229,7 +1341,7 @@ int Cli::run(const Args &args) {
 
 // Commands that read Meta's library start its refresh with the core.
 bool needs_library(std::string_view cmd) {
-  return cmd == "library" || cmd == "info" || cmd == "install" || cmd == "add";
+  return cmd == "library" || cmd == "info" || cmd == "install" || cmd == "add" || cmd == "builds";
 }
 } // namespace
 

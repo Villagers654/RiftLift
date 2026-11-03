@@ -15,7 +15,8 @@
 namespace riftlift::download {
 namespace {
 bool same(const Job &a, const Job &b) {
-  return a.app_id == b.app_id && a.account == b.account;
+  return a.app_id == b.app_id && a.account == b.account && a.pinned == b.pinned &&
+         (!a.pinned || a.binary_id == b.binary_id);
 }
 // Marks a folder RiftLift is downloading into until manifest.json is written.
 constexpr const char *kMarker = ".riftlift-download";
@@ -49,7 +50,7 @@ const char *label(State s) {
 }
 std::optional<Job> base_job(const std::vector<Job> &jobs, std::string_view app) {
   for (const auto &job : jobs)
-    if (job.app_id == app)
+    if (job.app_id == app && !job.pinned)
       return job;
   return std::nullopt;
 }
@@ -110,6 +111,9 @@ Manager::Manager(fs::path data, std::function<void()> wake, Services services, b
         e->job.package = str(j, "package");
         if (!e->job.package.empty() && !rift::valid_slug(e->job.package))
           continue;
+        e->job.pinned = field(j, "pinned") == true;
+        if (e->job.pinned && (!digits(e->job.binary_id) || e->job.package.empty()))
+          continue;
         e->job.account = str(j, "account");
         if (!e->job.account.empty() && !meta::valid_account_key(e->job.account))
           continue;
@@ -148,7 +152,8 @@ void Manager::save_locked() {
                    {"account", e->job.account},
                    {"root", paths::utf8(e->job.root)},
                    {"binaryId", e->job.binary_id},
-                   {"package", e->job.package}});
+                   {"package", e->job.package},
+                   {"pinned", e->job.pinned}});
   try {
     paths::atomic_write(file_, Json{{"version", 3}, {"jobs", j}}.dump(2));
   } catch (...) {
@@ -168,15 +173,37 @@ std::string Manager::active_key() const {
 }
 void Manager::enqueue(std::string app, std::string name, fs::path root,
                       std::string token, std::string account) {
-  if (!meta::valid_account_key(account))
+  Job job;
+  job.app_id = std::move(app);
+  job.name = std::move(name);
+  job.root = std::move(root);
+  job.account = std::move(account);
+  enqueue_job(std::move(job), std::move(token));
+}
+void Manager::enqueue_version(std::string app, std::string binary_id, std::string package, std::string name,
+                              fs::path root, std::string token, std::string account) {
+  if (!digits(binary_id) || !rift::valid_slug(package))
+    throw std::runtime_error("Invalid version to download.");
+  Job job;
+  job.app_id = std::move(app);
+  job.binary_id = std::move(binary_id);
+  job.package = std::move(package);
+  job.name = std::move(name);
+  job.root = std::move(root);
+  job.account = std::move(account);
+  job.pinned = true;
+  enqueue_job(std::move(job), std::move(token));
+}
+void Manager::enqueue_job(Job job, std::string token) {
+  if (!meta::valid_account_key(job.account))
     throw std::runtime_error("Select a signed-in account before downloading.");
   if (token.empty())
     throw std::runtime_error("Sign in before resuming downloads.");
-  if (!digits(app, 5) || !root.is_absolute())
+  if (!digits(job.app_id, 5) || !job.root.is_absolute())
     throw std::runtime_error("Invalid download destination.");
   std::lock_guard lock(mutex_);
   for (auto &e : jobs_)
-    if (e->job.app_id == app && e->job.account == account) {
+    if (same(e->job, job)) {
       if (e->removed)
         throw std::runtime_error(
             "The cancelled download is still stopping. Try again shortly.");
@@ -188,8 +215,8 @@ void Manager::enqueue(std::string app, std::string name, fs::path root,
       e->job.error.clear();
       e->job.done = e->job.total = 0;
       e->job.bytes_per_second = 0;
-      e->job.root = std::move(root);
-      e->job.name = std::move(name);
+      e->job.root = std::move(job.root);
+      e->job.name = std::move(job.name);
       e->token = std::move(token);
       e->cancel = std::stop_source{};
       save_locked();
@@ -198,10 +225,7 @@ void Manager::enqueue(std::string app, std::string name, fs::path root,
       return;
     }
   auto e = std::make_shared<Entry>();
-  e->job.app_id = std::move(app);
-  e->job.name = std::move(name);
-  e->job.root = std::move(root);
-  e->job.account = std::move(account);
+  e->job = std::move(job);
   e->job.generation = next_generation_++;
   e->job.state = State::queued;
   e->token = std::move(token);
@@ -213,7 +237,7 @@ void Manager::enqueue(std::string app, std::string name, fs::path root,
 void Manager::cancel(std::string_view app) {
   std::lock_guard lock(mutex_);
   for (auto &e : jobs_)
-    if (e->job.app_id == app && visible(e->job)) {
+    if (e->job.app_id == app && !e->job.pinned && visible(e->job)) {
       e->cancel.request_stop();
       if (e->job.state == State::queued) {
         e->job.state = State::paused;
@@ -299,7 +323,10 @@ void Manager::move(const Job &job, int step) {
   wake_();
 }
 void Manager::resume(const Job &job, std::string token) {
-  enqueue(job.app_id, job.name, job.root, std::move(token));
+  if (job.pinned)
+    enqueue_version(job.app_id, job.binary_id, job.package, job.name, job.root, std::move(token), active_key());
+  else
+    enqueue(job.app_id, job.name, job.root, std::move(token));
 }
 void Manager::cancel_all() {
   std::lock_guard lock(mutex_);
@@ -372,6 +399,8 @@ void Manager::install(Entry &e, meta::Store &store, std::stop_token stop) {
     plan.package = e.job.package;
     if (e.job.name.empty())
       e.job.name = plan.name;
+    if (e.job.pinned)
+      plan.name = e.job.name;  // "Lone Echo (3.17.4)"
     save_locked();
   }
   // Updating an installed game rebuilds it where it is.
@@ -578,7 +607,7 @@ void Manager::install(Entry &e, meta::Store &store, std::stop_token stop) {
   std::error_code ec;
   fs::remove(dir / kMarker, ec);
   if (services_.installed)
-    services_.installed({plan, dir});
+    services_.installed({plan, dir, e.job.pinned});
   // The build is assembled; its segments only took space.
   for (const auto &[sha, size] : segments)
     fs::remove(segments_ / sha, ec);

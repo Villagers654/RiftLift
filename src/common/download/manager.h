@@ -13,18 +13,22 @@ struct Job {
   uint64_t done = 0, total = 0;
   double bytes_per_second = 0;
   std::string binary_id;  // empty: the newest build
+  // A version chosen by hand: binary_id into its own folder (package), kept
+  // beside the game's other versions; one job per version.
+  bool pinned = false;
   std::string account;
   std::string package;    // the game's slug once known
   // "Downloading" fetches segments; "Assembling files" rebuilds and checks them.
   std::string phase;
   std::uint64_t generation = 1;
 };
-// The job of an app in a snapshot.
+// The job of an app in a snapshot (not one of its chosen versions).
 std::optional<Job> base_job(const std::vector<Job> &jobs, std::string_view app);
 // How a finished Rift build becomes a game record.
 struct Installed {
   meta::Plan plan;
   fs::path directory;
+  bool pinned = false;
 };
 class Manager {
 public:
@@ -45,6 +49,9 @@ public:
                std::string token);
   void enqueue(std::string app, std::string name, fs::path root,
                std::string token, std::string account);
+  // One chosen version (`binary_id`) of a game into root/package, named `name`.
+  void enqueue_version(std::string app, std::string binary_id, std::string package, std::string name,
+                       fs::path root, std::string token, std::string account);
   void cancel(std::string_view app);
   // Drops a job from the queue, stopping it first. With `discard`, the files
   // of a game that never finished installing are deleted too.
@@ -75,6 +82,7 @@ private:
     // Set by remove(); a running job leaves when its worker releases it.
     bool removed = false, discard = false;
   };
+  void enqueue_job(Job job, std::string token);
   mutable std::mutex mutex_;
   std::condition_variable_any cv_;
   std::vector<std::shared_ptr<Entry>> jobs_;

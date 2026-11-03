@@ -39,6 +39,8 @@ You need a headset that already works with SteamVR or another OpenXR runtime, an
 
 **Launch settings** on a game's page hold its launch options, Wine DLL overrides and environment variables. A game that checks its owner asks Meta while it runs, as the account it launched with, so sign in with the account that owns it.
 
+To keep an older build, or a beta beside the release, choose **… → Install another version…** on the game's page. Each version installs as its own game, so you can keep any or all of them.
+
 Updating from the older Python-based RiftLift keeps your games, sign-ins, playtime and launch settings.
 
 ### Games from somewhere else
@@ -53,7 +55,7 @@ The **Add Game** page adds games that aren't in your Meta PC library:
 
 ### Command line
 
-`riftlift-cli` does what the window does: `library`, `install`, `play`, `add` (an `.exe`, `--steam` games or a store link), `configure`, `accounts`, `downloads` and more. Run `riftlift-cli --help` for everything; in the AppImage, run `RiftLift-…AppImage cli --help`.
+`riftlift-cli` does what the window does: `library`, `install`, `play`, `add` (an `.exe`, `--steam` games or a store link), `configure`, `accounts`, `downloads` and more. `riftlift-cli builds GAME` lists a game's versions and `install GAME --build VERSION` (or `--build all`) installs them. Run `riftlift-cli --help` for everything; in the AppImage, run `RiftLift-…AppImage cli --help`.
 
 ### Something wrong?
 

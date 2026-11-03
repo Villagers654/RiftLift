@@ -461,6 +461,19 @@ int App::run() {
       const auto visible = visible_games();
       const auto g = std::ranges::find(visible, options_.smoke_select, &meta::Game::id);
       if (v == "uninstall" && installed(g->id, false)) uninstall_target_ = *installed(g->id, false);
+      // The version picker with example builds (nothing is fetched or downloaded).
+      if (v == "versions" && g != visible.end()) {
+        builds_[options_.smoke_select] = {{"9000000000000003", "3.18.0-beta", "3180", {}, {"BETA"}, false},
+                                          {"9000000000000002", "3.17.4", "3174", {}, {"LIVE"}, true},
+                                          {"9000000000000001", "3.16.0", "3160", {}, {"LIVE"}, true}};
+        install_choices_.clear();
+        for (auto& location : launcher::install_locations(settings_, launcher::local_volumes()))
+          install_choices_.emplace_back(location, launcher::free_space(location.folder));
+        install_choice_ = 0;
+        version_choice_ = -1;
+        install_versions_ = true;
+        install_ask_ = {options_.smoke_select, g->name};
+      }
       if (v == "cancel-download")
         cancel_target_ = download::Job{.app_id = g->id, .name = g->name, .done = 1ull << 30, .total = 3ull << 30};
       if (v == "remove-account" && !accounts_.empty()) remove_account_ = accounts_.front().key;

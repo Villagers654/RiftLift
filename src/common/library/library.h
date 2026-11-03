@@ -29,7 +29,13 @@ void save(const fs::path &file, const std::vector<meta::Game> &games);
 // Writes (or updates) the record of a store build just assembled in
 // `directory`: its launch executable and arguments, keeping the user's own
 // launch settings from an earlier record.
-rift::Game record_install(const fs::path &data, const meta::Plan &plan, const fs::path &directory);
+// `pinned`: a version chosen by hand, kept beside the game's other versions.
+rift::Game record_install(const fs::path &data, const meta::Plan &plan, const fs::path &directory,
+                          bool pinned = false);
+// The library id of a chosen version ("<app id>@<binary id>"), and the app id
+// of a library id (the id itself for anything else).
+std::string version_id(std::string_view app_id, std::string_view binary_id);
+std::string_view base_app(std::string_view id);
 // Removes the game's record; a store install's files go too, never a local or
 // Steam game's.
 void uninstall(const fs::path &data, const Install &install);

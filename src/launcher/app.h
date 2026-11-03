@@ -31,6 +31,9 @@ private:
   std::vector<std::pair<launcher::InstallLocation, uint64_t>> install_choices_;
   int install_choice_ = 0;
   bool install_steam_ = true, install_remember_ = false;
+  // The install dialog chooses a version (or every one) to install beside the others.
+  bool install_versions_ = false;
+  int version_choice_ = 0;
   std::string direct_app_;
   bool direct_started_ = false;
   std::string backdrop_; // game whose ambient art tints the game page
@@ -127,6 +130,7 @@ private:
   // The Install button: a new game asks where it goes and about Steam first,
   // unless installs do not ask or there is nothing to choose.
   void request_install(const meta::Game &game);
+  void request_versions(const meta::Game &game);
   void draw_owner(const meta::Game &game, bool installed, float width);
   void smoke_install();
   // Settings' text fields applied (launcher::Core::apply_settings).

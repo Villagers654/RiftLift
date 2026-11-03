@@ -11,7 +11,7 @@ const std::vector<std::string> &known_fields() {
       "executable",  "arguments",     "version",        "binary_id",    "version_code",
       "platform_shim", "platform_offline", "store_url", "description", "description_lang",
       "developer",   "publisher",     "genres",         "artwork",      "steam_app_id",
-      "source",      "launch_options", "dll_overrides", "environment"};
+      "source",      "launch_options", "dll_overrides", "environment", "pinned"};
   return names;
 }
 std::vector<std::string> strings(const Json &j, std::string_view key) {
@@ -120,6 +120,8 @@ Json Game::json() const {
     j["version_code"] = version_code;
   j["platform_shim"] = platform_shim;
   j["platform_offline"] = platform_offline;
+  if (pinned)
+    j["pinned"] = true;
   j["store_url"] = store_url;
   j["description"] = description;
   j["description_lang"] = description_lang;
@@ -151,6 +153,7 @@ Game Game::parse(const Json &j) {
   g.version_code = str(j, "version_code");
   g.platform_shim = flag(j, "platform_shim", true);
   g.platform_offline = flag(j, "platform_offline", false);
+  g.pinned = flag(j, "pinned", false);
   g.store_url = text(j, "store_url");
   g.description = text(j, "description");
   g.description_lang = text(j, "description_lang");

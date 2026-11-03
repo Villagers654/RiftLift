@@ -17,6 +17,9 @@ struct Game {
   std::string version;
   // The Meta build installed (store installs only; absent in older records).
   std::string binary_id, version_code;
+  // A version chosen by hand, installed beside the game's other versions: it
+  // keeps that build and is its own library entry.
+  bool pinned = false;
   bool platform_shim = true, platform_offline = false;
   std::string store_url, description, description_lang, developer, publisher;
   std::vector<std::string> genres;

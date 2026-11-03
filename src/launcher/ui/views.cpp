@@ -176,6 +176,9 @@ void empty_state(char32_t glyph, std::string_view headline, std::string_view sub
 
 // Settings-style row inside a card: a one-line title left, centred on the
 // control right-aligned. The description shows when the title is hovered.
+// Where the last settings row ended, padding included: a dialog footer right
+// below one adds no gap of its own.
+float g_row_end = -1;
 template <class Control>
 void setting_row(std::string_view title_text, float control_w, float control_h,
                  Control control) {
@@ -194,6 +197,7 @@ void setting_row(std::string_view title_text, float control_w, float control_h,
   ImGui::EndGroup();
   ImGui::SetCursorPos({start.x, start.y + pad + row_h + pad - spacing});
   ImGui::Dummy({0, 0});
+  g_row_end = ImGui::GetCursorScreenPos().y;
 }
 
 // Store descriptions, parsed once per text.
@@ -243,7 +247,7 @@ struct DialogButton {
 // the buttons at the right, the main one last. Returns the button clicked, or -1.
 int dialog_footer(std::initializer_list<DialogButton> buttons, const std::function<void(float)>& extra = {}) {
   const float h = s(38);
-  gap(22);
+  if (std::abs(ImGui::GetCursorScreenPos().y - g_row_end) > 0.5f) gap(22);
   const float y = ImGui::GetCursorScreenPos().y, x = ImGui::GetWindowPos().x;
   hline(ImGui::GetWindowDrawList(), x, x + ImGui::GetWindowWidth(), y);
   ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, y + s(20)});
@@ -1079,12 +1083,16 @@ void App::draw_game_page() {
     bool active_owns = std::ranges::find(owners, account_key_) != owners.end();
     // Files and the overflow menu sit beside the primary button (not mid-download).
     bool tools = partial && !downloading;
+    // Any version of a Meta game (not one already chosen) can be installed beside the others.
+    const bool versions = digits(g.id, 5) && !options_.offline && !owners.empty() && !downloading;
     ImVec2 cta{inner - (tools ? s(52) * 2 : 0), s(46)}, more{};
     auto draw_tools = [&] {
-      if (!tools) return;
-      ImGui::SameLine(0, s(6));
-      if (icon_button("folder", icons::folder, 46, true, true))
-        action([&] { open_folder(partial->directory); });
+      if (!tools && !versions) return;
+      if (tools) {
+        ImGui::SameLine(0, s(6));
+        if (icon_button("folder", icons::folder, 46, true, true))
+          action([&] { open_folder(partial->directory); });
+      }
       ImGui::SameLine(0, s(6));
       more = ImGui::GetCursorScreenPos();
       // --smoke-view menu opens it once for screenshots.
@@ -1174,23 +1182,29 @@ void App::draw_game_page() {
     }
     if (!stacked && ImGui::GetCursorScreenPos().y < bottom)
       ImGui::Dummy({0, bottom - ImGui::GetCursorScreenPos().y - ImGui::GetStyle().ItemSpacing.y});
-    if (tools) {
+    if (tools || versions) {
       ImGui::SetNextWindowPos({more.x + s(46), more.y + s(52)}, ImGuiCond_Appearing, {1, 0});
       if (begin_menu("game-menu")) {
-        if (!partial->plan.local &&
+        // A chosen version stays on its build.
+        if (tools && !partial->plan.local && !partial->game.pinned &&
             menu_item("Check for updates", icons::refresh, false, session_ && !options_.offline)) {
           details_.erase(g.id);
           select(g.id);
         }
-        if (steam_sync_allowed_ && settings_.add_games_to_steam) {
-          bool in = in_steam(g.id);
-          if (menu_item(in ? "Remove from Steam" : "Add to Steam", 0, false, true))
-            action([&] { set_in_steam(g.id, !in); });
+        if (versions && menu_item(partial ? "Install another version\xE2\x80\xA6" : "Install a version\xE2\x80\xA6",
+                                  icons::download, false, true))
+          action([&] { request_versions(g); });
+        if (tools) {
+          if (steam_sync_allowed_ && settings_.add_games_to_steam) {
+            bool in = in_steam(g.id);
+            if (menu_item(in ? "Remove from Steam" : "Add to Steam", 0, false, true))
+              action([&] { set_in_steam(g.id, !in); });
+          }
+          if (menu_item("Launch settings", icons::settings, false, true)) game_tab_ = 1;
+          if (menu_item(partial->plan.local ? "Remove from RiftLift" : "Uninstall", icons::trash, true,
+                        !running && !downloads_->busy()))
+            uninstall_target_ = *partial;
         }
-        if (menu_item("Launch settings", icons::settings, false, true)) game_tab_ = 1;
-        if (menu_item(partial->plan.local ? "Remove from RiftLift" : "Uninstall", icons::trash, true,
-                      !running && !downloads_->busy()))
-          uninstall_target_ = *partial;
         end_menu();
       }
     }
@@ -2127,6 +2141,17 @@ void App::request_install(const meta::Game& g) {
   install_choice_ = 0;
   install_steam_ = in_steam(g.id) && settings_.steam_add_new;
   install_remember_ = false;
+  install_versions_ = false;
+  install_ask_ = {g.id, g.name};
+}
+void App::request_versions(const meta::Game& g) {
+  request_builds(g.id);
+  install_choices_.clear();
+  for (auto& location : launcher::install_locations(settings_, launcher::local_volumes()))
+    install_choices_.emplace_back(location, launcher::free_space(location.folder));
+  install_choice_ = 0;
+  version_choice_ = -1;
+  install_versions_ = true;
   install_ask_ = {g.id, g.name};
 }
 
@@ -2139,7 +2164,7 @@ void App::draw_install_ask() {
     const float w = s(424);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const auto detail = details_.find(id);
-    const uint64_t size = detail != details_.end() ? detail->second.size : 0;
+    const uint64_t size = detail != details_.end() && !install_versions_ ? detail->second.size : 0;
 
     // The game: a small cover beside its name and download size.
     {
@@ -2156,6 +2181,41 @@ void App::draw_install_ask() {
       ImGui::Dummy({w, 0});
     }
     gap(14);
+
+    // Which version: each build Meta lists (the full history), or all of them.
+    const auto versions = builds_.find(id);
+    const bool versions_ready = !install_versions_ || versions != builds_.end();
+    if (install_versions_) {
+      const float dw = w - s(130);
+      divider();
+      setting_row("Version", dw, s(38), [&] {
+        if (versions != builds_.end()) {
+          std::vector<std::string> labels;
+          const auto& list = versions->second;
+          const auto plain = std::ranges::find_if(list, &meta::Build::offered);
+          for (auto& b : list) {
+            std::string label = b.label();
+            if (&b == &*plain) label += "  \xC2\xB7  " + std::string(i18n::tr("latest"));
+            else if (!b.offered && !b.channels.empty()) label += "  \xC2\xB7  " + lowercase(b.channels.front());
+            if (installed_build(id, b.binary_id)) label += "  \xC2\xB7  " + std::string(i18n::tr("installed"));
+            labels.push_back(std::move(label));
+          }
+          labels.push_back(trf("All versions ({})", list.size()));
+          std::vector<const char*> items;
+          for (auto& label : labels) items.push_back(label.c_str());
+          // It starts on the build a plain install gets.
+          if (version_choice_ < 0) version_choice_ = plain == list.end() ? 0 : int(plain - list.begin());
+          version_choice_ = std::clamp(version_choice_, 0, int(items.size()) - 1);
+          dropdown("version", "", items.data(), int(items.size()), &version_choice_, dw);
+        } else if (auto e = builds_error_.find(id); e != builds_error_.end()) {
+          text(fonts().regular, kSmall, color::danger, e->second, false);
+        } else {
+          ImVec2 at = ImGui::GetCursorScreenPos();
+          ImGui::SetCursorScreenPos({at.x + dw - s(18), at.y + s(12)});
+          spinner(7, color::text2);
+        }
+      });
+    }
 
     // Where it goes (each library folder, or a new one on another drive) and Steam.
     bool fits = true;
@@ -2183,19 +2243,37 @@ void App::draw_install_ask() {
                   });
       if (!fits) text(fonts().regular, kSmall, color::danger, trf("Not enough space: the game needs {}.", bytes(size)), false);
     }
-    if (settings_.add_games_to_steam && (steam_sync_allowed_ || options_.smoke_view == "install")) {
+    if (!install_versions_ && settings_.add_games_to_steam && (steam_sync_allowed_ || options_.smoke_view == "install")) {
       divider();
       setting_row("Add to Steam", s(44), s(24),
                   [&] { toggle("steam-add", &install_steam_); });
     }
 
     // A quiet "don't ask again" at the left of the buttons.
-    const int clicked = dialog_footer({{"Cancel"}, {"Install", Tone::primary, fits, icons::download}}, [&](float h) {
+    const int clicked = dialog_footer({{"Cancel"}, {"Install", Tone::primary, fits && versions_ready, icons::download}},
+                                      [&](float h) {
+      if (install_versions_) return;
       const ImVec2 row = ImGui::GetCursorScreenPos();
       ImGui::SetCursorScreenPos({row.x, row.y + (h - s(16)) * 0.5f});
       checkbox("install-remember", "Don't ask again", &install_remember_, {}, true);
     });
-    if (clicked == 1) {
+    if (clicked == 1 && install_versions_ && versions != builds_.end()) {
+      const auto folder = install_choices_.empty() ? settings_.games : install_choices_[install_choice_].first.folder;
+      const auto& list = versions->second;
+      std::vector<meta::Build> chosen;
+      if (version_choice_ >= int(list.size())) chosen = list;
+      else chosen.push_back(list[size_t(version_choice_)]);
+      action([&, id, folder, chosen] {
+        const auto* g = game(id);
+        if (!g) throw std::runtime_error("This game is no longer in your library.");
+        const auto copy = *g;
+        const auto queued = install_versions(copy, chosen, folder);
+        if (queued > 1) notice_ = trf("{} versions are downloading.", queued);
+        else if (queued) notice_ = i18n::tr("The version is downloading.");
+        else if (chosen.size() == 1) notice_ = i18n::tr("That version is installed already.");
+        else notice_ = i18n::tr("Every version is installed already.");
+      });
+    } else if (clicked == 1) {
       const auto folder = install_choices_.empty() ? settings_.games : install_choices_[install_choice_].first.folder;
       action([&, id, folder, add = install_steam_, remember = install_remember_] {
         const auto* g = game(id);

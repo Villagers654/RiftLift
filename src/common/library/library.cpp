@@ -17,6 +17,9 @@ Install from_record(const rift::Game &game) {
   p.local = game.source != "meta";
   // Local and Steam games have no Meta listing: their slug is their key.
   p.app_id = !p.local && digits(game.app_id, 5) ? game.app_id : game.slug;
+  // A chosen version is an entry of its own beside the game's.
+  if (!p.local && game.pinned && digits(game.binary_id))
+    p.app_id = version_id(game.app_id, game.binary_id);
   p.binary_id = game.binary_id;
   p.package = game.slug;
   p.name = game.name;
@@ -147,7 +150,11 @@ void save(const fs::path &file, const std::vector<meta::Game> &games) {
       Json{{"version", 1}, {"savedAt", paths::timestamp()}, {"games", rows}}
           .dump(2));
 }
-rift::Game record_install(const fs::path &data, const meta::Plan &plan, const fs::path &directory) {
+std::string version_id(std::string_view app_id, std::string_view binary_id) {
+  return std::string(app_id) + "@" + std::string(binary_id);
+}
+std::string_view base_app(std::string_view id) { return id.substr(0, id.find('@')); }
+rift::Game record_install(const fs::path &data, const meta::Plan &plan, const fs::path &directory, bool pinned) {
   rift::Game g;
   try {
     g = rift::load(data, plan.package);
@@ -165,6 +172,7 @@ rift::Game record_install(const fs::path &data, const meta::Plan &plan, const fs
   g.binary_id = plan.binary_id;
   g.version_code = plan.version_code;
   g.source = "meta";
+  g.pinned = pinned;
   // Meta's own platform calls are answered locally (the shim), as before.
   g.platform_shim = true;
   g.platform_offline = true;

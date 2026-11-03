@@ -55,7 +55,19 @@ public:
 };
 struct Build {
   std::string binary_id, version, version_code, change_log;
+  // The release channels it was published to (from the build history), and
+  // whether Meta offers it to this account by default (supportedBinaries).
+  std::vector<std::string> channels;
+  bool offered = true;
+  // "34.4.631547.1 (2202)"
+  std::string label() const;
 };
+// The published PC builds in Meta's app-history response; builds on no
+// release channel are internal uploads the CDN refuses.
+std::vector<Build> parse_history(const Json &response);
+// Both lists by binary id, newest version code first; supportedBinaries'
+// builds are the offered ones and keep their change logs.
+std::vector<Build> merge_builds(std::vector<Build> offered, const std::vector<Build> &history);
 struct Details {
   Game game;
   std::string live_id, version, version_code;
@@ -83,12 +95,17 @@ public:
   // The landscape cover from the public store page. Graph only offers the
   // wide hero banner and the square icon.
   std::string cover(std::string_view id) const;
-  // Rift (PCBinary) builds, newest first, and the app's display name.
+  // Rift (PCBinary) builds Meta offers this account, newest first, and the
+  // app's display name. supportedBinaries holds the newest 20 builds.
   std::vector<Build> builds(std::string_view id, std::string *name = nullptr) const;
+  // Every build this account can download, newest first: the offered ones and
+  // the app's full published history (best effort, as OculusDB shows it).
+  std::vector<Build> all_builds(std::string_view id, std::string *name = nullptr) const;
   // One app as this account sees it: the app alone, owned, when it is in the
   // account's library; no games when it is not.
   Snapshot owned_listing(std::string_view id) const;
-  // The newest build (or `binary_id`) with its file list, from Meta's manifest.
+  // The newest offered build (or `binary_id`, from any published channel)
+  // with its file list, from Meta's manifest.
   Plan owned_plan(std::string_view id, std::string_view binary_id = {}) const;
   // The raw manifest.json of a build.
   Json manifest(std::string_view binary_id) const;

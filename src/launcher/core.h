@@ -183,6 +183,18 @@ protected:
   // The Install button: downloads belong to the active account, so a game
   // that only another signed-in account owns switches to that account first.
   void install_for_owner(const meta::Game &game, const fs::path &root = {});
+  // Every build a game's owner can download (all_builds), fetched on request.
+  std::map<std::string, std::vector<meta::Build>> builds_;
+  std::map<std::string, std::string> builds_error_;
+  std::set<std::string> builds_pending_;
+  void request_builds(const std::string &id);
+  // Chosen versions, each into its own folder beside the game's other
+  // versions; builds already installed are left alone. Returns how many queued.
+  size_t install_versions(const meta::Game &game, const std::vector<meta::Build> &chosen, const fs::path &root = {});
+  // The installation of exactly this build of a game, plain or chosen.
+  const library::Install *installed_build(std::string_view app_id, std::string_view binary_id) const;
+  // A folder and record name for a chosen version no other build uses.
+  std::string version_slug(const meta::Game &game, const meta::Build &build, const fs::path &root) const;
   // The library folder an installed game is in.
   static fs::path root_of(const library::Install &install) {
     return install.directory.parent_path();

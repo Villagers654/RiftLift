@@ -10,6 +10,7 @@
 #include "common/rift/local_games.h"
 #include "launcher/i18n.h"
 #include <chrono>
+#include <fstream>
 
 namespace riftlift::launcher {
 namespace {
@@ -155,7 +156,7 @@ void Core::start(bool refresh_library) {
   download::Manager::Services services;
   // A finished build becomes (or updates) the game's record.
   services.installed = [data = data_](const download::Installed &done) {
-    library::record_install(data, done.plan, done.directory);
+    library::record_install(data, done.plan, done.directory, done.pinned);
   };
   // One process at a time keeps the persistent download queue: a second
   // launcher or the command line beside an open launcher would download the
@@ -404,7 +405,8 @@ void Core::fill_metadata() {
   });
 }
 std::vector<std::string> Core::game_owners(std::string_view app_id) const {
-  return library::owning_accounts(games_, account_index_, app_id);
+  // A chosen version belongs to whoever owns the game.
+  return library::owning_accounts(games_, account_index_, library::base_app(app_id));
 }
 library::LaunchChoice Core::launch_choice(std::string_view app_id,
                                          std::string_view account) const {
@@ -515,13 +517,21 @@ std::vector<meta::Game> Core::visible_games() const {
         out.push_back(*old);
         out.back().owned = false;
       } else {
-        // The record's own name until a store listing arrives.
+        // The record's own name until a store listing arrives; a chosen
+        // version shows its game's artwork and details.
         meta::Game g;
+        if (auto base = library::base_app(i.plan.app_id); base != i.plan.app_id)
+          if (auto it = std::ranges::find(games_, base, &meta::Game::id); it != games_.end()) {
+            g = *it;
+            g.owned = false;
+          }
         g.id = i.plan.app_id;
         g.name = i.label.empty() ? i.plan.package : i.label;
         g.package = i.plan.package;
-        g.description = i.game.description;
-        g.publisher = i.game.publisher.empty() ? i.game.developer : i.game.publisher;
+        if (!i.game.description.empty())
+          g.description = i.game.description;
+        if (!i.game.publisher.empty() || !i.game.developer.empty())
+          g.publisher = i.game.publisher.empty() ? i.game.developer : i.game.publisher;
         g.platform = i.game.source == "steam" ? "STEAM" : i.game.source == "local" ? "LOCAL" : "PC";
         out.push_back(g);
       }
@@ -824,6 +834,98 @@ void Core::install_for_owner(const meta::Game &g, const fs::path &root) {
     switch_account(owner);
   }
   install(game_copy, root);
+}
+void Core::request_builds(const std::string &id) {
+  if (!session_ || options_.offline || !digits(id, 5) || builds_pending_.contains(id))
+    return;
+  builds_pending_.insert(id);
+  builds_error_.erase(id);
+  auto token = session_->access_token;
+  auto epoch = epoch_;
+  worker_->submit([this, token, epoch, id](std::stop_token stop) -> Worker::Completion {
+    std::vector<meta::Build> list;
+    std::string failure;
+    try {
+      list = meta::Store(token, stop).all_builds(id);
+    } catch (...) {
+      failure = exception_text();
+    }
+    return [this, epoch, id, list = std::move(list), failure] {
+      builds_pending_.erase(id);
+      if (epoch != epoch_)
+        return;
+      if (failure.empty())
+        builds_[id] = list;
+      else
+        builds_error_[id] = failure;
+    };
+  });
+}
+const library::Install *Core::installed_build(std::string_view app_id, std::string_view binary_id) const {
+  for (const auto &i : installs_)
+    if (i.game.source == "meta" && i.game.app_id == app_id && i.game.binary_id == binary_id)
+      return &i;
+  return nullptr;
+}
+std::string Core::version_slug(const meta::Game &g, const meta::Build &b, const fs::path &root) const {
+  const auto base = rift::slugify(g.package.empty() ? g.name : g.package);
+  const auto jobs = downloads_->snapshot();
+  // Free when no other build's record, download or folder has the name.
+  auto free = [&](const std::string &slug) {
+    if (!rift::valid_slug(slug))
+      return false;
+    if (auto i = installed_package(slug); i && i->game.binary_id != b.binary_id)
+      return false;
+    if (std::ranges::any_of(jobs, [&](const download::Job &j) { return j.package == slug && j.binary_id != b.binary_id; }))
+      return false;
+    std::error_code ec;
+    auto dir = root / paths::from_utf8(slug);
+    if (!fs::exists(dir, ec) || fs::is_empty(dir, ec))
+      return true;
+    // A paused download of this build claimed it.
+    std::ifstream marker(paths::io_path(dir / ".riftlift-download"));
+    std::string claimed;
+    return marker && std::getline(marker, claimed) && claimed == b.binary_id;
+  };
+  for (auto slug : {base + "-" + rift::slugify(b.version), base + "-" + rift::slugify(b.version + " " + b.version_code),
+                    base + "-" + b.binary_id})
+    if (free(slug))
+      return slug;
+  throw std::runtime_error("No free folder name for version " + b.label() + ".");
+}
+size_t Core::install_versions(const meta::Game &g, const std::vector<meta::Build> &chosen, const fs::path &root) {
+  if (options_.offline)
+    throw std::runtime_error("Downloads are unavailable in offline mode.");
+  const auto owner = owner_for(g.id);
+  if (!owner.empty() && owner != account_key_) {
+    auto other = account(owner);
+    if (!other || !other->signed_in || other->needs_reauth)
+      throw std::runtime_error("Reconnect the owning account before installing.");
+    switch_account(owner);
+  }
+  if (!session_)
+    throw std::runtime_error("Sign in to install this game.");
+  auto target = root.empty() ? settings_.games : root.lexically_normal();
+  if (!target.is_absolute())
+    throw std::runtime_error("Choose an absolute folder to install to.");
+  if (!std::ranges::contains(settings_.roots(), target)) {
+    fs::create_directories(target);
+    auto next = settings_;
+    next.libraries.push_back(target);
+    apply_settings(std::move(next), false);
+  }
+  size_t queued = 0;
+  for (const auto &b : chosen) {
+    // Versions already here stay as they are, launch settings and all.
+    if (installed_build(g.id, b.binary_id))
+      continue;
+    downloads_->enqueue_version(g.id, b.binary_id, version_slug(g, b, target), g.name + " (" + b.version + ")", target,
+                                session_->access_token, account_key_);
+    ++queued;
+  }
+  if (queued)
+    on_install_queued();
+  return queued;
 }
 void Core::play(const meta::Game &g) { play_as(g.id, play_key(g.id)); }
 std::string Core::play_key(std::string_view app_id) const {
