@@ -2069,9 +2069,12 @@ void App::draw_launch_settings(const library::Install& install, float width) {
               s(38), [&] { field("##dlls", &d.dll_overrides, "version=n,b", field_w); });
   divider();
   {
-    float h = s(96);
+    // As tall as its lines (one, like the fields above, when empty), up to six.
+    const float pad = text_y(ImGui::GetFont(), kBody, 0, s(38)), line = ImGui::GetTextLineHeight();
+    const auto lines = std::clamp<std::ptrdiff_t>(std::ranges::count(d.environment, '\n') + 1, 1, 6);
+    float h = std::max(s(38), std::round(line * float(lines) + pad * 2));
     setting_row("Environment variables", field_w, h, [&] {
-      ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {s(14), s(10)});
+      ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {s(14), pad});
       ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, s(10));
       ImGui::PushStyleColor(ImGuiCol_FrameBg, color::surface_hi);
       ImGui::InputTextMultiline("##environment", &d.environment, {field_w, h});
