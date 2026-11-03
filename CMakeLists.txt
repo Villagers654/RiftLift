@@ -6,7 +6,7 @@ if(POLICY CMP0168)
   endif()
   cmake_policy(SET CMP0168 "${CMAKE_POLICY_DEFAULT_CMP0168}")
 endif()
-project(RiftLift VERSION 0.12.0 LANGUAGES C CXX)
+project(RiftLift VERSION 1.0.0 LANGUAGES C CXX)
 
 option(RIFTLIFT_BUILD_LAUNCHER "Build the launcher window (riftlift); riftlift-cli and the runtime always build" ON)
 option(RIFTLIFT_BUILD_RUNTIME "Build riftlift-runtime" ON)
