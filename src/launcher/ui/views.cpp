@@ -1269,7 +1269,7 @@ void App::draw_game_page() {
   }
   float body_w = std::min(ImGui::GetContentRegionAvail().x, avail);
   if (game_tab_ == 1 && partial)
-    draw_launch_settings(*partial, std::min(body_w, s(980)));
+    draw_launch_settings(*partial, body_w);
   else
     draw_about(g, body_w);
   gap(30);
