@@ -7,6 +7,7 @@
 #include "common/json.h"
 #include "common/log.h"
 #include "common/rift/local_games.h"
+#include "common/search.h"
 #include "launcher/i18n.h"
 
 #include <algorithm>
@@ -659,9 +660,8 @@ void App::draw_library() {
     gap(18);
   }
 
-  auto query = lowercase(search_);
   std::erase_if(all, [&](auto& g) {
-    return (!query.empty() && lowercase(g.name).find(query) == std::string::npos) ||
+    return !search::matches(search_, g.name) ||
            (installed_only_ && !installed(g.id));
   });
   std::sort(all.begin(), all.end(), [&](auto& a, auto& b) {

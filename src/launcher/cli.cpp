@@ -2,6 +2,7 @@
 // launcher::Core, the same implementation the launcher window uses, so an
 // install or launch here is exactly the one the window performs.
 #include "common/log.h"
+#include "common/search.h"
 #include "launcher/core.h"
 #include "launcher/ui/rich_text.h"
 
@@ -598,10 +599,9 @@ int Cli::library_list(const Args &args) {
   wait_library();
   auto games = visible_games();
   const bool only_installed = args.flag("--installed");
-  const auto search = lower(args.value("--search").value_or(""));
+  const auto query = args.value("--search").value_or("");
   std::erase_if(games, [&](auto &g) {
-    return (only_installed && !installed(g.id, false)) ||
-           (!search.empty() && lower(g.name).find(search) == std::string::npos);
+    return (only_installed && !installed(g.id, false)) || !search::matches(query, g.name);
   });
   std::ranges::sort(games, [](auto &a, auto &b) { return lower(a.name) < lower(b.name); });
   if (json_) {
@@ -611,7 +611,7 @@ int Cli::library_list(const Args &args) {
     return print(out), 0;
   }
   if (games.empty()) {
-    std::cout << (only_installed || !search.empty() ? "No games match.\n" : "No games yet.\n");
+    std::cout << (only_installed || !query.empty() ? "No games match.\n" : "No games yet.\n");
     return 0;
   }
   std::vector<std::vector<std::string>> rows;

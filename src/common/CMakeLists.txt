@@ -7,6 +7,7 @@ add_library(riftlift_common STATIC
   process.cpp
   steam_library.cpp
   steam_art.cpp
+  search.cpp
   ipc.cpp
   http/client.cpp
   meta/auth.cpp
