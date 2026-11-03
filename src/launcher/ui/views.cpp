@@ -1886,7 +1886,7 @@ void App::draw_add_games() {
                     choose_exe();
                 });
   }
-  ImGui::Dummy({0, 0});
+  ImGui::Dummy({0, 0});  // the last row keeps its bottom padding
   end_card();
   gap(20);
 
@@ -1937,8 +1937,11 @@ void App::draw_add_games() {
       ImGui::PopID();
     }
     if (!steam_scanning_ && steam_scanned_ && steam_games_found_.empty()) {
-      gap(8);
-      text(fonts().regular, kSmall, color::text3, "No installed Steam game uses the Oculus PC runtime.");
+      ImGui::SetCursorPosY(ImGui::GetCursorPosY() - s(4));
+      text(fonts().regular, kSmall, color::text3, "No installed Steam game uses the Oculus PC runtime.", false);
+      gap(3);
+    } else if (steam_games_found_.empty()) {
+      ImGui::Dummy({0, 0});  // the last row keeps its bottom padding
     }
   }
   end_card();
@@ -1955,11 +1958,12 @@ void App::draw_add_games() {
                                    usable && !adding_))
                     add_owned();
                 });
-    if (!usable || adding_) {
+    if (adding_) {
       ImGui::SetCursorPosY(ImGui::GetCursorPosY() - s(4));
-      if (adding_) spinner(7, color::text3);
-      else text(fonts().regular, kSmall, color::text3, "Sign in to Meta to add a game by its store link.", false);
-      gap(12);
+      spinner(7, color::text3);
+      gap(3);
+    } else {
+      ImGui::Dummy({0, 0});  // the last row keeps its bottom padding
     }
   }
   end_card();
