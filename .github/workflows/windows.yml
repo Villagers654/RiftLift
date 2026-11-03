@@ -1,45 +1,111 @@
-name: Windows installer
+# Windows build from source: the pinned llvm-mingw toolchain (scripts/bootstrap-windows.py), then the
+# windows-release preset and its tests. Releases (and CI runs that touch Windows packaging) also build the
+# native runtime bridges, make the zip and the per-user installer, and install, upgrade and uninstall it.
+# Called by ci.yml (build + tests) and release.yml (tests, zip + installer).
+#
+# Only changed work runs: the toolchain is cached by its recipe and FetchContent sources by the CMake files.
+name: Windows
 
 on:
-  workflow_dispatch:
   workflow_call:
     inputs:
       test:
-        description: Build and run the app's tests on the packaged configuration (releases)
+        type: boolean
+        default: true
+      package:
         type: boolean
         default: false
-  pull_request:
-    paths:
-      - '.github/workflows/windows-package.yml'
-      - 'scripts/packaging/windows/**'
-      - 'scripts/bootstrap-windows.py'
-      - 'runtime/**'
-      - 'compat/**'
 
 permissions:
   contents: read
 
 jobs:
-  package:
+  build:
     runs-on: windows-2022
+    timeout-minutes: 120
     steps:
+      - name: Long paths
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v5
+      # hashFiles only exists inside steps.
+      - name: Cache keys
+        shell: bash
+        run: |
+          {
+            echo "TOOLS_KEY=windows-tools-${{ hashFiles('scripts/bootstrap-windows.py') }}"
+            echo "FETCH_KEY=windows-fetch-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'src/**/CMakeLists.txt') }}"
+          } >> "$GITHUB_ENV"
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: python -m pip install ninja cmake
+
+      - name: Restore toolchain
+        id: tools
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .deps/llvm-mingw
+            .deps/cmake
+            .deps/ninja
+          key: ${{ env.TOOLS_KEY }}
+      - name: Restore FetchContent sources
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .deps/fetch
+            !.deps/fetch/*-build
+            !.deps/fetch/*-subbuild
+          key: ${{ env.FETCH_KEY }}
+          restore-keys: windows-fetch-
+      - name: Fetch the app's toolchain
+        run: python scripts/bootstrap-windows.py
+      - name: Save toolchain
+        if: steps.tools.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .deps/llvm-mingw
+            .deps/cmake
+            .deps/ninja
+          key: ${{ env.TOOLS_KEY }}
+
+      - name: Configure
+        run: .deps/cmake/bin/cmake --preset windows-release -DRIFTLIFT_BUILD_TESTS=${{ inputs.test && 'ON' || 'OFF' }}
+      - name: Build
+        run: .deps/cmake/bin/cmake --build build/windows-release
+      - name: Save FetchContent sources
+        if: always()
+        continue-on-error: true  # the key already exists when the CMake files did not change
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .deps/fetch
+            !.deps/fetch/*-build
+            !.deps/fetch/*-subbuild
+          key: ${{ env.FETCH_KEY }}
+      - name: Test
+        if: inputs.test
+        run: .deps/cmake/bin/ctest --test-dir build/windows-release --output-on-failure
+      - name: Command line starts
+        run: build/windows-release/bin/riftlift-cli.exe --help
+
+      # The native bridges (runtime/) build with MSVC; the installer ships them in native\.
       - uses: ilammy/msvc-dev-cmd@v1
+        if: inputs.package
         with:
           arch: x64
       - name: Fetch pinned native dependencies
+        if: inputs.package
         shell: bash
         run: |
+          python -m pip install ninja cmake
           scripts/prepare-runtime-ci-deps.sh
           git clone https://github.com/microsoft/Detours.git build/Detours
           git -C build/Detours checkout e4bfd6b03e50de46b47abfbd1e46b384f0c5f833
           git clone https://github.com/KhronosGroup/OpenXR-SDK.git build/OpenXR-SDK
           git -C build/OpenXR-SDK checkout 8899a91c17ce9618f565f42408b47db1d6e9ccc7
       - name: Prepare signed SDK files
+        if: inputs.package
         shell: pwsh
         run: |
           Invoke-WebRequest 'https://securecdn.oculus.com/binaries/download/?id=4377593722298679' -OutFile build/sdk.zip
@@ -48,25 +114,20 @@ jobs:
           Invoke-WebRequest 'https://securecdn.oculus.com/binaries/download/?id=3766757683456363' -OutFile build/platform.zip
           if ((Get-FileHash build/platform.zip).Hash -ne 'adbdc5f0285a2ac2ead6fdd34522de98de1bf6782017d9857ea4044b2d2fd009') { throw 'Platform checksum mismatch' }
           Expand-Archive build/platform.zip build/meta-runtime -Force
-      - name: Build complete Windows native runtime
+      - name: Build the native runtime
+        if: inputs.package
         shell: pwsh
         run: |
           cmake -S runtime -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" -DBUILD_TESTING=OFF "-DDETOURS_SOURCE_DIR=$PWD/build/Detours" "-DOPENXR_SDK_SOURCE_DIR=$PWD/build/OpenXR-SDK" "-DMETA_PLATFORM_IMPL=$PWD/build/meta-runtime/LibOVRPlatformImpl64_1.dll"
           if ($LASTEXITCODE -ne 0) { throw 'Native configuration failed' }
           cmake --build build/native -j 4
           if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
-      - name: Fetch the app's toolchain
-        run: python scripts/bootstrap-windows.py
-      - name: Build the app
-        run: |
-          .deps/cmake/bin/cmake --preset windows-release -DRIFTLIFT_BUILD_TESTS=${{ inputs.test && 'ON' || 'OFF' }}
-          .deps/cmake/bin/cmake --build build/windows-release
-      - name: Test the app
-        if: inputs.test
-        run: .deps/cmake/bin/ctest --test-dir build/windows-release --output-on-failure
+
       - name: NSIS
+        if: inputs.package
         shell: pwsh
         run: |
+          # The Chocolatey feed has brief outages: retry.
           $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
           for ($i = 1; $i -le 5 -and -not (Test-Path $makensis); $i++) {
             choco install nsis -y --no-progress
@@ -75,9 +136,11 @@ jobs:
           if (-not (Test-Path $makensis)) { throw 'NSIS did not install' }
       # Also copies the licenses (licenses\<component>\) and audits the layout: no build paths or
       # runner identity, and every DLL import shipped or provided by Windows 10/11.
-      - name: Zip and per-user installer (the native bridge ships in native\)
+      - name: Package (zip and per-user installer)
+        if: inputs.package
         run: python scripts/packaging/windows/build_installer.py --build build/windows-release --native build/native/bin --makensis "C:\Program Files (x86)\NSIS\makensis.exe"
       - name: Install, upgrade and uninstall
+        if: inputs.package
         shell: pwsh
         run: |
           $dir = Join-Path $env:LOCALAPPDATA 'Programs\RiftLift'
@@ -93,8 +156,11 @@ jobs:
           Start-Sleep -Seconds 5
           if (Test-Path (Join-Path $dir 'riftlift.exe')) { throw 'Uninstall left riftlift.exe' }
       - uses: actions/upload-artifact@v4
+        if: inputs.package
         with:
           name: riftlift-windows
           path: |
             dist/RiftLift-windows64-setup.exe
             dist/RiftLift-windows64.zip
+          if-no-files-found: error
+          compression-level: 0

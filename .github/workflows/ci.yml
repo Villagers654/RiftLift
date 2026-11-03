@@ -1,8 +1,14 @@
+# Builds and tests every push to main and every pull request on Windows and Linux, plus the
+# compatibility components a change touches (runtime bridges, XRizer, DXVK, the platform shim).
 name: CI
 
+# Changes that only touch documentation or issue templates build nothing.
 on:
   push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**", ".github/ISSUE_TEMPLATE/**"]
   pull_request:
+    paths-ignore: ["**.md", "docs/**", ".github/ISSUE_TEMPLATE/**"]
   workflow_dispatch:
 
 concurrency:
@@ -21,6 +27,7 @@ jobs:
       xrizer: ${{ steps.filter.outputs.xrizer }}
       dxvk: ${{ steps.filter.outputs.dxvk }}
       compatibility: ${{ steps.filter.outputs.compatibility }}
+      package: ${{ steps.filter.outputs.package }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -38,6 +45,7 @@ jobs:
           xrizer=false
           dxvk=false
           compatibility=false
+          package=false
 
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
             app=true
@@ -45,6 +53,7 @@ jobs:
             xrizer=true
             dxvk=true
             compatibility=true
+            package=true
           else
             base="$BEFORE_SHA"
             if [[ "$EVENT_NAME" == pull_request ]]; then
@@ -57,6 +66,7 @@ jobs:
               xrizer=true
               dxvk=true
               compatibility=true
+              package=true
             else
               while IFS= read -r path; do
                 case "$path" in
@@ -66,9 +76,15 @@ jobs:
                     xrizer=true
                     dxvk=true
                     compatibility=true
+                    package=true
                     ;;
                   compat/*|scripts/build-platform-shim.sh)
                     compatibility=true
+                    package=true
+                    ;;
+                  scripts/packaging/windows/*|scripts/bootstrap-windows.py|scripts/prepare-runtime-ci-deps.sh)
+                    app=true
+                    package=true
                     ;;
                   scripts/build-glslc.sh)
                     xrizer=true
@@ -78,6 +94,7 @@ jobs:
                     ;;
                   runtime/*)
                     runtime=true
+                    package=true
                     ;;
                   .gitmodules)
                     runtime=true
@@ -99,6 +116,7 @@ jobs:
           echo "xrizer=$xrizer" >> "$GITHUB_OUTPUT"
           echo "dxvk=$dxvk" >> "$GITHUB_OUTPUT"
           echo "compatibility=$compatibility" >> "$GITHUB_OUTPUT"
+          echo "package=$package" >> "$GITHUB_OUTPUT"
 
   # The shipped configuration (linux-baseline in the release container), its tests and the
   # packaged layout's licenses and audit; see linux.yml.
@@ -126,32 +144,15 @@ jobs:
           python3 -m py_compile scripts/*.py scripts/packaging/*.py scripts/packaging/windows/*.py
           python3 -c 'import sys, yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' .github/workflows/*.yml
 
+  # The windows-release preset and its tests; a change to Windows packaging, the native runtime or the
+  # platform shim also builds the zip and installer and installs them (see windows.yml).
   windows:
     needs: changes
-    if: needs.changes.outputs.app == 'true'
-    runs-on: windows-2022
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/cache@v4
-        with:
-          path: |
-            .deps/llvm-mingw
-            .deps/cmake
-            .deps/ninja
-          key: windows-tools-${{ hashFiles('scripts/bootstrap-windows.py') }}
-      - uses: actions/cache@v4
-        with:
-          path: |
-            .deps/fetch
-            !.deps/fetch/*-build
-            !.deps/fetch/*-subbuild
-          key: windows-fetch-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'src/**/CMakeLists.txt') }}
-          restore-keys: windows-fetch-
-      - run: python scripts/bootstrap-windows.py
-      - run: .deps/cmake/bin/cmake --preset windows-release
-      - run: .deps/cmake/bin/cmake --build build/windows-release
-      - run: .deps/cmake/bin/ctest --test-dir build/windows-release --output-on-failure
-      - run: build/windows-release/bin/riftlift-cli.exe --help
+    if: needs.changes.outputs.app == 'true' || needs.changes.outputs.package == 'true'
+    uses: ./.github/workflows/windows.yml
+    with:
+      test: true
+      package: ${{ needs.changes.outputs.package == 'true' }}
 
   xrizer:
     needs: changes

@@ -41,11 +41,13 @@ jobs:
 
   windows-app:
     needs: version
-    uses: ./.github/workflows/windows-package.yml
+    uses: ./.github/workflows/windows.yml
     with:
       test: true
+      package: true
 
-  # The linux-baseline build, its tests in the baseline container, and the AppImage and tarball.
+  # The linux-baseline build, its tests in the baseline container, and the tarball, .deb, .rpm,
+  # AppImage and Flatpak.
   linux-app:
     needs: version
     uses: ./.github/workflows/linux.yml
@@ -273,7 +275,8 @@ jobs:
           rm -f -- *.sha256 SHA256SUMS
           version=$(sed -n 's/^project(RiftLift VERSION \([0-9.]*\).*/\1/p' ../CMakeLists.txt)
           for name in RiftLift-windows64-setup.exe RiftLift-windows64.zip "RiftLift-$version-linux-x86_64.AppImage" \
-            "RiftLift-$version-linux-x86_64.tar.gz" riftlift-compat.zip riftlift-xrizer.tar.gz riftlift-dxvk.tar.gz; do
+            "RiftLift-$version-linux-x86_64.tar.gz" "RiftLift-$version-linux-x86_64.deb" \
+            "RiftLift-$version-linux-x86_64.rpm" "RiftLift-$version-linux-x86_64.flatpak" riftlift-compat.zip riftlift-xrizer.tar.gz riftlift-dxvk.tar.gz; do
             test -f "$name" || { echo "missing $name" >&2; exit 1; }
           done
           sha256sum -- * > SHA256SUMS

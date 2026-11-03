@@ -1,0 +1,45 @@
+# Flatpak of the baseline release layout (build_packages.sh flatpak).
+# OpenXR: games reach the host runtime through riftlift-flatpak.sh. The GNOME
+# runtime carries WebKitGTK 6.0 for Meta sign-in and the python3 that Proton's
+# launcher script needs; GE-Proton itself is downloaded into the app's data.
+id: io.github.villagers654.RiftLift
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+command: riftlift-flatpak.sh
+separate-locales: false
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  # GPUs, and the controllers and gamepads games read.
+  - --device=all
+  # Games installed anywhere (local .exe games, the games folder you choose) and
+  # Steam: its library, Oculus-mode games, shortcuts and SteamVR.
+  - --filesystem=home
+  - --filesystem=xdg-data/Steam
+  - --filesystem=~/.steam
+  - --filesystem=~/.var/app/com.valvesoftware.Steam
+  # OpenXR runtimes: Monado/Envision and WiVRn sockets, the user's runtime
+  # manifest, Envision's runtime prefix, and host /etc + /usr (/run/host) for
+  # system-installed runtimes such as distribution Monado packages.
+  - --filesystem=xdg-run/monado_comp_ipc
+  - --filesystem=xdg-run/wivrn
+  - --filesystem=xdg-config/openxr:ro
+  - --filesystem=xdg-data/envision:ro
+  - --filesystem=host-os:ro
+  - --filesystem=host-etc:ro
+  - --talk-name=org.freedesktop.secrets
+modules:
+  - name: riftlift
+    buildsystem: simple
+    build-commands:
+      - cp -a riftlift /app/riftlift
+      - install -Dm755 riftlift-flatpak.sh /app/bin/riftlift-flatpak.sh
+      - ln -s ../riftlift/riftlift-cli /app/bin/riftlift-cli
+      - cp -a share /app/share
+    sources:
+      - type: dir
+        path: src

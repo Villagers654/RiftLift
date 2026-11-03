@@ -1,7 +1,7 @@
 # The shipped Linux configuration: the linux-baseline preset (static libc++/OpenSSL) built in the
 # glibc 2.35 baseline container (scripts/packaging/linux/Containerfile), its tests run in the same
 # container, then the release layout is packaged with its licenses and audited. Releases also make the
-# AppImage and upload the packages. Called by ci.yml and release.yml.
+# .deb, .rpm, AUR PKGBUILD, AppImage and Flatpak and upload them. Called by ci.yml and release.yml.
 #
 # The container image is cached by its Containerfile, FetchContent sources by the CMake files, and
 # compiles go through ccache (compiler_check=content); the caches are saved even when a step fails.
@@ -37,7 +37,10 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
       - uses: actions/checkout@v5
       # hashFiles only exists inside steps.
       - name: Cache keys
@@ -129,7 +132,8 @@ jobs:
 
       # Packaging copies every linked component's license (scripts/packaging/release_notices.py) and
       # audits the layout for build paths and identities (scripts/packaging/release_audit.py), in the
-      # container that built it. CI packages the tarball only; releases add the AppImage.
+      # container that built it. CI packages the tarball only; releases make the AppImage there too, then
+      # the other formats from the same layout on the runner (dpkg-deb, rpmbuild and flatpak).
       - name: Packages
         env:
           PACKAGE: ${{ inputs.package }}
@@ -145,11 +149,20 @@ jobs:
           scripts/packaging/linux/baseline.sh run scripts/packaging/linux/build_packages.sh \
             --build build/linux-baseline --out dist $formats
           tar -tzf dist/RiftLift-*-linux-x86_64.tar.gz
+      - name: Packaging tools
+        if: inputs.package
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q flatpak ostree rpm
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive flathub org.gnome.Platform//51
+      - name: Distribution packages
+        if: inputs.package
+        run: scripts/packaging/linux/build_packages.sh --layout dist/RiftLift-linux64 --out dist deb rpm aur flatpak
       - uses: actions/upload-artifact@v4
         if: inputs.package
         with:
           name: riftlift-linux
-          path: |
-            dist/RiftLift-*-linux-x86_64.AppImage
-            dist/RiftLift-*-linux-x86_64.tar.gz
+          # The AUR PKGBUILD (dist/aur) is pushed to the AUR, not attached to the release.
+          path: dist/RiftLift-*-linux-x86_64.*
           if-no-files-found: error
+          compression-level: 0

@@ -1,0 +1,28 @@
+# Prebuilt Linux release (scripts/packaging/linux/build_packages.sh aur).
+pkgname=riftlift-bin
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="Play your Meta Rift games on Linux (prebuilt release)"
+arch=('x86_64')
+url="https://github.com/Villagers654/RiftLift"
+license=('MIT')
+depends=('glibc>=2.35' 'python')
+optdepends=('webkitgtk-6.0: Meta sign-in window'
+            'libsecret: keep sign-ins in the desktop keyring'
+            'vulkan-icd-loader: Vulkan loader (required to run games)'
+            'fontconfig: system fonts in the launcher')
+provides=('riftlift')
+conflicts=('riftlift')
+options=('!strip' '!debug')
+source=("RiftLift-${pkgver}-linux-x86_64.tar.gz::https://github.com/Villagers654/RiftLift/releases/download/v${pkgver}/RiftLift-${pkgver}-linux-x86_64.tar.gz")
+sha256sums=('@SHA256@')
+
+package() {
+  cd "$srcdir/RiftLift-linux64"
+  install -d "$pkgdir/opt/riftlift" "$pkgdir/usr/bin" "$pkgdir/usr/share"
+  cp -a share/. "$pkgdir/usr/share/"
+  find . -mindepth 1 -maxdepth 1 ! -name share -exec cp -a {} "$pkgdir/opt/riftlift/" \;
+  ln -s /opt/riftlift/riftlift "$pkgdir/usr/bin/riftlift"
+  ln -s /opt/riftlift/riftlift-cli "$pkgdir/usr/bin/riftlift-cli"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

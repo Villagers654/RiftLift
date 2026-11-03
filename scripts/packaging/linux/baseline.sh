@@ -3,7 +3,8 @@
 #
 #   scripts/packaging/linux/baseline.sh image        # build the container image
 #   scripts/packaging/linux/baseline.sh run CMD...   # run CMD in the checkout, in the container
-#   scripts/packaging/linux/baseline.sh release      # configure, build, test and package as CI does
+#   scripts/packaging/linux/baseline.sh release      # configure, build, test, tarball + AppImage as CI does
+#   (then build_packages.sh --layout dist/RiftLift-linux64 deb rpm aur flatpak on the host)
 #
 # The checkout is mounted at its own path and commands run as the calling user,
 # so build trees, caches and outputs are the same inside and outside.
@@ -42,6 +43,6 @@ case "${1:-}" in
   release)
     run bash -c "cmake --preset linux-baseline -DRIFTLIFT_BUILD_TESTS=ON && cmake --build build/linux-baseline &&
       ctest --test-dir build/linux-baseline --output-on-failure &&
-      scripts/packaging/linux/build_packages.sh --build build/linux-baseline --out dist" ;;
+      scripts/packaging/linux/build_packages.sh --build build/linux-baseline --out dist tar appimage" ;;
   *) sed -n '2,13p' "$0"; exit 2 ;;
 esac
