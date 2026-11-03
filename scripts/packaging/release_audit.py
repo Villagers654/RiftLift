@@ -194,6 +194,9 @@ def import_report(layout, readobj):
     for path in sorted(layout.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in (".exe", ".dll"):
             continue
+        # Meta's DLLs ship as received and import what Meta's own runtime relies on.
+        if is_third_party(path.relative_to(layout).as_posix()):
+            continue
         imports = pe_imports(path, readobj)
         missing = [name for name in imports if not is_os_provided(name)
                    and name.lower() not in shipped.get(path.parent, ())]

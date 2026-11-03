@@ -152,7 +152,7 @@ jobs:
       - name: Packaging tools
         if: inputs.package
         run: |
-          sudo apt-get update -q && sudo apt-get install -y -q flatpak ostree rpm
+          sudo apt-get update -q && sudo apt-get install -y -q flatpak ostree rpm librsvg2-common
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y --noninteractive flathub org.gnome.Platform//51
       - name: Distribution packages
