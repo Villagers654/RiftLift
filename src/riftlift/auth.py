@@ -213,14 +213,16 @@ def runtime_access_token(paths: Paths) -> str:
     return account_tokens(paths)[0]
 
 
-def owned_apps(paths: Paths) -> tuple[list[entitlements.OwnedApp], list[str]]:
+def owned_apps(paths: Paths) -> tuple[entitlements.OwnedLibrary, list[str]]:
     """List Rift/PC VR apps owned by any signed-in account.
 
     Returns the merged apps and one message per account that could not be
-    read; raises only when no account could be read at all.
+    read; raises only when no account could be read at all. The list is
+    marked partial when Meta cut any account's list short.
     """
     merged: dict[str, entitlements.OwnedApp] = {}
     failures = []
+    partial = False
     signed_in = accounts(paths)
     if not signed_in:
         account_tokens(paths)  # raises the signed-out error
@@ -231,8 +233,10 @@ def owned_apps(paths: Paths) -> tuple[list[entitlements.OwnedApp], list[str]]:
             failures.append(f"{account.name or f'Meta account {number}'}: {error}")
             continue
         record_owned(paths, account.id, [app.app_id for app in owned])
+        partial = partial or getattr(owned, "partial", False)
         for app in owned:
             merged.setdefault(app.app_id, app)
     if failures and len(failures) == len(signed_in):
         raise RiftLiftError(failures[0] if len(failures) == 1 else "; ".join(failures))
-    return sorted(merged.values(), key=lambda app: app.name.lower()), failures
+    apps = sorted(merged.values(), key=lambda app: app.name.lower())
+    return entitlements.OwnedLibrary(apps, partial=partial), failures

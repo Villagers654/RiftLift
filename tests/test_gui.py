@@ -1957,6 +1957,47 @@ def test_refresh_button_forces_owned_detail_refresh(
     app.processEvents()
 
 
+def test_a_detail_fetch_finishing_after_close_is_dropped(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import shiboken6
+
+    paths = Paths(
+        tmp_path / "data",
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = Window(paths)
+    started, release = threading.Event(), threading.Event()
+
+    def slow_detail(_app, refresh=False):
+        started.set()
+        release.wait(5)
+        return None, None
+
+    monkeypatch.setattr(window, "_load_owned_detail", slow_detail)
+    crashes = []
+    monkeypatch.setattr(threading, "excepthook", crashes.append)
+
+    window.show_owned(OwnedApp(app_id="222", name="Lone Echo", slug="lone-echo"))
+    assert started.wait(5)
+    worker = next(t for t in threading.enumerate() if t.name == "riftlift-owned-detail")
+    # Closing the window deletes its event objects while the worker still runs.
+    shiboken6.delete(window.owned_detail_events)
+    release.set()
+    worker.join(5)
+
+    assert not worker.is_alive()
+    assert crashes == []
+    window.close()
+    app.processEvents()
+
+
 def test_owned_game_meta_line_keeps_saying_not_installed(
     tmp_path: Path, monkeypatch
 ) -> None:

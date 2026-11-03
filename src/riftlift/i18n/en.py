@@ -57,6 +57,9 @@ STRINGS = {
         "not_installed": "Not installed",
         "version": "Version {version}",
         "refresh_tooltip": "Refresh installed games and your Meta library",
+        "partial_list": (
+            "Meta returned only part of your library. Add a missing game with Add Game."
+        ),
     },
     "empty": {
         "title": "No Rift games yet",

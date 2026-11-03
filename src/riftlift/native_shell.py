@@ -6,6 +6,7 @@ offline visual previews on platforms whose backend is maintained separately.
 
 from __future__ import annotations
 
+import unicodedata
 from importlib.resources import files
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -17,6 +18,24 @@ NAV = namespace("nav")
 GAME = namespace("game")
 LIBRARY = namespace("library")
 SHELL = namespace("shell")
+APOSTROPHES = "'\u2018\u2019\u02bc"
+# Letters that Unicode doesn't decompose into a base letter and an accent.
+_FOLDED_LETTERS = str.maketrans(
+    {"\u00f8": "o", "\u00e6": "ae", "\u0153": "oe", "\u0142": "l", "\u0111": "d"}
+)
+
+
+def search_words(text: str) -> list[str]:
+    """Split text into comparable words, ignoring case, accents and punctuation."""
+    folded = text.casefold().translate(_FOLDED_LETTERS)
+    decomposed = unicodedata.normalize("NFKD", folded)
+    plain = "".join(
+        char if char.isalnum() else " "
+        for char in decomposed
+        # An apostrophe belongs to its word: "Lucky's" is found as "luckys" too.
+        if not unicodedata.combining(char) and char not in APOSTROPHES
+    )
+    return plain.split()
 
 
 def brand_icon() -> QtGui.QIcon:
@@ -292,6 +311,10 @@ class NativePresentation:
         self.search_empty.setWordWrap(True)
         self.search_empty.hide()
         left.addWidget(self.search_empty)
+        self.owned_hint = self.label(LIBRARY("partial_list"), "muted")
+        self.owned_hint.setWordWrap(True)
+        self.owned_hint.hide()
+        left.addWidget(self.owned_hint)
         self.steam_games = self.button(NAV("steam_games"), self.steam_dialog)
         self.addbtn = self.button(NAV("add_game"), lambda: self.add_dialog())
         left.addWidget(self.steam_games)
@@ -499,13 +522,15 @@ class NativePresentation:
         return page
 
     def _filter_library(self, text=""):
-        query = text.strip().casefold()
+        # Every typed word must start or occur in the title, in any order.
+        query = search_words(text)
         matches = 0
         for category, _key in self._categories:
             visible = 0
             for index in range(category.childCount()):
                 item = category.child(index)
-                match = query in item.text(0).casefold()
+                title = " ".join(search_words(item.text(0)))
+                match = all(word in title for word in query)
                 item.setHidden(not match)
                 visible += int(match)
             category.setHidden(visible == 0)
