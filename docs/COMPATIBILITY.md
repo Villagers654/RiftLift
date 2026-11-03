@@ -9,13 +9,16 @@ Compatibility results are listed separately for Windows and Linux. Results can v
 | Game | Build tested | Windows | Linux | Oculus exclusive? | Setup notes |
 | --- | --- | --- | --- | --- | --- |
 | [Aircar](https://store.steampowered.com/app/1073390/Aircar/) | Steam Oculus mode | Untested | ✅ | No | — |
+| ARKTIKA.1 | Meta Rift Store; Linux: SteamVR 2.18.4, Steam Frame | Untested | ⚠️ | Yes | Starts, but frame delivery and reprojection are badly broken, too uncomfortable to play ([#28](https://github.com/Villagers654/RiftLift/issues/28)). |
 | [Asgard's Wrath](https://www.meta.com/experiences/pcvr/asgards-wrath/1180401875303371/) | Meta Rift Store; Windows: 1.6.0 | ✅ | Untested | Yes | — |
+| Brass Tactics | Meta Rift Store; Linux: SteamVR 2.18.4, Steam Frame | Untested | ⚠️ | Yes | Plays well; crashed a few times when continuing to the next level ([#29](https://github.com/Villagers654/RiftLift/issues/29)). |
 | Echo VR | Windows: original 34.4.636386.0; Linux: community PCVR installation | ✅ | ✅ | Yes, originally | Online play requires the community installer and patch; follow the [Echo VR setup guide](https://gist.github.com/Villagers654/d5bf4d11f56fc60d1eab91e7bf3f41c5). |
+| Edge of Nowhere | Meta Rift Store; Linux: SteamVR 2.18.4, Steam Frame | Untested | ❌ | Yes | Crashes at launch (exit code 5) and opens the game's own crash reporter ([#27](https://github.com/Villagers654/RiftLift/issues/27)). |
 | [Epic Roller Coasters](https://www.meta.com/experiences/pcvr/epic-roller-coasters/1477883658957255/) | Meta Rift Store; Windows: 8.11.2 | ✅ | Untested | No | — |
 | [Five Nights at Freddy's: Help Wanted](https://store.steampowered.com/app/732690/FIVE_NIGHTS_AT_FREDDYS_HELP_WANTED/) | Steam Oculus mode | Untested | ✅ | No | — |
 | [Keep Talking and Nobody Explodes](https://store.steampowered.com/app/341800/Keep_Talking_and_Nobody_Explodes/) | Steam Oculus mode | Untested | ✅ | No | — |
 | [Lone Echo](https://www.youtube.com/watch?v=2pmV2mwAV9k) | Meta Rift Store; Windows: 3.17.4 | ✅ | ✅ | Yes | — |
-| [Lone Echo 2](https://www.meta.com/experiences/pcvr/lone-echo-ii/1711938725528735/) | Meta Rift Store | Untested | ✅ | Yes | — |
+| [Lone Echo 2](https://www.meta.com/experiences/pcvr/lone-echo-ii/1711938725528735/) | Meta Rift Store | Untested | ✅ | Yes | With WiVRn, the left controller's menu button doesn't open the game menu; press the right menu button and close Meta's menu, or use SteamVR ([#25](https://github.com/Villagers654/RiftLift/issues/25)). |
 | [Oculus First Contact](https://www.meta.com/experiences/pcvr/oculus-first-contact/1217155751659625/) | Meta Rift Store; Windows: 1.1.9 | ✅ | ✅ | Yes | — |
 | [StereoPaint](https://store.steampowered.com/app/1920760/StereoPaint/) | Steam | Untested | ✅ | Yes | — |
 | [Stormland](https://www.meta.com/experiences/pcvr/stormland/1360938750683878/) | Meta Rift Store; Windows: Stormland_008 | ✅ | ✅ | Yes | — |
@@ -41,4 +44,4 @@ riftlift doctor
 
 The command includes concise setup details and recent launch evidence, then creates a shareable diagnostic paste. Attach that result when opening a [compatibility report](https://github.com/Villagers654/RiftLift/issues).
 
-Last updated: October 9, 2026.
+Last updated: November 2, 2026.
