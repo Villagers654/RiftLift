@@ -52,7 +52,14 @@ to your app menu. Run a newer installer to update.
 
 2. **Add a game.** Your owned games appear under **Not installed**. Select one
    and click **Install**, or click **Add Game** and paste a game's Meta
-   **Rift / PC VR** store link.
+   **Rift / PC VR** store link. Delisted games you still own, such as Echo VR,
+   install the same way.
+
+   The **Version** list in **Add Game** shows every build your account can
+   download, including older and beta-channel releases. The first entry
+   installs the newest one and updates an existing install in place; an older
+   one installs beside it as its own library entry. **All versions** downloads
+   every build into its own folder, which can take a lot of disk space.
 
    ![Add Game](docs/images/riftlift-add-game.png)
 
@@ -75,8 +82,10 @@ to your app menu. Run a newer installer to update.
 - **Command line** (Linux): `riftlift login`, `riftlift add <store-url>`,
   `riftlift list`, `riftlift launch <game>` and `riftlift doctor` mirror the app.
   Run `riftlift login` again to add another account; `riftlift accounts` and
-  `riftlift logout [account]` manage them. Run `riftlift --help` for everything
-  else.
+  `riftlift logout [account]` manage them. `riftlift builds <store-url>` lists
+  every version you can download; `riftlift add <store-url> --build <version>`
+  installs one beside your current install, and `--build all` installs every
+  one. Run `riftlift --help` for everything else.
 
 ## Troubleshooting
 

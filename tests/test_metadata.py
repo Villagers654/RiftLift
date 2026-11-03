@@ -261,3 +261,31 @@ def test_metadata_ignores_a_meta_games_steam_shortcut_id(
     populate_game_metadata(paths, game)
 
     assert calls == ["123456789"]
+
+
+def test_store_details_keep_a_side_by_side_version_label(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = Paths(
+        *(
+            tmp_path / name
+            for name in ("data", "cache", "config", "games", "prefix", "tools")
+        )
+    )
+    metadata = CatalogMetadata(
+        "Example: Store", "meta", "description", "developer", "", [], ""
+    )
+    monkeypatch.setattr(
+        "riftlift.metadata.fetch_catalog_metadata", lambda _app_id: metadata
+    )
+
+    def named(name: str, version: str) -> str:
+        game = Game("example", name, "123", "meta.example", str(tmp_path), "a.exe", [])
+        game.version = version
+        return populate_game_metadata(paths, game).name
+
+    assert named("Example (1.28)", "1.28") == "Example: Store (1.28)"
+    assert (
+        named("Example (1.28, build 39)", "1.28") == "Example: Store (1.28, build 39)"
+    )
+    assert named("Example", "1.31") == "Example: Store"

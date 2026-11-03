@@ -73,9 +73,11 @@ def test_finalization_is_acknowledged_before_install_record_and_metadata(
             for name in ("data", "cache", "config", "games", "prefix", "tools")
         )
     )
-    build = SimpleNamespace(app_name="Fixture game", version="1")
+    build = SimpleNamespace(
+        app_name="Fixture game", version="1", binary_id="1", version_code=1
+    )
     monkeypatch.setattr(library, "account_tokens", lambda *_args: ["FIXTURE"])
-    monkeypatch.setattr(library, "list_builds", lambda *args: [build])
+    monkeypatch.setattr(library, "list_all_builds", lambda *args: [build])
     monkeypatch.setattr(library, "select_build", lambda *args: build)
     monkeypatch.setattr(
         library, "fetch_manifest", lambda *args: {"launchFile": "game.exe"}
@@ -391,7 +393,7 @@ def test_install_falls_back_to_another_signed_in_account(tmp_path, monkeypatch):
     )
     build = SimpleNamespace(app_name="Fixture game", version="1")
     monkeypatch.setattr(library, "account_tokens", lambda *_args: ["OTHER", "OWNER"])
-    monkeypatch.setattr(library, "list_builds", lambda *args: [build])
+    monkeypatch.setattr(library, "list_all_builds", lambda *args: [build])
     monkeypatch.setattr(library, "select_build", lambda *args: build)
 
     def manifest(token, _build):
@@ -410,3 +412,289 @@ def test_install_falls_back_to_another_signed_in_account(tmp_path, monkeypatch):
     monkeypatch.setattr(library, "account_tokens", lambda *_args: ["OTHER"])
     with pytest.raises(DownloadError, match="not entitled"):
         library._owned_build(paths, "1", None)
+
+
+def _paths(tmp_path: Path) -> Paths:
+    data = tmp_path / "data"
+    paths = Paths(
+        data,
+        tmp_path / "cache",
+        tmp_path / "config",
+        tmp_path / "games",
+        tmp_path / "prefix",
+        tmp_path / "tools",
+    )
+    paths.create()
+    return paths
+
+
+def test_explicit_older_version_installs_beside_the_existing_one(
+    tmp_path: Path,
+) -> None:
+    from meta_pcvr_downloader.api import Build
+
+    from riftlift.library import _install_identity
+
+    paths = _paths(tmp_path)
+    Game(
+        "echo-vr",
+        "Echo VR",
+        "1",
+        "k",
+        str(tmp_path),
+        "e.exe",
+        [],
+        version="34.4.636386.0",
+        source="meta",
+    ).save(paths)
+    older = Build("1", "Echo VR", "b", "34.4.631547.1", 2202)
+    newest = Build("1", "Echo VR", "a", "34.4.636386.0", 2206)
+
+    assert _install_identity(paths, older, side_by_side=True) == (
+        "echo-vr-34-4-631547-1",
+        "Echo VR (34.4.631547.1)",
+    )
+    # A plain install, or reinstalling the same version, updates in place.
+    assert _install_identity(paths, older, side_by_side=False) == ("echo-vr", "Echo VR")
+    assert _install_identity(paths, newest, side_by_side=True) == ("echo-vr", "Echo VR")
+    # Bulk downloads force a versioned folder, but reuse one holding the build.
+    assert _install_identity(paths, newest, side_by_side=False, force=True) == (
+        "echo-vr",
+        "Echo VR",
+    )
+    assert _install_identity(paths, older, side_by_side=False, force=True)[0] == (
+        "echo-vr-34-4-631547-1"
+    )
+
+
+def test_add_all_versions_continues_after_a_failed_build(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from meta_pcvr_downloader.api import Build
+
+    from riftlift import library
+
+    builds = [Build("1", "Echo VR", b, f"v{b}", i) for i, b in enumerate("abc")]
+    calls = []
+
+    def fake_add(
+        _paths,
+        _app,
+        *,
+        build_selector,
+        builds,
+        separate_version,
+        jobs,
+        on_finalizing,
+        catalog,
+    ):
+        calls.append(build_selector)
+        assert separate_version
+        if build_selector == "b":
+            raise RuntimeError("HTTP 404")
+        return Game(
+            f"echo-{build_selector}", "Echo VR", "1", "k", str(tmp_path), "e.exe", []
+        )
+
+    monkeypatch.setattr(library, "add", fake_add)
+    progress = []
+
+    installed, failed = library.add_all_versions(
+        _paths(tmp_path),
+        "1",
+        builds=builds,
+        on_build=lambda i, n, _b: progress.append((i, n)),
+    )
+
+    assert calls == ["a", "b", "c"]
+    assert [game.slug for game in installed] == ["echo-a", "echo-c"]
+    assert [build.binary_id for build, _ in failed] == ["b"]
+    assert progress == [(1, 3), (2, 3), (3, 3)]
+
+
+def test_builds_sharing_a_version_string_do_not_overwrite_each_other(
+    tmp_path: Path,
+) -> None:
+    from meta_pcvr_downloader.api import Build
+
+    from riftlift.library import _install_identity
+
+    paths = _paths(tmp_path)
+    Game(
+        "minecraft",
+        "Minecraft",
+        "1",
+        "k",
+        str(tmp_path),
+        "m.exe",
+        [],
+        version="16",
+        source="meta",
+        binary_id="new",
+    ).save(paths)
+    older = Build("1", "Minecraft", "old", "16", 49)
+
+    assert _install_identity(paths, older, side_by_side=True) == (
+        "minecraft-16",
+        "Minecraft (16)",
+    )
+    Game(
+        "minecraft-16",
+        "Minecraft (16)",
+        "1",
+        "k",
+        str(tmp_path),
+        "m.exe",
+        [],
+        version="16",
+        source="meta",
+        binary_id="other",
+    ).save(paths)
+    assert _install_identity(paths, older, side_by_side=True) == (
+        "minecraft-16-49",
+        "Minecraft (16, build 49)",
+    )
+
+
+def test_a_downloaded_build_that_cannot_launch_says_where_its_files_are(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from meta_pcvr_downloader.api import Build
+
+    from riftlift import library
+
+    paths = _paths(tmp_path)
+    build = Build("1", "Old Game", "b", "1.0", 1)
+    monkeypatch.setattr(library, "account_tokens", lambda *_args: ["token"])
+    monkeypatch.setattr(
+        library, "fetch_manifest", lambda _t, _b: {"launchFile": "a.exe"}
+    )
+
+    class FakeDownloader:
+        def __init__(self, *_args):
+            pass
+
+        def run(self, _manifest):
+            pass
+
+    def no_64_bit(*_args):
+        raise ValueError("no 64-bit game executable was found (preferred: a.exe)")
+
+    monkeypatch.setattr(library, "Downloader", FakeDownloader)
+    monkeypatch.setattr(library, "_best_executable", no_64_bit)
+
+    with pytest.raises(library.NotLaunchableError) as raised:
+        library.add(paths, "1", builds=[build])
+
+    assert raised.value.directory == paths.games / "old-game"
+    assert "cannot launch it" in str(raised.value)
+    assert not (paths.data / "games" / "old-game.json").exists()
+
+
+def test_a_paused_version_resumes_into_its_own_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from meta_pcvr_downloader.api import Build
+
+    from riftlift import library
+
+    paths = _paths(tmp_path)
+    build = Build("1", "Old Game", "b-old", "1.0", 1)
+    monkeypatch.setattr(library, "account_tokens", lambda *_args: ["token"])
+    monkeypatch.setattr(
+        library, "fetch_manifest", lambda _t, _b: {"launchFile": "a.exe"}
+    )
+    monkeypatch.setattr(library, "populate_game_metadata", lambda *_args: None)
+
+    class Paused(Exception):
+        pass
+
+    class PausedDownloader:
+        def __init__(self, _token, _build, directory, _cache, _workers):
+            self.directory = directory
+
+        def run(self, _manifest):
+            self.directory.mkdir(parents=True, exist_ok=True)
+            (self.directory / "a.exe.part").write_bytes(b"partial")
+            raise Paused
+
+    class FinishingDownloader(PausedDownloader):
+        def run(self, _manifest):
+            _pe64(self.directory / "a.exe")
+
+    monkeypatch.setattr(library, "Downloader", PausedDownloader)
+    with pytest.raises(Paused):
+        library.add(paths, "1", builds=[build], separate_version=True)
+
+    monkeypatch.setattr(library, "Downloader", FinishingDownloader)
+    game = library.add(paths, "1", builds=[build], separate_version=True)
+
+    assert game.slug == "old-game-1-0"
+    assert [folder.name for folder in paths.games.iterdir()] == ["old-game-1-0"]
+    assert (paths.games / "old-game-1-0" / "a.exe.part").exists()
+
+
+def test_every_version_fetches_the_store_details_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from meta_pcvr_downloader.api import Build
+
+    from riftlift import library
+
+    paths = _paths(tmp_path)
+    builds = [Build("1", "Old Game", f"b{n}", f"1.{n}", n) for n in (3, 2, 1)]
+    monkeypatch.setattr(library, "account_tokens", lambda *_args: ["token"])
+    monkeypatch.setattr(
+        library, "fetch_manifest", lambda _t, _b: {"launchFile": "a.exe"}
+    )
+
+    class Downloader:
+        def __init__(self, _token, _build, directory, _cache, _workers):
+            self.directory = directory
+
+        def run(self, _manifest):
+            _pe64(self.directory / "a.exe")
+
+    fetched = []
+
+    def populate(paths, game):
+        fetched.append(game.slug)
+        art = paths.data / "artwork" / game.slug
+        art.mkdir(parents=True)
+        (art / "grid.png").write_bytes(b"png")
+        game.description = "From the store"
+        game.artwork = {"grid": str(art / "grid.png")}
+        game.save(paths)
+
+    monkeypatch.setattr(library, "Downloader", Downloader)
+    monkeypatch.setattr(library, "populate_game_metadata", populate)
+
+    installed, failed = library.add_all_versions(paths, "1", builds=builds)
+
+    assert not failed
+    assert fetched == ["old-game-1-3"]
+    for game in installed:
+        saved = Game.load(paths, game.slug)
+        assert saved.description == "From the store"
+        assert Path(saved.artwork["grid"]).parent.name == game.slug
+        assert Path(saved.artwork["grid"]).read_bytes() == b"png"
+
+
+def test_unregistered_download_folders_are_not_overwritten(tmp_path: Path) -> None:
+    from meta_pcvr_downloader.api import Build
+
+    from riftlift.library import BUILD_MARKER, _install_identity
+
+    paths = _paths(tmp_path)
+    folder = paths.games / "minecraft-0-15-6"
+    folder.mkdir(parents=True)
+    (folder / BUILD_MARKER).write_text("build-29\n")
+    first = Build("1", "Minecraft", "build-29", "0.15.6", 29)
+    second = Build("1", "Minecraft", "build-26", "0.15.6", 26)
+
+    assert _install_identity(paths, first, side_by_side=False, force=True)[0] == (
+        "minecraft-0-15-6"
+    )
+    assert _install_identity(paths, second, side_by_side=False, force=True)[0] == (
+        "minecraft-0-15-6-26"
+    )

@@ -2,22 +2,32 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 import threading
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from urllib.parse import urlparse
 
+from meta_pcvr_downloader.api import Build
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from .auth import accounts
+from .builds import build_label, default_build
 from .config import Game, Paths
 from .desktop_services import supports_steam_shortcuts
 from .download_job import DownloadJob
 from .i18n import namespace
-from .library import join_launch_arguments, split_launch_arguments
+from .library import (
+    ALL_BUILDS,
+    available_builds,
+    join_launch_arguments,
+    split_launch_arguments,
+)
 from .metadata import fetch_catalog_metadata
 from .theme import STYLE
 from .titlebar import wrap_dialog
+from .util import RiftLiftError
 
 LINK_VALIDATION_DELAY_MS = 350
 
@@ -103,6 +113,20 @@ class LaunchOptionsDialog(QtWidgets.QDialog):
         self.accept()
 
 
+_RIFT_STORE_PATHS = {
+    # meta.com/[locale/]experiences/pcvr/[slug/]<id>/
+    "meta.com": re.compile(
+        r"/(?:[a-z]{2}-[a-z]{2}/)?experiences/pcvr/(?:[^/]+/)?(?P<app_id>\d{8,})/?",
+        re.IGNORECASE,
+    ),
+    # Legacy oculus.com/experiences/rift/[slug/]<id>/ links.
+    "oculus.com": re.compile(
+        r"/(?:[a-z]{2}-[a-z]{2}/)?experiences/rift/(?:[^/]+/)?(?P<app_id>\d{8,})/?",
+        re.IGNORECASE,
+    ),
+}
+
+
 def rift_store_app_id(value: str) -> str | None:
     """Return the app ID from an exact Meta Rift/PCVR product URL."""
     try:
@@ -111,14 +135,10 @@ def rift_store_app_id(value: str) -> str | None:
         port = parsed.port
     except ValueError:
         return None
-    match = re.fullmatch(
-        r"/(?:[a-z]{2}-[a-z]{2}/)?experiences/pcvr/[^/]+/(?P<app_id>\d{8,})/?",
-        parsed.path,
-        re.IGNORECASE,
-    )
+    pattern = _RIFT_STORE_PATHS.get(host.removeprefix("www."))
+    match = pattern.fullmatch(parsed.path) if pattern else None
     if not (
         parsed.scheme.lower() == "https"
-        and host in {"meta.com", "www.meta.com"}
         and port in {None, 443}
         and parsed.username is None
         and parsed.password is None
@@ -132,10 +152,131 @@ def is_valid_rift_store_url(value: str) -> bool:
     return rift_store_app_id(value) is not None
 
 
+def _themed_dialog(parent, title: str, text: str):
+    # Same construction as main_window's themed dialogs.
+    dialog = QtWidgets.QDialog(parent)
+    dialog.setStyleSheet(STYLE)
+    dialog.setMinimumWidth(420)
+    layout = wrap_dialog(dialog, title, margins=(24, 22, 24, 22))
+    layout.setSpacing(14)
+    label = QtWidgets.QLabel(text)
+    label.setWordWrap(True)
+    label.setTextFormat(QtCore.Qt.PlainText)
+    layout.addWidget(label)
+    # A top-level dialog doesn't grow for wrapped text; reserve the height the
+    # text needs, in the themed font, at the narrowest width the dialog can have.
+    label.ensurePolished()
+    left, _top, right, _bottom = layout.getContentsMargins()
+    label.setMinimumHeight(label.heightForWidth(dialog.minimumWidth() - left - right))
+    return dialog, layout
+
+
+def _themed_question(parent, title: str, text: str) -> bool:
+    dialog, layout = _themed_dialog(parent, title, text)
+    buttons = QtWidgets.QHBoxLayout()
+    buttons.addStretch()
+    no_button = QtWidgets.QPushButton(ACTION("no"))
+    no_button.clicked.connect(dialog.reject)
+    buttons.addWidget(no_button)
+    yes_button = QtWidgets.QPushButton(ACTION("yes"))
+    yes_button.setObjectName("primary")
+    yes_button.clicked.connect(dialog.accept)
+    buttons.addWidget(yes_button)
+    layout.addLayout(buttons)
+    return dialog.exec() == QtWidgets.QDialog.Accepted
+
+
+def _themed_notice_dialog(parent, title: str, text: str, details: str = ""):
+    dialog, layout = _themed_dialog(parent, title, text)
+    if details:
+        # A long list scrolls in its own box instead of growing the dialog
+        # past the screen; it can be selected and copied, too.
+        dialog.setMinimumWidth(560)
+        view = QtWidgets.QPlainTextEdit(details)
+        view.setReadOnly(True)
+        line = view.fontMetrics().lineSpacing()
+        view.setMinimumHeight(4 * line)
+        view.setMaximumHeight(12 * line)
+        layout.addWidget(view)
+    ok_button = QtWidgets.QPushButton(ACTION("ok"))
+    ok_button.setObjectName("primary")
+    ok_button.clicked.connect(dialog.accept)
+    layout.addWidget(ok_button, alignment=QtCore.Qt.AlignRight)
+    return dialog
+
+
+def _themed_notice(parent, title: str, text: str, details: str = "") -> None:
+    _themed_notice_dialog(parent, title, text, details).exec()
+
+
 def _label(text: str, name: str = "") -> QtWidgets.QLabel:
     widget = QtWidgets.QLabel(text)
     widget.setObjectName(name)
     return widget
+
+
+def _is_signed_in(paths: Paths) -> bool:
+    return bool(accounts(paths))
+
+
+@dataclass(frozen=True)
+class LinkCheck:
+    """Outcome of checking a store link: a display name and downloadable builds."""
+
+    name: str
+    builds: list[Build] = field(default_factory=list)
+
+
+def check_store_link(paths: Paths, app_id: str) -> LinkCheck:
+    """Verify an app through the account's builds, then the public store page.
+
+    Delisted games such as Echo VR have no catalog data on their store page,
+    but owners can still download them, so the signed-in build list wins.
+    """
+    signed_in = _is_signed_in(paths)
+    expired = False
+    if signed_in:
+        try:
+            builds = available_builds(paths, app_id)
+        except Exception as error:  # fall back to the public store page
+            print(f"warning: could not list builds for {app_id}: {error}")
+            # Meta answers a stale or revoked token with an OAuthException.
+            expired = any(
+                text in str(error)
+                for text in ("OAuthException", "HTTP 401", "HTTP 403")
+            )
+        else:
+            return LinkCheck(builds[0].app_name, builds)
+    try:
+        metadata = fetch_catalog_metadata(app_id)
+    except RiftLiftError as error:
+        if "has no catalog metadata" in str(error):
+            if expired:
+                raise RiftLiftError(ADD_GAME("sign_in_expired")) from error
+            if not signed_in:
+                raise RiftLiftError(ADD_GAME("sign_in_to_verify")) from error
+        raise
+    if not metadata.name.strip():
+        raise RiftLiftError(
+            f"Meta's store page has no catalog metadata for app {app_id}"
+        )
+    return LinkCheck(metadata.name)
+
+
+# Install failures the dialog explains; anything else reads as a failed download.
+_INSTALL_ERRORS = frozenset(
+    {"sign_in_required", "download_failed", "worker_failed", "not_launchable"}
+)
+
+
+def _deliver(signal, *args) -> None:
+    """Hand a worker thread's result to the dialog, unless it is gone.
+
+    Quitting deletes the dialog's event objects while a link check or version
+    listing may still be running; its result then has nowhere to go.
+    """
+    with contextlib.suppress(RuntimeError):  # "Signal source has been deleted"
+        signal.emit(*args)
 
 
 class _ValidationEvents(QtCore.QObject):
@@ -144,6 +285,7 @@ class _ValidationEvents(QtCore.QObject):
 
 class _InstallEvents(QtCore.QObject):
     progress = QtCore.Signal(str, int, int)
+    version = QtCore.Signal(str)
     complete = QtCore.Signal(object, object)
 
 
@@ -165,8 +307,12 @@ class StoreGameDialog(QtWidgets.QDialog):
         self._job = None
         self._busy = False
         self._close_when_paused = False
+        self._paused = False
         self._generation = 0
         self._verified_url = ""
+        self._game_name = simple_name
+        self._builds: list[Build] = []
+        self._version_prefix = ""
         self.setWindowTitle(ADD_GAME("title"))
         self.setMinimumWidth(560)
         self.setStyleSheet(STYLE)
@@ -190,6 +336,13 @@ class StoreGameDialog(QtWidgets.QDialog):
         self.validation = _label(ADD_GAME("paste_valid_link"), "muted")
         self.validation.setWordWrap(True)
         layout.addWidget(self.validation)
+        self.version_section = _label(ADD_GAME("version_section"), "section")
+        self.version_section.hide()
+        layout.addWidget(self.version_section)
+        self.versions = QtWidgets.QComboBox()
+        self.versions.setObjectName("versions")
+        self.versions.hide()
+        layout.addWidget(self.versions)
         self.steam = QtWidgets.QCheckBox(ADD_GAME("add_to_steam"))
         self.steam.setChecked(supports_steam_shortcuts())
         self.steam.setEnabled(supports_steam_shortcuts())
@@ -217,6 +370,7 @@ class StoreGameDialog(QtWidgets.QDialog):
         self.events.complete.connect(self._finish_validation)
         self.install_events = _InstallEvents(self)
         self.install_events.progress.connect(self._update_progress)
+        self.install_events.version.connect(self._set_version_prefix)
         self.install_events.complete.connect(self._finish_install)
         self.timer.timeout.connect(self._check_catalog)
         self.entry.textChanged.connect(self._validate)
@@ -238,6 +392,7 @@ class StoreGameDialog(QtWidgets.QDialog):
             self.validation.setText(
                 ADD_GAME("confirm_install").format(name=simple_name)
             )
+            self._load_versions(initial_url)
         elif initial_url:
             self.entry.setText(initial_url)
 
@@ -246,9 +401,66 @@ class StoreGameDialog(QtWidgets.QDialog):
             QtCore.QUrl("https://www.meta.com/experiences/pcvr/")
         )
 
+    def _set_builds(self, builds: list[Build]) -> None:
+        """Fill the version picker. The first entry installs the newest build."""
+        self._builds = list(builds)
+        self.versions.clear()
+        if not builds:
+            self.version_section.hide()
+            self.versions.hide()
+            return
+        # The first entry is what a plain install downloads: the newest build
+        # Meta offers, even when an alpha or beta build is newer.
+        default = default_build(builds)
+        ordered = [default, *(build for build in builds if build is not default)]
+        for index, build in enumerate(ordered):
+            label = build_label(build)
+            channels = [
+                channel
+                for channel in getattr(build, "channels", ())
+                if channel.upper() != "LIVE"
+            ]
+            if channels:
+                label = f"{label} · {', '.join(channels)}"
+            if index == 0:
+                self.versions.addItem(
+                    ADD_GAME("latest_version").format(label=label), None
+                )
+            else:
+                self.versions.addItem(label, build.binary_id)
+        if len(builds) > 1:
+            self.versions.addItem(
+                ADD_GAME("all_versions").format(count=len(builds)), ALL_BUILDS
+            )
+        self.version_section.show()
+        self.versions.show()
+
+    def _load_versions(self, url: str) -> None:
+        """Fetch the build list for an already confirmed owned game."""
+        app_id = rift_store_app_id(url)
+        if app_id is None or not _is_signed_in(self.paths):
+            return
+        token = self._generation
+        self.version_section.setText(ADD_GAME("loading_versions"))
+        self.version_section.show()
+
+        def worker() -> None:
+            try:
+                result = LinkCheck(
+                    self._game_name, available_builds(self.paths, app_id)
+                )
+                _deliver(self.events.complete, token, url, result, None)
+            except Exception as error:
+                _deliver(self.events.complete, token, url, None, error)
+
+        threading.Thread(
+            target=worker, daemon=True, name="riftlift-list-versions"
+        ).start()
+
     def _validate(self, value: str) -> None:
         self._generation += 1
         self._verified_url = ""
+        self._set_builds([])
         self.timer.stop()
         self.submit.setEnabled(False)
         if not is_valid_rift_store_url(value):
@@ -266,48 +478,78 @@ class StoreGameDialog(QtWidgets.QDialog):
 
         def worker() -> None:
             try:
-                metadata = fetch_catalog_metadata(app_id)
-                self.events.complete.emit(token, value, metadata, None)
+                result = check_store_link(self.paths, app_id)
+                _deliver(self.events.complete, token, value, result, None)
             except Exception as error:
-                self.events.complete.emit(token, value, None, error)
+                _deliver(self.events.complete, token, value, None, error)
 
         threading.Thread(
             target=worker, daemon=True, name="riftlift-link-validation"
         ).start()
 
-    def _finish_validation(self, token: int, value: str, metadata, error) -> None:
+    def _finish_validation(self, token: int, value: str, result, error) -> None:
         if token != self._generation or value != self.entry.text().strip():
             return
-        if error is not None:
-            self.validation.setText(
-                ADD_GAME("game_not_found")
-                if "has no catalog metadata" in str(error)
-                else ADD_GAME("link_check_failed")
-            )
+        if self._verified_url == value:
+            # Version list for a game that was already confirmed (owned library).
+            self.version_section.setText(ADD_GAME("version_section"))
+            if result is not None and self.progress.isHidden():
+                self._set_builds(result.builds)
+            else:
+                self.version_section.hide()
             return
-        if not metadata or not metadata.name.strip():
+        if error is not None:
+            message = str(error)
+            if message == ADD_GAME("sign_in_to_verify"):
+                self.validation.setText(message)
+            elif "has no catalog metadata" in message:
+                self.validation.setText(ADD_GAME("game_not_found"))
+            else:
+                self.validation.setText(ADD_GAME("link_check_failed"))
+            return
+        if not result or not result.name.strip():
             self.validation.setText(ADD_GAME("game_not_found"))
             return
         self._verified_url = value
+        self._game_name = result.name
+        self._set_builds(result.builds)
         self.submit.setEnabled(True)
-        self.validation.setText(ADD_GAME("ready_to_install").format(name=metadata.name))
+        self.validation.setText(ADD_GAME("ready_to_install").format(name=result.name))
 
     def _accept_selection(self) -> None:
         value = self.entry.text().strip()
         if value != self._verified_url:
             self.entry.setFocus()
             return
-        self._start_install(value)
+        selector = self.versions.currentData() if self.versions.count() else None
+        # Resuming continues the run the question already allowed; the link and
+        # the version can't change while paused.
+        if (
+            selector == ALL_BUILDS
+            and not self._paused
+            and not _themed_question(
+                self,
+                ADD_GAME("all_versions").format(count=len(self._builds)),
+                ADD_GAME("all_versions_confirm").format(
+                    count=len(self._builds), name=self._game_name
+                ),
+            )
+        ):
+            return
+        self._start_install(value, selector)
 
-    def _start_install(self, url: str) -> None:
+    def _start_install(self, url: str, selector: str | None = None) -> None:
         if self._busy:
             return
         if self._job is not None:
             self._job.deleteLater()
         self._close_when_paused = False
+        self._paused = False
+        self._version_prefix = ""
         self.sync_steam = self.steam.isChecked()
         self.entry.setEnabled(False)
         self.steam.setEnabled(False)
+        self.versions.setEnabled(False)
         self.submit.setEnabled(False)
         self.cancel_button.setEnabled(False)
         self.progress.setRange(0, 0)
@@ -315,8 +557,11 @@ class StoreGameDialog(QtWidgets.QDialog):
         self.validation.setText(ADD_GAME("starting_install"))
 
         self._busy = True
-        self._job = DownloadJob(self.paths, url, self.sync_steam, self)
+        self._job = DownloadJob(
+            self.paths, url, self.sync_steam, self, build_selector=selector
+        )
         self._job.progress.connect(self.install_events.progress)
+        self._job.version.connect(self._start_version)
         self._job.complete.connect(self.install_events.complete)
         self._job.paused.connect(self._finish_pause)
         self._job.finishing.connect(self._finish_download)
@@ -330,6 +575,13 @@ class StoreGameDialog(QtWidgets.QDialog):
         self.cancel_button.setEnabled(False)
         self.validation.setText(ADD_GAME("finishing_install"))
 
+    def _start_version(self, index: int, total: int) -> None:
+        # With every version selected, Pause works again between versions.
+        self.install_events.version.emit(
+            ADD_GAME("installing_version").format(index=index, total=total)
+        )
+        self.cancel_button.setEnabled(True)
+
     def _cancel_install(self):
         if not self._busy:
             super().reject()
@@ -341,6 +593,7 @@ class StoreGameDialog(QtWidgets.QDialog):
 
     def _finish_pause(self):
         self._busy = False
+        self._paused = True
         self.progress.hide()
         self.submit.setText(ADD_GAME("resume_download"))
         self.submit.setAccessibleName(self.submit.text())
@@ -367,10 +620,15 @@ class StoreGameDialog(QtWidgets.QDialog):
         else:
             super().closeEvent(event)
 
+    def _set_version_prefix(self, prefix: str) -> None:
+        self._version_prefix = prefix
+
     def _update_progress(self, label: str, current: int, total: int) -> None:
         assembling = label == "Assembling files"
         if key := _PHASE_KEYS.get(label):
             label = ADD_GAME(key)
+        if self._version_prefix:
+            label = f"{self._version_prefix} · {label}"
         if total > 0:
             self.progress.setRange(0, total)
             self.progress.setValue(current)
@@ -385,8 +643,38 @@ class StoreGameDialog(QtWidgets.QDialog):
             self.progress.setRange(0, 0)
             self.validation.setText(label)
 
+    def _log(self, text: str) -> None:
+        """Add text to the library window's Activity log, if there is one."""
+        log = getattr(self.parent(), "_append_log", None)
+        if text and log is not None:
+            log(text if text.endswith("\n") else text + "\n")
+
     def _finish_install(self, game, error) -> None:
         self._busy = False
+        failed = self._job.failed_versions if self._job is not None else []
+        # List the failed versions even when none installed: the plain
+        # failure text below cannot say which ones failed or why.
+        if failed:
+            reasons = self._job.failed_version_reasons
+            self._log("".join(f"\n{label}: {why}" for label, why in reasons.items()))
+            # The library window offers no way to open its Activity log, so the
+            # notice says why; versions that failed the same way share a line.
+            groups: dict[tuple[str, str], list[str]] = {}
+            for label, kind in failed:
+                groups.setdefault((kind, reasons.get(label, "")), []).append(label)
+            details = "\n".join(
+                f"{', '.join(labels)}: {ADD_GAME('version_' + kind)}"
+                + (f" ({why})" if why else "")
+                for (kind, why), labels in groups.items()
+            )
+            _themed_notice(
+                self,
+                self._game_name or ADD_GAME("title"),
+                ADD_GAME("versions_failed").format(
+                    failed=len(failed), total=len(self._builds)
+                ),
+                details,
+            )
         if game is not None:
             self.installed_game = game
             self.install_warning = error
@@ -396,6 +684,7 @@ class StoreGameDialog(QtWidgets.QDialog):
             self.progress.hide()
             self.entry.setEnabled(True)
             self.steam.setEnabled(supports_steam_shortcuts())
+            self.versions.setEnabled(True)
             self.submit.setEnabled(True)
             self.cancel_button.setEnabled(True)
             self.cancel_button.setText(ACTION("cancel"))
@@ -404,17 +693,14 @@ class StoreGameDialog(QtWidgets.QDialog):
             self.submit.setAccessibleName(self.submit.text())
             key = (
                 error
-                if isinstance(error, str)
-                and error in {"sign_in_required", "download_failed", "worker_failed"}
+                if isinstance(error, str) and error in _INSTALL_ERRORS
                 else "download_failed"
             )
             message = ADD_GAME(key)
             detail = self._job.error_detail if self._job is not None else ""
             if detail:
                 message += "\n" + detail
-                log = getattr(self.parent(), "_append_log", None)
-                if log is not None:
-                    log(f"\nDownload failed: {detail}\n")
+                self._log(f"\nDownload failed: {detail}\n")
             self.validation.setText(message)
             self.submit.setFocus()
             if self._close_when_paused:

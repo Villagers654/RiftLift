@@ -151,6 +151,30 @@ STRINGS = {
         "phase_downloading": "Downloading",
         "phase_assembling_files": "Assembling files",
         "assembling_progress": "{label}: {done:.1f} / {total:.1f} GB",
+        "sign_in_to_verify": (
+            "This game is not listed in the store. Sign in to Meta to install "
+            "delisted games you own."
+        ),
+        "sign_in_expired": (
+            "Your Meta sign-in has expired. Sign in again from your library to "
+            "install delisted games you own."
+        ),
+        "not_launchable": (
+            "Downloaded, but RiftLift cannot launch this build (often a 32-bit "
+            "build). Its files stay in your games folder."
+        ),
+        "version_section": "Version",
+        "loading_versions": "Loading available versions…",
+        "latest_version": "{label} (latest)",
+        "all_versions": "All versions ({count})",
+        "all_versions_confirm": (
+            "Download all {count} versions of {name}? Each version is a separate "
+            "full install and can use a lot of disk space."
+        ),
+        "installing_version": "Version {index}/{total}",
+        "versions_failed": "{failed} of {total} versions could not be downloaded:",
+        "version_not_launchable": "downloaded, but RiftLift cannot launch it (often a 32-bit build)",
+        "version_failed": "download failed",
     },
     "local_game": {
         "title": "Add a local VR game",
