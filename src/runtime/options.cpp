@@ -30,6 +30,12 @@ Options parse_options(const std::vector<std::string> &args) {
     };
     if (option == "--game")
       o.game = value();
+    else if (option == "--exe")
+      o.exe = value();
+    else if (option == "--name")
+      o.name = value();
+    else if (option == "--args")
+      o.arguments = value();
     else if (option == "--log")
       o.log = value();
     else if (option == "--account")
@@ -56,8 +62,10 @@ Options parse_options(const std::vector<std::string> &args) {
   }
   if (!o.credential_read != !o.credential_write)
     throw std::invalid_argument("Both credential channel handles are required.");
-  if (o.game.empty() && o.probe_openvr.empty() && !o.check)
-    throw std::invalid_argument("--game is required.");
+  if (!o.game.empty() && !o.exe.empty())
+    throw std::invalid_argument("--game and --exe cannot be used together.");
+  if (o.game.empty() && o.exe.empty() && o.probe_openvr.empty() && !o.check)
+    throw std::invalid_argument("--game or --exe is required.");
   return o;
 }
 } // namespace riftlift::runtime

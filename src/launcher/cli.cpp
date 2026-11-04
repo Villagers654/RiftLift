@@ -53,6 +53,9 @@ Library
   uninstall GAME [--yes]         Remove a game from RiftLift; a store install's
                                  files go too, never a local or Steam game's
   play GAME [--as ACCOUNT|local] Launch a game and wait for it to exit
+  play EXE [--name NAME] [--args "ARGS"] [--as ACCOUNT|local]
+                                 Launch any Rift game's .exe the same way,
+                                 without adding it to the library
   logs GAME [--lines N]          The end of a game's last runtime log
   report [GAME] [--upload]       Write a debug report about a game's last run
                                  (the most recent one by default): its likely
@@ -875,14 +878,28 @@ int Cli::uninstall_game(const Args &args) {
 
 int Cli::play_game(const Args &args) {
   wait_scan();
-  auto g = resolve_game(args.word(1, "game"));
-  if (!installed(g.id))
-    throw std::runtime_error(std::format("{} is not installed. Install it first: riftlift-cli install \"{}\"", g.name,
-                                         g.name));
-  std::string key = play_key(g.id);
-  if (auto as = args.value("--as"))
-    key = resolve_account(*as, true);
-  launch_game(g.id, key);
+  const auto &what = args.word(1, "game");
+  // A path to a game's .exe launches it as it would once added, without adding it.
+  const auto file = paths::from_utf8(what);
+  std::error_code ec;
+  const bool executable = lower(paths::utf8(file.extension())) == ".exe" || fs::is_regular_file(file, ec);
+  meta::Game g;
+  if (executable) {
+    std::string key;
+    if (auto as = args.value("--as"))
+      key = resolve_account(*as, true);
+    g.name = args.value("--name").value_or(paths::utf8(file.stem()));
+    g.id = launch_executable(fs::absolute(file), g.name, args.value("--args").value_or(""), key);
+  } else {
+    g = resolve_game(what);
+    if (!installed(g.id))
+      throw std::runtime_error(std::format("{} is not installed. Install it first: riftlift-cli install \"{}\"",
+                                           g.name, g.name));
+    std::string key = play_key(g.id);
+    if (auto as = args.value("--as"))
+      key = resolve_account(*as, true);
+    launch_game(g.id, key);
+  }
   if (!json_)
     std::cout << "Starting " << g.name << "\n" << std::flush;
   wait([&] { return !launch_pending_.contains(g.id); });

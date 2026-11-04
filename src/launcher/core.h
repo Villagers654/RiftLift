@@ -66,6 +66,11 @@ public:
   // steam: whether it goes to Steam; unset takes the default for new games.
   std::string add_local_game(const fs::path &executable, std::string name = {},
                              std::string_view arguments = {}, std::optional<bool> steam = {});
+  // Launches an .exe outside the library as it would launch once added;
+  // returns the id the run is under. Nothing is saved: no game record,
+  // playtime or Steam shortcut.
+  std::string launch_executable(const fs::path &executable, std::string name = {},
+                                std::string_view arguments = {}, std::string_view account = {});
   // Installed Steam games with an Oculus mode (scanned on a worker; the GUI
   // lists them), and adding one.
   void scan_steam_games();
@@ -151,6 +156,10 @@ protected:
   void added_to_steam(const std::string &slug, std::optional<bool> steam);
   bool in_steam(std::string_view app_id) const { return !settings_.steam_skip.contains(std::string(app_id)); }
   void launch_game(std::string_view app_id, std::string_view account);
+  // Starts the runtime for `install` under `app_id`; `game` is its --game or
+  // --exe options. `library`: a library game, whose playtime is kept.
+  void start_runtime(const std::string &app_id, library::Install install,
+                     const library::LaunchChoice &choice, std::vector<std::string> game, bool library);
   std::string selected_, notice_, warning_, auth_status_;
   bool library_partial_ = false;  // Meta did not confirm the whole library
   bool refreshing_ = false, scanning_ = false, signing_in_ = false,

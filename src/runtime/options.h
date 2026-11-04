@@ -2,6 +2,8 @@
 // riftlift-runtime --game <slug> --log <file> --account <key|local>
 //                  --parent-pid <pid> [--console] [--run-seconds N]
 //                  [--credential-read H --credential-write H]
+// riftlift-runtime --exe <game.exe> [--name NAME] [--args ARGS] ...
+//                  (a game outside the library, launched as if added)
 // riftlift-runtime --check
 #include <cstdint>
 #include <string>
@@ -11,6 +13,8 @@ namespace riftlift::runtime {
 
 struct Options {
   std::string game, log, account = "local";
+  // --exe: the record add would write for this .exe, kept in memory only.
+  std::string exe, name, arguments;
   std::uint32_t parent_pid = 0;
   bool console = false;
   std::uint32_t run_seconds = 0;  // 0: until the game exits

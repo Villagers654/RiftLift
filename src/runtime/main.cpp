@@ -4,6 +4,7 @@
 #include "common/log.h"
 #include "common/paths.h"
 #include "common/rift/game.h"
+#include "common/rift/local_games.h"
 #include "runtime/launch.h"
 #include "runtime/layout.h"
 #include "runtime/options.h"
@@ -183,7 +184,9 @@ int main(int argc, char **argv) {
       runtime::LaunchRequest request;
       request.options = options;
       request.root = paths::data_dir();  // honours RIFTLIFT_DATA_DIR
-      request.game = rift::load(request.root, options.game);
+      request.game = options.exe.empty()
+                         ? rift::load(request.root, options.game)
+                         : rift::local_game(paths::from_utf8(options.exe), options.name, {}, options.arguments);
       request.env = runtime::current_environment();
       // The game reaches the launcher's Platform broker through this relay;
       // without a broker its Platform calls answer that Meta is unavailable.
@@ -198,7 +201,7 @@ int main(int argc, char **argv) {
       request.started = [&watcher] { watcher.game_started(); };
       // The wall-clock start lets a debug report match system logs to this run.
       log::info("runtime", "RiftLift runtime {} starting {} (account {}) at {:%FT%TZ}.", runtime::payload_version,
-                options.game, options.account,
+                request.game.slug, options.account,
                 std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
       code = runtime::launch(request);
       // A smoke run whose game was still running at the deadline passed.

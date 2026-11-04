@@ -981,7 +981,26 @@ void Core::launch_game(std::string_view id, std::string_view requested) {
   if ((running_.contains(app_id) && running_[app_id].process.active()) ||
       launch_pending_.contains(app_id))
     throw std::runtime_error("This game is already running or starting.");
-  const auto install = *i;
+  start_runtime(app_id, *i, choice, {"--game", i->plan.package}, true);
+}
+std::string Core::launch_executable(const fs::path &executable, std::string name,
+                                    std::string_view arguments, std::string_view requested) {
+  auto game = rift::local_game(executable, name, {}, arguments);
+  auto install = library::from_record(game);
+  const auto app_id = install.plan.app_id;
+  auto choice = requested == "local" ? library::LaunchChoice{} : launch_choice(app_id, requested);
+  if (choice.status == library::LaunchStatus::reconnect)
+    throw std::runtime_error("Reconnect that account before playing, or choose another.");
+  if ((running_.contains(app_id) && running_[app_id].process.active()) || launch_pending_.contains(app_id))
+    throw std::runtime_error("This game is already running or starting.");
+  std::vector<std::string> options{"--exe", paths::utf8(game.executable_path()), "--name", game.name};
+  if (!game.arguments.empty())
+    options.insert(options.end(), {"--args", rift::join_arguments(game.arguments)});
+  start_runtime(app_id, install, choice, std::move(options), false);
+  return app_id;
+}
+void Core::start_runtime(const std::string &app_id, library::Install install,
+                         const library::LaunchChoice &choice, std::vector<std::string> game, bool library) {
   try {
     game_locks_[app_id] = std::make_unique<FileLock>(
         data_ / "locks" / ("game-" + install.plan.package + ".lock"), false);
@@ -1003,11 +1022,11 @@ void Core::launch_game(std::string_view id, std::string_view requested) {
     // The last run's logs stay beside the new ones for debug reports.
     library::rotate_log(r.log);
     library::rotate_log(r.console);
-    std::vector<std::string> args{
-        "--game",       install.plan.package,
+    std::vector<std::string> args = std::move(game);
+    args.insert(args.end(), {
         "--log",        paths::utf8(r.log),
         "--account",    choice.account_key.empty() ? std::string("local") : choice.account_key,
-        "--parent-pid", std::to_string(current_process_id())};
+        "--parent-pid", std::to_string(current_process_id())});
     if (settings_.console)
       args.push_back("--console");
     if (options_.smoke_seconds)
@@ -1042,12 +1061,14 @@ void Core::launch_game(std::string_view id, std::string_view requested) {
     r.tail.clear();
     r.failure.clear();
     notice_.clear();
-    try {
-      r.played = std::make_unique<playtime::Session>(rift::state_dir(data_), install.plan.package);
-    } catch (const std::exception &e) {
-      log::warn("playtime", "Local playtime tracking could not start: {}", e.what());
-    }
-    if (auto entry = game(app_id)) {
+    r.played.reset();
+    if (library)
+      try {
+        r.played = std::make_unique<playtime::Session>(rift::state_dir(data_), install.plan.package);
+      } catch (const std::exception &e) {
+        log::warn("playtime", "Local playtime tracking could not start: {}", e.what());
+      }
+    if (auto entry = library ? this->game(app_id) : nullptr) {
       entry->recent = uint64_t(std::chrono::system_clock::to_time_t(
           std::chrono::system_clock::now()));
       save_library();
