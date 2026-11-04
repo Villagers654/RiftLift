@@ -91,9 +91,7 @@ void avatar(ImDrawList* dl, ImVec2 c, float r, const AccountView* a, bool ring, 
 
 // Every page opens with a header row of this height; the title and any
 // controls beside it share its center line.
-constexpr float kHeaderHeight = 40, kAfterHeader = 22;
-// Pages and the sidebar start below the window buttons RiftLift draws itself.
-float page_top() { return client_side_decorations() ? 44.f : 24.f; }
+constexpr float kHeaderHeight = 40, kAfterHeader = 22, kChipHeight = 34;  // filter_chip's height
 // List pages (downloads, settings, accounts) share one column width.
 constexpr float kPageWidth = 860;
 // Buttons and dropdowns in rows share one size: as wide as a settings
@@ -212,7 +210,6 @@ void description(std::string_view raw, float width) {
 
 // Where problems are reported.
 constexpr const char* kIssues = "https://github.com/Villagers654/RiftLift/issues";
-constexpr const char* kSignInGuide = "https://github.com/Villagers654/RiftLift/blob/main/docs/MANUAL_SIGN_IN.md";
 
 // A modal dialog in the house style; returns true while open. Every dialog is
 // a title, a short message, optional settings-style rows, and dialog_footer().
@@ -361,7 +358,7 @@ void App::draw() {
   draw_sidebar();
   ImGui::SameLine(0, 0);
 
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {s(36), s(page_top())});
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {s(36), s(24)});
   ImGui::BeginChild("Content", {0, 0}, ImGuiChildFlags_AlwaysUseWindowPadding,
                     (page_ == 0 && selected_.empty()) ? ImGuiWindowFlags_NoScrollWithMouse
                                                       : ImGuiWindowFlags_None);
@@ -508,7 +505,7 @@ void App::draw_toast() {
 }
 
 // Signing in from any browser: Meta's link to open there, then the oculus://
-// address its Continue button tries to open, pasted back (docs/MANUAL_SIGN_IN.md).
+// address its Continue button tries to open, pasted back.
 void App::manual_sign_in() {
   ImFont* rf = fonts().regular;
   ImFont* sf = fonts().semibold;
@@ -519,7 +516,6 @@ void App::manual_sign_in() {
     return;
   }
   const float w = ImGui::GetContentRegionAvail().x;
-  gap(6);
   text(sf, kSmall, color::text, "1. Open this link in any browser and sign in to Meta.");
   gap(8);
   const float copy_w = button_width("Copy link");
@@ -539,7 +535,9 @@ void App::manual_sign_in() {
   ImGui::SetCursorScreenPos({p.x, p.y + h});
   gap(14);
   text(sf, kSmall, color::text, "2. Paste the oculus:// address that Meta's Continue button tries to open.");
-  gap(8);
+  ImGui::SetCursorPosY(ImGui::GetCursorPosY() - s(5));  // the hint belongs to step 2
+  text(rf, kSmall, color::text2, "In Firefox, press Ctrl+Shift+K before Continue, then copy the message it shows.");
+  gap(2);
   if (submit_field("manual-paste", "oculus://\xE2\x80\xA6", &auth_paste_, w, icons::lock)) {
     paste_sign_in(auth_paste_);
     if (verifying_) auth_paste_.clear();
@@ -549,17 +547,11 @@ void App::manual_sign_in() {
     text(rf, kSmall, auth_paste_error_ == "Link copied." ? color::text2 : color::warning, auth_paste_error_);
     gap(4);
   }
-  if (link("How do I find that address?##manual-guide", color::text2)) {
-    // Opening a page can report success with nothing to show it, so the address is copied too.
-    ImGui::SetClipboardText(kSignInGuide);
-    auth_paste_error_ = "The guide's address is copied too, in case no browser opens it.";
-    action([] { open_url(kSignInGuide); });
-  }
 }
 
 void App::draw_sidebar() {
   ImGui::PushStyleColor(ImGuiCol_ChildBg, color::bg);
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {s(16), s(page_top())});
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {s(16), s(24)});
   ImGui::BeginChild("Sidebar", {s(248), 0}, ImGuiChildFlags_AlwaysUseWindowPadding,
                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
   ImGui::PopStyleVar();
@@ -685,11 +677,17 @@ void App::draw_library() {
     // Refresh only shows when it can reach Meta.
     const bool can_refresh = refreshing_ || (session_ && !options_.offline);
     float fixed = s(10) + sort_w + (can_refresh ? s(10) + s(38) : 0);
-    bool beside = content_w - title_w - fixed >= s(200);
-    float search_w = std::min(s(260), (beside ? content_w - title_w : content_w) - fixed);
+    // At the end of the filter chips' row, centred on them, clear of the window
+    // buttons; on its own row under the title when the window is narrow.
+    const bool chips = !all.empty();
+    const float chips_w = chips ? s(240) : title_w;
+    bool beside = content_w - chips_w - fixed >= s(200);
+    float search_w = std::min(s(260), (beside ? content_w - chips_w : content_w) - fixed);
     float toolbar_w = search_w + fixed;
     float x = ImGui::GetWindowContentRegionMax().x - toolbar_w;
-    float y = beside ? top + s(kHeaderHeight - 38) * 0.5f : after_title + s(10);
+    float y = !beside ? after_title + s(10)
+              : chips ? after_title + s(kAfterHeader - 6) + (s(kChipHeight) - s(38)) * 0.5f
+                      : top + s(kHeaderHeight - 38) * 0.5f;
     if (!beside) after_title = y + s(38);
     ImGui::SetCursorPos({beside ? x : ImGui::GetWindowContentRegionMin().x, y});
     search_field("search", "Search", &search_, search_w);
@@ -729,9 +727,10 @@ void App::draw_library() {
     ImGui::SameLine(0, s(8));
     if (filter_chip(installed_label.c_str(), installed_only_)) installed_only_ = true;
     if (add_owned_shown) {
-      // Under the sort and refresh controls, as wide as both.
-      const float fw = std::min(sort_w + s(10) + s(38), row_w * 0.5f);
-      ImGui::SameLine(row_x + row_w - fw);
+      // Under the search and sort controls, as wide as both.
+      const float fw = std::min(s(260) + s(10) + sort_w, row_w * 0.5f);
+      gap(4);
+      ImGui::SetCursorPosX(row_x + row_w - fw);
       add_owned_field(fw);
     }
     gap(18);
@@ -1740,7 +1739,7 @@ void App::draw_account() {
   if (accounts_.empty()) {
     begin_card("connect", w, {28, 28});
     text(sf, kTitle, color::text, "Connect your Meta account", false);
-    gap(18);
+    gap(8);
     if (button(signing_in_ ? "Waiting for Meta\xE2\x80\xA6##signin" : "Sign in with Meta##signin", 0, Tone::primary,
                {s(220), s(46)}, !signing_in_))
       sign_in();
@@ -1842,7 +1841,7 @@ void App::draw_account() {
     }
   }
   if (signing_in_ || !auth_status_.empty()) {
-    gap(10);
+    gap(4);
     // Spinner, status and Cancel share one line, centred on the text.
     ImVec2 row = ImGui::GetCursorScreenPos();
     const float line = measure(rf, kSmall, "Ag").y;

@@ -1211,7 +1211,7 @@ int Cli::accounts_cmd(const Args &args) {
     if (signing_in_ && !verifying_) {
       std::cerr << "1. Open this link in any browser and sign in to Meta:\n\n" << auth_url_ << "\n\n"
                 << "2. Paste the oculus:// address that Meta's Continue button tries to open\n"
-                << "   (or the whole browser console message; see " << "https://github.com/Villagers654/RiftLift/blob/main/docs/MANUAL_SIGN_IN.md):\n"
+                << "   (in Firefox, press Ctrl+Shift+K before Continue and paste the message it shows):\n"
                 << std::flush;
       std::string line;
       while (signing_in_ && !verifying_ && std::getline(std::cin, line)) {

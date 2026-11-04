@@ -50,7 +50,7 @@ Turn on **Add games to Steam** in Settings. Installed games appear in Steam and 
 
 If a game crashes, click **Report issue** on the banner that appears. Otherwise, use **Upload debug report** in Settings. Either way, RiftLift collects the launcher and game logs from your last launch into one debug report, uploads it as an unlisted paste that expires after 90 days, and gives you a link to copy. If the upload fails, attach the report file instead (**Show file**).
 
-[Open an issue](https://github.com/Villagers654/RiftLift/issues) with the game, what happened, how to make it happen again and the debug report link. To watch a game's output live, turn on **Show runtime console** in Settings. If Meta's sign-in window doesn't open, [sign in manually](docs/MANUAL_SIGN_IN.md).
+[Open an issue](https://github.com/Villagers654/RiftLift/issues) with the game, what happened, how to make it happen again and the debug report link. To watch a game's output live, turn on **Show runtime console** in Settings.
 
 ### Build (Windows)
 
