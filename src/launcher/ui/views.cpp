@@ -706,33 +706,14 @@ void App::draw_library() {
   }
   ImGui::SetCursorPosY(after_title + s(kAfterHeader) - s(6));
 
-  // Meta could not list, or did not confirm, this account's games: one it owns
-  // can still be added by its store link, checked on that game's own listing.
-  // --smoke-view link shows it offline for screenshots.
-  const bool add_owned_shown = (session_ && (!refresh_error_.empty() || library_partial_) && !refreshing_ &&
-                                !options_.offline && search_.empty() && !installed_only_) ||
-                               options_.smoke_view == "link";
-  auto add_owned_field = [&](float width) {
-    if (submit_field("owned-link", "Add a game by store link", &owned_link_, width, icons::add, !adding_))
-      add_owned();
-  };
-
-  // Filter chips, and the store-link field at the row's end.
+  // Filter chips.
   if (!all.empty()) {
     auto installed_count = std::ranges::count_if(all, [&](auto& g) { return installed(g.id) != nullptr; });
     std::string all_label = trf("All  {}##all", all.size());
     std::string installed_label = trf("Installed  {}##installed", installed_count);
-    const float row_x = ImGui::GetCursorPosX(), row_w = ImGui::GetContentRegionAvail().x;
     if (filter_chip(all_label.c_str(), !installed_only_)) installed_only_ = false;
     ImGui::SameLine(0, s(8));
     if (filter_chip(installed_label.c_str(), installed_only_)) installed_only_ = true;
-    if (add_owned_shown) {
-      // Under the search and sort controls, as wide as both.
-      const float fw = std::min(s(260) + s(10) + sort_w, row_w * 0.5f);
-      gap(4);
-      ImGui::SetCursorPosX(row_x + row_w - fw);
-      add_owned_field(fw);
-    }
     gap(18);
   }
 
@@ -783,12 +764,6 @@ void App::draw_library() {
       float bw = s(200);
       ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - bw) * 0.5f + ImGui::GetCursorPosX());
       if (button("Refresh library", 0, Tone::primary, {bw, s(44)})) refresh();
-      if (add_owned_shown) {
-        gap(16);
-        const float fw = s(260);
-        ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - fw) * 0.5f + ImGui::GetCursorPosX());
-        add_owned_field(fw);
-      }
     }
     if (!session_ && !refreshing_ && search_.empty()) {
       gap(22);
