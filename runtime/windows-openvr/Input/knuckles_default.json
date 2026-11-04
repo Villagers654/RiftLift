@@ -111,9 +111,6 @@
         },
         {
           "inputs": {
-            "click": {
-              "output": "/actions/touch/in/button_enter"
-            },
             "touch": {
               "output": "/actions/touch/in/touch_thumbrest"
             }

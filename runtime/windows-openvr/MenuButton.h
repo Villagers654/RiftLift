@@ -23,9 +23,10 @@ inline constexpr Button kButtons[] = {{"x", "X", X},
                                       {"b", "B", B},
                                       {"lstick", "Left stick click", LThumb},
                                       {"rstick", "Right stick click", RThumb}};
-inline constexpr int kHoldMs[] = {500, 1000, 2000};
+// How long a held button or two buttons wait; two buttons can also open it at once.
+inline constexpr int kHoldMs[] = {0, 500, 1000, 2000};
 
-// automatic: the controller's own menu button, else both stick clicks held 0.5 s.
+// automatic: the controller's own menu button, else both stick clicks together.
 // button: one button opens the menu instead of doing its own thing.
 // hold: one button held; a shorter press still reaches the game.
 // both: two buttons held together; each still reaches the game.
@@ -36,7 +37,7 @@ inline constexpr std::string_view kModes[] = {"automatic", "button", "hold", "bo
 struct Choice {
   Mode mode = Mode::automatic;
   std::uint32_t first = 0, second = 0;
-  int hold_ms = 500;
+  int hold_ms = 0;
   bool operator==(const Choice &o) const {
     return mode == o.mode && first == o.first && second == o.second && hold_ms == o.hold_ms;
   }
@@ -78,7 +79,7 @@ inline Choice decode(std::string_view text) {
   auto hold = [](std::string_view ms) {
     for (int allowed : kHoldMs)
       if (ms == std::to_string(allowed)) return allowed;
-    return 0;
+    return -1;
   };
   switch (Mode(mode)) {
   case Mode::off:
@@ -88,11 +89,11 @@ inline Choice decode(std::string_view text) {
     if (n == 2 && (c.first = button_bit(parts[1]))) c.mode = Mode::button;
     break;
   case Mode::hold:
-    if (n == 3 && (c.first = button_bit(parts[1])) && (c.hold_ms = hold(parts[2]))) c.mode = Mode::hold;
+    if (n == 3 && (c.first = button_bit(parts[1])) && (c.hold_ms = hold(parts[2])) > 0) c.mode = Mode::hold;
     break;
   case Mode::both:
     if (n == 4 && (c.first = button_bit(parts[1])) && (c.second = button_bit(parts[2])) && c.first != c.second &&
-        (c.hold_ms = hold(parts[3])))
+        (c.hold_ms = hold(parts[3])) >= 0)
       c.mode = Mode::both;
     break;
   default:
@@ -117,7 +118,7 @@ public:
         since_ = -1;
         return buttons;
       }
-      return held(buttons, LThumb | RThumb, 500, now) ? buttons | Enter : buttons;
+      return held(buttons, LThumb | RThumb, 0, now) ? buttons | Enter : buttons;
     case Mode::button: {
       const bool pressed = (buttons & choice_.first) != 0;
       buttons &= ~(choice_.first | Enter);

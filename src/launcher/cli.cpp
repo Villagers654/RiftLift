@@ -1300,7 +1300,7 @@ int Cli::settings_cmd(const Args &args) {
     else if (key == "menu-button") {
       if (riftlift::menu::encode(riftlift::menu::decode(value)) != value)
         throw UsageError("menu-button takes automatic, off, button:B, hold:B:MS or both:B:B:MS, with B one of "
-                         "x, y, a, b, lstick or rstick and MS 500, 1000 or 2000.");
+                         "x, y, a, b, lstick or rstick and MS 500, 1000 or 2000 (both: also 0).");
       next.menu_button = value;
     }
     else

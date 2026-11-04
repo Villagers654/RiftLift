@@ -1651,7 +1651,7 @@ void App::draw_settings() {
     const char* modes[] = {"Automatic", "One button", "Hold a button", "Two buttons", "Off"};
     const char* names[std::size(menu::kButtons)];
     for (size_t i = 0; i < std::size(menu::kButtons); ++i) names[i] = menu::kButtons[i].label.data();
-    const char* holds[] = {"0.5 s", "1 s", "2 s"};
+    const char* holds[] = {"At once", "0.5 s", "1 s", "2 s"};
     auto index = [](std::uint32_t bit) {
       for (int i = 0; i < int(std::size(menu::kButtons)); ++i)
         if (menu::kButtons[i].bit == bit) return i;
@@ -1664,9 +1664,10 @@ void App::draw_settings() {
         // Each way starts from the buttons it used last, else a free pair.
         choice.mode = menu::Mode(mode);
         if (choice.mode == menu::Mode::both && (!choice.second || choice.second == choice.first))
-          choice = {menu::Mode::both, menu::LThumb, menu::RThumb, choice.hold_ms};
+          choice = {menu::Mode::both, menu::LThumb, menu::RThumb, 0};
         else if (!choice.first)
           choice.first = choice.mode == menu::Mode::hold ? menu::B : menu::Y;
+        if (choice.mode == menu::Mode::hold && choice.hold_ms == 0) choice.hold_ms = 1000;
         changed = true;
       }
     });
@@ -1704,10 +1705,12 @@ void App::draw_settings() {
       }
       if (choice.mode != menu::Mode::button) {
         divider();
-        int hold = int(std::ranges::find(menu::kHoldMs, choice.hold_ms) - std::begin(menu::kHoldMs));
+        // A held button needs some time; two buttons can open it at once.
+        const int skip = choice.mode == menu::Mode::hold ? 1 : 0;
+        int hold = int(std::ranges::find(menu::kHoldMs, choice.hold_ms) - std::begin(menu::kHoldMs)) - skip;
         setting_row("Hold for", dw, s(38), [&] {
-          if (dropdown("menu-hold", "", holds, 3, &hold, dw)) {
-            choice.hold_ms = menu::kHoldMs[hold];
+          if (dropdown("menu-hold", "", holds + skip, 4 - skip, &hold, dw)) {
+            choice.hold_ms = menu::kHoldMs[hold + skip];
             changed = true;
           }
         });

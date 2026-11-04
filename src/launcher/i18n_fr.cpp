@@ -179,6 +179,7 @@ constexpr std::pair<std::string_view, std::string_view> kFrench[] = {
     {"Button"sv, "Bouton"sv},
     {"Buttons"sv, "Boutons"sv},
     {"Hold for"sv, "Maintenir"sv},
+    {"At once"sv, "Immédiatement"sv},
     {"Left stick click"sv, "Clic du stick gauche"sv},
     {"Right stick click"sv, "Clic du stick droit"sv},
     {"Paste the address instead"sv, "Coller l'adresse à la place"sv},

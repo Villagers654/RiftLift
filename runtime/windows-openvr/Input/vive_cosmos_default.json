@@ -58,15 +58,6 @@
         {
           "inputs": {
             "click": {
-              "output": "/actions/touch/in/button_indextrigger"
-            }
-          },
-          "mode": "button",
-          "path": "/user/hand/left/input/bumper"
-        },
-        {
-          "inputs": {
-            "click": {
               "output": "/actions/touch/in/button_ax"
             },
             "touch": {
@@ -144,15 +135,6 @@
           },
           "mode": "trigger",
           "path": "/user/hand/right/input/trigger"
-        },
-        {
-          "inputs": {
-            "click": {
-              "output": "/actions/touch/in/button_indextrigger"
-            }
-          },
-          "mode": "button",
-          "path": "/user/hand/right/input/bumper"
         },
         {
           "inputs": {

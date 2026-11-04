@@ -4,22 +4,7 @@
   "description": "",
   "name": "RiftLift for Oculus Touch",
   "bindings": {
-      "/actions/touch": {
-      "chords": [
-        {
-          "output": "/actions/touch/in/button_enter",
-          "inputs": [
-            [
-              "/user/hand/left/input/x",
-              "click"
-            ],
-            [
-              "/user/hand/left/input/y",
-              "click"
-            ]
-          ]
-        }
-      ],
+    "/actions/touch": {
       "poses": [
         {
           "path": "/user/hand/left/pose/handgrip",
@@ -131,6 +116,9 @@
           "inputs": {
             "click": {
               "output": "/actions/touch/in/button_ax"
+            },
+            "touch": {
+              "output": "/actions/touch/in/touch_ax"
             }
           },
           "mode": "button",
@@ -140,6 +128,9 @@
           "inputs": {
             "click": {
               "output": "/actions/touch/in/button_by"
+            },
+            "touch": {
+              "output": "/actions/touch/in/touch_by"
             }
           },
           "mode": "button",
@@ -159,6 +150,24 @@
           },
           "mode": "trigger",
           "path": "/user/hand/right/input/trigger"
+        },
+        {
+          "inputs": {
+            "touch": {
+              "output": "/actions/touch/in/touch_thumbrest"
+            }
+          },
+          "mode": "button",
+          "path": "/user/hand/left/input/thumbrest"
+        },
+        {
+          "inputs": {
+            "touch": {
+              "output": "/actions/touch/in/touch_thumbrest"
+            }
+          },
+          "mode": "button",
+          "path": "/user/hand/right/input/thumbrest"
         }
       ]
     }

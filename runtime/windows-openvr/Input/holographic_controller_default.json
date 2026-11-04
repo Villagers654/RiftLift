@@ -133,17 +133,11 @@
         },
         {
           "inputs": {
-            "east": {
-              "output": "/actions/touch/in/button_by"
-            },
             "north": {
-              "output": "/actions/touch/in/button_thumb"
+              "output": "/actions/touch/in/button_by"
             },
             "south": {
               "output": "/actions/touch/in/button_ax"
-            },
-            "west": {
-              "output": "/actions/touch/in/button_thumb"
             }
           },
           "mode": "dpad_click",
@@ -172,17 +166,11 @@
         },
         {
           "inputs": {
-            "east": {
-              "output": "/actions/touch/in/touch_by"
-            },
             "north": {
-              "output": "/actions/touch/in/touch_thumb"
+              "output": "/actions/touch/in/touch_by"
             },
             "south": {
               "output": "/actions/touch/in/touch_ax"
-            },
-            "west": {
-              "output": "/actions/touch/in/touch_thumb"
             }
           },
           "mode": "dpad_touch",
@@ -205,17 +193,11 @@
         },
         {
           "inputs": {
-            "east": {
-              "output": "/actions/touch/in/button_thumb"
-            },
             "north": {
-              "output": "/actions/touch/in/button_thumb"
+              "output": "/actions/touch/in/button_by"
             },
             "south": {
               "output": "/actions/touch/in/button_ax"
-            },
-            "west": {
-              "output": "/actions/touch/in/button_by"
             }
           },
           "mode": "dpad_click",
@@ -226,17 +208,11 @@
         },
         {
           "inputs": {
-            "east": {
-              "output": "/actions/touch/in/touch_thumb"
-            },
             "north": {
-              "output": "/actions/touch/in/touch_thumb"
+              "output": "/actions/touch/in/touch_by"
             },
             "south": {
               "output": "/actions/touch/in/touch_ax"
-            },
-            "west": {
-              "output": "/actions/touch/in/touch_by"
             }
           },
           "mode": "dpad_touch",
@@ -253,17 +229,11 @@
         },
         {
           "inputs": {
-            "click": {
-              "output": "/actions/touch/in/button_enter"
-            }
-          },
-          "mode": "button",
-          "path": "/user/hand/right/input/application_menu"
-        },
-        {
-          "inputs": {
             "position": {
               "output": "/actions/touch/in/thumbstick"
+            },
+            "click": {
+              "output": "/actions/touch/in/button_thumb"
             }
           },
           "mode": "joystick",
@@ -273,6 +243,9 @@
           "inputs": {
             "position": {
               "output": "/actions/touch/in/thumbstick"
+            },
+            "click": {
+              "output": "/actions/touch/in/button_thumb"
             }
           },
           "mode": "joystick",

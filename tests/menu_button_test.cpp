@@ -8,8 +8,9 @@ TEST_CASE("menu button: choices survive RIFTLIFT_MENU") {
                           Choice{Mode::both, LThumb, RThumb, 500}})
     CHECK(decode(encode(c)) == c);
   CHECK(encode(Choice{Mode::both, LThumb, RThumb, 2000}) == "both:lstick:rstick:2000");
+  CHECK(decode("both:lstick:rstick:0") == Choice{Mode::both, LThumb, RThumb, 0});
   // Anything else is Automatic.
-  for (const char *bad : {"", "sometimes", "button", "button:z", "hold:b", "hold:b:750", "both:a:a:500",
+  for (const char *bad : {"", "sometimes", "button", "button:z", "hold:b", "hold:b:750", "hold:b:0", "both:a:a:500",
                           "both:a:b", "off:x", "button:b:500"})
     CHECK(decode(bad) == Choice{});
 }
@@ -21,14 +22,11 @@ TEST_CASE("menu button: each way opens the menu") {
     CHECK(menu.apply(LThumb | RThumb, true, 0) == (LThumb | RThumb));
     CHECK(menu.apply(LThumb | RThumb, true, 5) == (LThumb | RThumb));
   }
-  SUBCASE("automatic without a menu button: both stick clicks held 0.5 s") {
+  SUBCASE("automatic without a menu button: both stick clicks together") {
     Menu menu;
-    CHECK(menu.apply(LThumb | RThumb, false, 1.0) == (LThumb | RThumb));
-    CHECK(menu.apply(LThumb | RThumb, false, 1.4) == (LThumb | RThumb));
-    CHECK(menu.apply(LThumb | RThumb, false, 1.5) == (LThumb | RThumb | Enter));
-    CHECK(menu.apply(LThumb, false, 1.6) == LThumb);
-    // Letting go starts the hold over.
-    CHECK(menu.apply(LThumb | RThumb, false, 1.7) == (LThumb | RThumb));
+    CHECK(menu.apply(LThumb, false, 1.0) == LThumb);
+    CHECK(menu.apply(LThumb | RThumb, false, 1.1) == (LThumb | RThumb | Enter));
+    CHECK(menu.apply(RThumb, false, 1.2) == RThumb);
   }
   SUBCASE("one button stands in for the menu") {
     Menu menu({Mode::button, B});
