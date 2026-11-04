@@ -206,11 +206,17 @@ int wmain(int argc, wchar_t *argv[]) {
 			workingDir.resize(separator);
 	}
 
+	// A fallback for processes the hooks don't reach: the injected bridge answers
+	// the game's own OpenEvent for this name. Another program (Meta's Oculus
+	// service, or Revive started elevated) may already own an event of this name
+	// that we may not create: use it if we can open it, else go on without.
 	HANDLE connectedEvent = CreateEventW(NULL, TRUE, TRUE, L"OculusHMDConnected");
 	if (!connectedEvent)
 	{
-		Log("Failed to create Oculus compatibility event (%lu)\n", GetLastError());
-		return -1;
+		DWORD error = GetLastError();
+		connectedEvent = OpenEventW(SYNCHRONIZE, FALSE, L"OculusHMDConnected");
+		Log("Oculus compatibility event not created (%lu); %s\n", error,
+			connectedEvent ? "using the existing one" : "continuing without it");
 	}
 	std::vector<const char*> dllPaths;
 	dllPaths.reserve(dlls.size());
