@@ -92,6 +92,8 @@ void avatar(ImDrawList* dl, ImVec2 c, float r, const AccountView* a, bool ring, 
 // Every page opens with a header row of this height; the title and any
 // controls beside it share its center line.
 constexpr float kHeaderHeight = 40, kAfterHeader = 22;
+// Pages and the sidebar start below the window buttons RiftLift draws itself.
+float page_top() { return client_side_decorations() ? 44.f : 24.f; }
 // List pages (downloads, settings, accounts) share one column width.
 constexpr float kPageWidth = 860;
 // Buttons and dropdowns in rows share one size: as wide as a settings
@@ -359,7 +361,7 @@ void App::draw() {
   draw_sidebar();
   ImGui::SameLine(0, 0);
 
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {s(36), s(24)});
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {s(36), s(page_top())});
   ImGui::BeginChild("Content", {0, 0}, ImGuiChildFlags_AlwaysUseWindowPadding,
                     (page_ == 0 && selected_.empty()) ? ImGuiWindowFlags_NoScrollWithMouse
                                                       : ImGuiWindowFlags_None);
@@ -557,7 +559,7 @@ void App::manual_sign_in() {
 
 void App::draw_sidebar() {
   ImGui::PushStyleColor(ImGuiCol_ChildBg, color::bg);
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {s(16), s(24)});
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {s(16), s(page_top())});
   ImGui::BeginChild("Sidebar", {s(248), 0}, ImGuiChildFlags_AlwaysUseWindowPadding,
                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
   ImGui::PopStyleVar();
@@ -680,7 +682,9 @@ void App::draw_library() {
     const char* sorts[] = {"Name", "Recently played"};
     float content_w = ImGui::GetContentRegionAvail().x;
     float title_w = measure(fonts().semibold, kDisplay, "Library").x + s(warning_.empty() ? 24 : 54);
-    float fixed = s(10) + sort_w + s(10) + s(38);
+    // Refresh only shows when it can reach Meta.
+    const bool can_refresh = refreshing_ || (session_ && !options_.offline);
+    float fixed = s(10) + sort_w + (can_refresh ? s(10) + s(38) : 0);
     bool beside = content_w - title_w - fixed >= s(200);
     float search_w = std::min(s(260), (beside ? content_w - title_w : content_w) - fixed);
     float toolbar_w = search_w + fixed;
@@ -691,13 +695,14 @@ void App::draw_library() {
     search_field("search", "Search", &search_, search_w);
     ImGui::SameLine(0, s(10));
     dropdown("sort", "Sort by: ", sorts, 2, &sort_, sort_w);
-    ImGui::SameLine(0, s(10));
-    if (refreshing_) {
+    if (can_refresh) ImGui::SameLine(0, s(10));
+    if (!can_refresh) {
+    } else if (refreshing_) {
       ImVec2 p = ImGui::GetCursorScreenPos();
       ImGui::Dummy({s(38), s(38)});
       ImGui::SetCursorScreenPos({p.x + s(10), p.y + s(10)});
       spinner(9, color::text2);
-    } else if (icon_button("refresh", icons::refresh, 38, session_ && !options_.offline, true)) {
+    } else if (icon_button("refresh", icons::refresh, 38, true, true)) {
       refresh();
     }
   }
