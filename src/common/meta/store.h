@@ -65,6 +65,9 @@ struct Build {
 // The published PC builds in Meta's app-history response; builds on no
 // release channel are internal uploads the CDN refuses.
 std::vector<Build> parse_history(const Json &response);
+// What Meta's CDN said with an error, for messages and logs: its JSON error
+// message or the start of its text, on one line, without tokens; empty if none.
+std::string cdn_message(std::string_view body);
 // Both lists by binary id, newest version code first; supportedBinaries'
 // builds are the offered ones and keep their change logs.
 std::vector<Build> merge_builds(std::vector<Build> offered, const std::vector<Build> &history);
@@ -111,6 +114,8 @@ public:
   Json manifest(std::string_view binary_id) const;
   // A segment's zlib stream; inflate it and check its SHA-256.
   std::string segment(std::string_view binary_id, std::string_view sha256) const;
+  // HTTP 410 from the CDN: Meta no longer has the files of that build.
+  static constexpr long kGone = 410;
 
 private:
   std::string token_;

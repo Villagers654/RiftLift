@@ -96,7 +96,11 @@ private:
   std::jthread thread_;
   std::string active_key() const;
   void run(std::stop_token stop);
-  void install(Entry &e, meta::Store &store, std::stop_token stop);
+  // `binary`: the build to install; empty takes the job's own (its pin, or the newest).
+  void install(Entry &e, meta::Store &store, std::stop_token stop, std::string_view binary = {});
+  // install(), and when Meta has dropped the files of the newest build (HTTP
+  // 410), the next build it offers, unless the job asked for that version.
+  void install_available(Entry &e, meta::Store &store, std::stop_token stop);
   bool visible(const Job &job) const { return job.account == active_account_; }
   void save_locked();
   void release(const std::shared_ptr<Entry> &e);

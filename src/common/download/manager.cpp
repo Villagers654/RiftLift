@@ -389,8 +389,37 @@ bool Manager::busy() const {
            e->job.state == State::downloading;
   });
 }
-void Manager::install(Entry &e, meta::Store &store, std::stop_token stop) {
-  auto plan = store.owned_plan(e.job.app_id, e.job.binary_id);
+void Manager::install_available(Entry &e, meta::Store &store, std::stop_token stop) {
+  try {
+    install(e, store, stop);
+    return;
+  } catch (const meta::RequestError &error) {
+    if (error.status != meta::Store::kGone || e.job.pinned || stop.stop_requested())
+      throw;
+    log::warn("downloads", "{}", error.what());
+  }
+  // Newest first, as Meta lists them; the one that failed is the first.
+  const auto offered = store.builds(e.job.app_id);
+  for (size_t i = 1; i < offered.size(); ++i) {
+    log::info("downloads", "Trying build {} of {} instead.", offered[i].label(), e.job.app_id);
+    try {
+      install(e, store, stop, offered[i].binary_id);
+      log::info("downloads", "Installed build {} of {}: Meta no longer serves the newer one.", offered[i].label(),
+                e.job.app_id);
+      return;
+    } catch (const meta::RequestError &error) {
+      if (error.status != meta::Store::kGone || stop.stop_requested())
+        throw;
+      log::warn("downloads", "{}", error.what());
+    }
+  }
+  throw meta::RequestError(meta::Store::kGone,
+                           offered.size() > 1
+                               ? "Meta no longer serves the files of any build it offers for this game."
+                               : "Meta no longer serves the files of this game's build.");
+}
+void Manager::install(Entry &e, meta::Store &store, std::stop_token stop, std::string_view binary) {
+  auto plan = store.owned_plan(e.job.app_id, binary.empty() ? std::string_view(e.job.binary_id) : binary);
   {
     std::lock_guard lock(mutex_);
     // An earlier install keeps its folder name; a new one is named for the game.
@@ -473,6 +502,7 @@ void Manager::install(Entry &e, meta::Store &store, std::stop_token stop) {
   std::atomic<uint64_t> received{0};
   std::mutex failure_mutex;
   std::string failure;
+  long failure_status = 0;  // a Meta HTTP status, to tell a dropped build (410) apart
   std::stop_source abort;
   std::stop_callback forward(stop, [&] { abort.request_stop(); });
   const auto start = std::chrono::steady_clock::now();
@@ -518,6 +548,9 @@ void Manager::install(Entry &e, meta::Store &store, std::stop_token stop) {
         if (failure.empty() && !stop.stop_requested()) {
           try {
             throw;
+          } catch (const meta::RequestError &error) {
+            failure = error.what();
+            failure_status = error.status;
           } catch (const std::exception &error) {
             failure = error.what();
           } catch (...) {
@@ -536,8 +569,11 @@ void Manager::install(Entry &e, meta::Store &store, std::stop_token stop) {
   }
   if (stop.stop_requested())
     throw std::runtime_error("Transfer paused.");
-  if (!failure.empty())
+  if (!failure.empty()) {
+    if (failure_status)
+      throw meta::RequestError(failure_status, failure);
     throw std::runtime_error(failure);
+  }
   {
     std::lock_guard lock(mutex_);
     e.job.phase = "Assembling files";
@@ -651,7 +687,7 @@ void Manager::run(std::stop_token shutdown) {
       if (token.empty())
         throw std::runtime_error("Sign in before resuming downloads.");
       meta::Store store(std::move(token), stop, services_.query, services_.read);
-      install(*e, store, stop);
+      install_available(*e, store, stop);
       {
         std::lock_guard lock(mutex_);
         e->job.state = State::complete;

@@ -396,6 +396,29 @@ Json Store::manifest(std::string_view binary_id) const {
     throw std::runtime_error("The build manifest contains no file list.");
   return json;
 }
+std::string cdn_message(std::string_view body) {
+  std::string text;
+  try {
+    const auto json = parse_json(body);
+    const auto &error = field(json, "error");
+    text = error.is_object() ? str(error, "message") : error.is_string() ? error.get<std::string>() : str(json, "message");
+  } catch (...) {
+    // Not JSON: plain text only, never an HTML page.
+    if (body.find('<') == std::string_view::npos)
+      text = body.substr(0, 400);
+  }
+  for (char &c : text)
+    if (static_cast<unsigned char>(c) < 0x20)
+      c = ' ';
+  // Tokens are never echoed back, but a message is shown and uploaded in reports.
+  static const std::regex secret(R"riftlift((access_token=)?(OC|FRL)[A-Za-z0-9|%_-]{12,})riftlift");
+  text = std::regex_replace(text, secret, "[token]");
+  text.erase(0, text.find_first_not_of(' '));
+  text.erase(text.find_last_not_of(' ') + 1);
+  if (text.size() > 160)
+    text = text.substr(0, 157) + "...";
+  return text;
+}
 std::string Store::segment(std::string_view binary_id, std::string_view sha256) const {
   if (!digits(binary_id) || !sha256_hex(sha256))
     throw std::runtime_error("Invalid segment request.");
@@ -404,8 +427,14 @@ std::string Store::segment(std::string_view binary_id, std::string_view sha256) 
                                         {"binary_id", std::string(binary_id)},
                                         {"segment_sha256", std::string(sha256)}}),
                         64 * 1024 * 1024);
-  if (response.status < 200 || response.status >= 300)
-    throw RequestError(response.status, std::format("Segment {} returned HTTP {}.", sha256.substr(0, 12), response.status));
+  if (response.status < 200 || response.status >= 300) {
+    const auto said = cdn_message(response.body);
+    const auto detail = std::format("HTTP {}{}", response.status, said.empty() ? "" : ": " + said);
+    if (response.status == kGone)
+      throw RequestError(response.status, std::format("Meta no longer serves segment {} of build {} ({}).",
+                                                      sha256.substr(0, 12), binary_id, detail));
+    throw RequestError(response.status, std::format("Segment {} returned {}.", sha256.substr(0, 12), detail));
+  }
   return std::move(response.body);
 }
 Plan Store::owned_plan(std::string_view id, std::string_view binary_id) const {
