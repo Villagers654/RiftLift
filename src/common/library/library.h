@@ -98,6 +98,9 @@ struct Settings {
   std::string language = "auto";
   // Games that download at once (Settings > Library); one by default.
   int parallel_downloads = 1;
+  // Settings > Runtime > Menu button, as RIFTLIFT_MENU spells it
+  // (runtime/windows-openvr/MenuButton.h).
+  std::string menu_button = "automatic";
   bool runtime_override() const;
   // `games` first, then the other library folders.
   std::vector<fs::path> roots() const;

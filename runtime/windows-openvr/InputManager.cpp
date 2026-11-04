@@ -10,6 +10,10 @@
 #include <Windows.h>
 #include <Shlobj.h>
 
+static_assert(riftlift::menu::A == ovrButton_A && riftlift::menu::B == ovrButton_B && riftlift::menu::RThumb == ovrButton_RThumb &&
+	riftlift::menu::X == ovrButton_X && riftlift::menu::Y == ovrButton_Y && riftlift::menu::LThumb == ovrButton_LThumb &&
+	riftlift::menu::Enter == ovrButton_Enter, "MenuButton.h follows LibOVR's button bits");
+
 ovrResult InputManager::InputErrorToOvrError(vr::EVRInputError error)
 {
 	switch (error)
@@ -197,14 +201,28 @@ ovrResult InputManager::GetInputState(ovrSession session, ovrControllerType cont
 	// hidden indefinitely by the initial ConnectedControllers snapshot.
 	UpdateConnectedControllers();
 
+	// Touch first, so the menu choice (MenuButton.h) sees only Touch's buttons.
 	uint32_t types = 0;
-	for (InputDevice* device : m_InputDevices)
+	bool menu_bound = false;
+	for (int pass = 0; pass < 2; ++pass)
 	{
-		if (controllerType & device->GetType() && ConnectedControllers & device->GetType())
+		for (InputDevice* device : m_InputDevices)
 		{
-			if (device->GetInputState(session, inputState))
-				types |= device->GetType();
+			auto* touch = dynamic_cast<OculusTouch*>(device);
+			if ((touch != nullptr) != (pass == 0))
+				continue;
+			if (controllerType & device->GetType() && ConnectedControllers & device->GetType())
+			{
+				if (device->GetInputState(session, inputState))
+				{
+					types |= device->GetType();
+					menu_bound |= touch && touch->MenuBound;
+				}
+			}
 		}
+		// Both hands together: a chord or the right hand's buttons need the other's state.
+		if (pass == 0 && (types & ovrControllerType_Touch) == ovrControllerType_Touch)
+			inputState->Buttons = m_Menu.apply(inputState->Buttons, menu_bound, ovr_GetTimeInSeconds());
 	}
 
 	inputState->TimeInSeconds = ovr_GetTimeInSeconds();
@@ -487,7 +505,10 @@ bool InputManager::OculusTouch::GetInputState(ovrSession session, ovrInputState*
 
 	unsigned int buttons = 0, touches = 0;
 
-	if (GetDigital(m_Button_Enter))
+	vr::InputDigitalActionData_t enter = {};
+	vr::VRInput()->GetDigitalActionData(m_Button_Enter, &enter, sizeof(enter), Handle);
+	MenuBound = enter.bActive;
+	if (enter.bState)
 		inputState->Buttons |= ovrButton_Enter;
 
 	if (GetDigital(m_Button_AX))

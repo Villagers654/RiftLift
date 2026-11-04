@@ -1018,6 +1018,9 @@ void Core::launch_game(std::string_view id, std::string_view requested) {
     Environment environment{{"RIFTLIFT_LOG_LEVEL", std::to_string(settings_.log_level)},
                             {"RIFTLIFT_DATA_DIR", paths::utf8(data_)},
                             {"RIFTLIFT_PROTON_LOG", settings_.debug_logging ? "1" : "0"}};
+    // RIFTLIFT_MENU: Settings > Menu button, applied by the runtime's Touch input.
+    if (settings_.menu_button != "automatic")
+      environment.push_back({"RIFTLIFT_MENU", settings_.menu_button});
     // The game's Platform calls (identity, entitlement) reach Meta through
     // this broker, and only when the game makes them: nothing is asked here.
     PipeChannel::Handler broker;

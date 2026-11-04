@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HapticsBuffer.h"
+#include "MenuButton.h"
 #include "OVR_CAPI.h"
 #include "Extras/OVR_Math.h"
 
@@ -81,6 +82,8 @@ public:
 		virtual void GetVibrationState(ovrHapticsPlaybackState* outState) { *outState = m_Haptics.GetState(); }
 
 		vr::ETrackedControllerRole Role;
+		// Whether the bindings give this hand a menu button (Automatic's fallback).
+		bool MenuBound = false;
 
 	private:
 		vr::VRActionHandle_t m_Button_AX;
@@ -197,6 +200,7 @@ private:
 	std::recursive_mutex m_Lock;
 	vr::EVRInputError m_LastError;
 	bool m_InputReady;
+	riftlift::menu::Menu m_Menu{riftlift::menu::from_environment()};
 	ovrPoseStatef m_LastPoses[vr::k_unMaxTrackedDeviceCount];
 	ovrPoseStatef m_LastHandPose[ovrHand_Count];
 

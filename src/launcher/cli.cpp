@@ -4,6 +4,7 @@
 #include "common/log.h"
 #include "common/search.h"
 #include "launcher/core.h"
+#include "runtime/windows-openvr/MenuButton.h"
 #include "launcher/ui/rich_text.h"
 
 #include <algorithm>
@@ -95,7 +96,9 @@ Settings
                                  log-level trace|debug|info|warn|error |
                                  console on|off | debug-logging on|off |
                                  add-to-steam on|off |
-                                 add-new-to-steam on|off | language auto|en|fr
+                                 add-new-to-steam on|off | language auto|en|fr |
+                                 menu-button automatic|off|button:B|hold:B:MS|
+                                             both:B:B:MS
 
 GAME is a name (or a unique part of it), an app id or a slug.
 ACCOUNT is a name, alias, account key or the number `accounts` shows.
@@ -1294,6 +1297,12 @@ int Cli::settings_cmd(const Args &args) {
       next.add_games_to_steam = on_off(value);
     else if (key == "add-new-to-steam")
       next.steam_add_new = on_off(value);
+    else if (key == "menu-button") {
+      if (riftlift::menu::encode(riftlift::menu::decode(value)) != value)
+        throw UsageError("menu-button takes automatic, off, button:B, hold:B:MS or both:B:B:MS, with B one of "
+                         "x, y, a, b, lstick or rstick and MS 500, 1000 or 2000.");
+      next.menu_button = value;
+    }
     else
       throw UsageError(std::format("Unknown setting \"{}\".", key));
     apply_settings(std::move(next), false);
@@ -1308,7 +1317,8 @@ int Cli::settings_cmd(const Args &args) {
            {"console", settings_.console},
            {"debug-logging", settings_.debug_logging},
            {"add-to-steam", settings_.add_games_to_steam},
-           {"add-new-to-steam", settings_.steam_add_new}};
+           {"add-new-to-steam", settings_.steam_add_new},
+           {"menu-button", settings_.menu_button}};
   Json folders = Json::array();
   for (const auto &folder : settings_.libraries)
     folders.push_back(paths::utf8(folder));

@@ -15,6 +15,7 @@ endif()
 add_executable(riftlift-cli cli.cpp)
 target_compile_definitions(riftlift-cli PRIVATE RIFTLIFT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(riftlift-cli PRIVATE riftlift_launcher_core)
+target_include_directories(riftlift-cli PRIVATE ${PROJECT_SOURCE_DIR})
 if(WIN32)
   add_custom_command(TARGET riftlift-cli POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
     ${webview2_SOURCE_DIR}/build/native/x64/WebView2Loader.dll $<TARGET_FILE_DIR:riftlift-cli>/WebView2Loader.dll)
@@ -58,7 +59,7 @@ file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/launcher/icon_font.h
   CONTENT "#pragma once
 inline constexpr unsigned char kIconFont[] = {${ICON_FONT_BYTES}};
 " @ONLY)
-target_include_directories(riftlift PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
+target_include_directories(riftlift PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated ${PROJECT_SOURCE_DIR})
 target_compile_definitions(riftlift PRIVATE RIFTLIFT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(riftlift PRIVATE riftlift_launcher_core riftlift_imgui webpdecoder)
 target_include_directories(riftlift SYSTEM PRIVATE ${stb_SOURCE_DIR} ${webp_SOURCE_DIR}/src ${nanosvg_SOURCE_DIR}/src)

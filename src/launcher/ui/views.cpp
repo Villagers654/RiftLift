@@ -1,4 +1,5 @@
 #include "launcher/app.h"
+#include "runtime/windows-openvr/MenuButton.h"
 #include "launcher/ui/rich_text.h"
 #include "launcher/ui/style.h"
 #include "launcher/window_style.h"
@@ -1641,6 +1642,82 @@ void App::draw_settings() {
   setting_row("Show runtime console", s(44), s(24), [&] {
     if (toggle("console", &settings_.console)) action([&] { save_settings(); });
   });
+  divider();
+  {
+    // How the game's menu opens (runtime/windows-openvr/MenuButton.h).
+    namespace menu = riftlift::menu;
+    auto choice = menu::decode(settings_.menu_button);
+    auto changed = false;
+    const char* modes[] = {"Automatic", "One button", "Hold a button", "Two buttons", "Off"};
+    const char* names[std::size(menu::kButtons)];
+    for (size_t i = 0; i < std::size(menu::kButtons); ++i) names[i] = menu::kButtons[i].label.data();
+    const char* holds[] = {"0.5 s", "1 s", "2 s"};
+    auto index = [](std::uint32_t bit) {
+      for (int i = 0; i < int(std::size(menu::kButtons)); ++i)
+        if (menu::kButtons[i].bit == bit) return i;
+      return 0;
+    };
+    const float dw = s(180);
+    int mode = int(choice.mode);
+    setting_row("Menu button", dw, s(38), [&] {
+      if (dropdown("menu-mode", "", modes, 5, &mode, dw)) {
+        // Each way starts from the buttons it used last, else a free pair.
+        choice.mode = menu::Mode(mode);
+        if (choice.mode == menu::Mode::both && (!choice.second || choice.second == choice.first))
+          choice = {menu::Mode::both, menu::LThumb, menu::RThumb, choice.hold_ms};
+        else if (!choice.first)
+          choice.first = choice.mode == menu::Mode::hold ? menu::B : menu::Y;
+        changed = true;
+      }
+    });
+    const bool one = choice.mode == menu::Mode::button || choice.mode == menu::Mode::hold;
+    if (one || choice.mode == menu::Mode::both) {
+      divider();
+      int first = index(choice.first), second = index(choice.second);
+      if (one) {
+        setting_row("Button", dw, s(38), [&] {
+          if (dropdown("menu-first", "", names, int(std::size(names)), &first, dw)) {
+            choice.first = menu::kButtons[first].bit;
+            changed = true;
+          }
+        });
+      } else {
+        const float plus = s(28);
+        setting_row("Buttons", dw * 2 + plus, s(38), [&] {
+          if (dropdown("menu-first", "", names, int(std::size(names)), &first, dw) && first != second) {
+            choice.first = menu::kButtons[first].bit;
+            changed = true;
+          }
+          ImGui::SameLine(0, 0);
+          const ImVec2 p = ImGui::GetCursorScreenPos();
+          draw_text(ImGui::GetWindowDrawList(), fonts().semibold, kBody,
+                    {std::round(p.x + (plus - measure(fonts().semibold, kBody, "+").x) * 0.5f),
+                     text_y(fonts().semibold, kBody, p.y, s(38))},
+                    color::text2, "+");
+          ImGui::Dummy({plus, s(38)});
+          ImGui::SameLine(0, 0);
+          if (dropdown("menu-second", "", names, int(std::size(names)), &second, dw) && first != second) {
+            choice.second = menu::kButtons[second].bit;
+            changed = true;
+          }
+        });
+      }
+      if (choice.mode != menu::Mode::button) {
+        divider();
+        int hold = int(std::ranges::find(menu::kHoldMs, choice.hold_ms) - std::begin(menu::kHoldMs));
+        setting_row("Hold for", dw, s(38), [&] {
+          if (dropdown("menu-hold", "", holds, 3, &hold, dw)) {
+            choice.hold_ms = menu::kHoldMs[hold];
+            changed = true;
+          }
+        });
+      }
+    }
+    if (changed) {
+      settings_.menu_button = menu::encode(choice);
+      action([&] { save_settings(); });
+    }
+  }
   divider();
   setting_row("Check for updates", s(44), s(24), [&] {
     if (toggle("updates", &settings_.check_updates)) action([&] { save_settings(); });

@@ -377,6 +377,8 @@ Settings Settings::load(const fs::path &data) {
   s.add_games_to_steam = field(j, "addGamesToSteam") != false;
   s.steam_add_new = field(j, "steamAddNew") != false;
   s.install_ask = field(j, "installAsk") != false;
+  if (auto menu = str(j, "menuButton"); !menu.empty())
+    s.menu_button = menu;
   if (auto language = str(j, "language"); language == "en" || language == "fr")
     s.language = language;
   if (const auto &folders = field(j, "libraryFolders"); folders.is_array())
@@ -407,6 +409,7 @@ void Settings::save(const fs::path &data) const {
          {"addGamesToSteam", add_games_to_steam},
          {"steamAddNew", steam_add_new},
          {"installAsk", install_ask},
+         {"menuButton", menu_button},
          {"language", language},
          {"steamSkip", steam_skip}};
   if (!libraries.empty()) {
