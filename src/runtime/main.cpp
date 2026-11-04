@@ -191,7 +191,7 @@ int main(int argc, char **argv) {
       request.env.erase("RIFTLIFT_PLATFORM_BROKER");
       if (options.credential_read) {
         relay = std::make_unique<runtime::PlatformRelay>(
-            PipeChannel::inherited(options.credential_read, options.credential_write));
+            PipeChannel::inherited(options.credential_read, options.credential_write), request.game.app_id);
         request.env["RIFTLIFT_PLATFORM_BROKER"] = relay->endpoint();
       }
       request.stop = watcher.token();

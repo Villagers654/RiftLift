@@ -11,8 +11,9 @@
  *
  * The answers come from Meta, through the launcher that holds the account
  * (src/common/meta/platform.h) and riftlift-runtime's loopback relay
- * (RIFTLIFT_PLATFORM_BROKER). Meta is asked only when the game asks: its
- * entitlement check is a live query each time, and nothing here assumes an
+ * (RIFTLIFT_PLATFORM_BROKER). Meta is asked when the game asks, a live query
+ * each time; only the entitlement is also asked once at launch, for the game's
+ * first check, which some games give a single second. Nothing here assumes an
  * owned copy or invents an identity. Without an account the game still starts,
  * and these requests complete with the error a signed-out Platform gives.
  */

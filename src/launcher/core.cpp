@@ -1022,7 +1022,9 @@ void Core::launch_game(std::string_view id, std::string_view requested) {
     if (settings_.menu_button != "automatic")
       environment.push_back({"RIFTLIFT_MENU", settings_.menu_button});
     // The game's Platform calls (identity, entitlement) reach Meta through
-    // this broker, and only when the game makes them: nothing is asked here.
+    // this broker. The runtime asks for the entitlement once as it starts, for
+    // the game's first check (platform_relay.h); the rest only when the game
+    // makes them.
     PipeChannel::Handler broker;
     if (install.game.platform_shim) {
       const auto key = choice.account_key;

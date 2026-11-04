@@ -39,7 +39,8 @@ public:
   // One request from the game: {"op", "appId"?, "userId"?} ->
   // {"error", ...}. Thread-safe. Meta is asked only here, when the game asks:
   //   credentials   -> userId, alias, displayName, appToken
-  //   entitlement   -> error only; a live query, never cached
+  //   entitlement   -> error only; a live query, never cached (the runtime
+  //                    asks once at launch, for the game's first check)
   //   user_proof    -> nonce (single use, never retried)
   //   org_scoped_id -> orgScopedId of userId
   Json handle(const Json &request);

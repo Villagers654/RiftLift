@@ -80,7 +80,7 @@ Json PlatformRelay::forward(const Json &request, std::string_view secret,
   }
 }
 
-PlatformRelay::PlatformRelay(std::shared_ptr<PipeChannel> launcher)
+PlatformRelay::PlatformRelay(std::shared_ptr<PipeChannel> launcher, std::string app_id)
     : launcher_(std::move(launcher)), secret_(random_secret()) {
   keep_private(*launcher_);
 #ifdef _WIN32
@@ -104,6 +104,23 @@ PlatformRelay::PlatformRelay(std::shared_ptr<PipeChannel> launcher)
   }
   socket_ = std::uintptr_t(s);
   port_ = ntohs(address.sin_port);
+  if (digits(app_id, 5, 20)) {
+    early_ = Early::pending;
+    early_app_ = app_id;
+    early_thread_ = std::jthread([this, request = Json{{"op", "entitlement"}, {"appId", app_id}}] {
+      Json reply;
+      try {
+        reply = launcher_->call(request);
+      } catch (...) {
+      }
+      {
+        std::lock_guard lock(early_mutex_);
+        early_reply_ = std::move(reply);
+        early_ = Early::ready;
+      }
+      early_ready_.notify_all();
+    });
+  }
   thread_ = std::jthread([this](std::stop_token stop) { serve(stop); });
 }
 
@@ -111,6 +128,9 @@ PlatformRelay::~PlatformRelay() {
   thread_.request_stop();
   if (thread_.joinable())
     thread_.join();
+  clients_.clear();  // joins each
+  if (early_thread_.joinable())
+    early_thread_.join();
   close_socket(Socket(socket_));
 #ifdef _WIN32
   WSACleanup();
@@ -141,31 +161,60 @@ void PlatformRelay::serve(std::stop_token stop) {
     if (client == kNone)
       continue;
     setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char *>(&timeout), sizeof(timeout));
-    // One request per connection: a JSON object ending in a newline.
-    std::string line;
-    std::array<char, 4096> buffer;
-    while (line.find('\n') == line.npos && line.size() < kLimit) {
-      auto n = ::recv(client, buffer.data(), int(buffer.size()), 0);
-      if (n <= 0)
-        break;
-      line.append(buffer.data(), size_t(n));
-    }
-    if (auto end = line.find('\n'); end != line.npos) {
-      line.resize(end);
-      auto request = Json::parse(line, nullptr, false);
-      auto reply = forward(request, secret_, [&](const Json &r) { return launcher_->call(r); });
-      // The reply's codes only: it can hold the app token.
-      log::info("platform", "Game asked for {}: error {}.", str(request, "op"), field(reply, "error").dump());
-      auto text = reply.dump() + "\n";
-      for (size_t sent = 0; sent < text.size();) {
-        auto n = ::send(client, text.data() + sent, int(text.size() - sent), 0);
-        if (n <= 0)
-          break;
-        sent += size_t(n);
+    std::erase_if(clients_, [](const Client &c) { return c.done->load(); });
+    auto done = std::make_shared<std::atomic<bool>>(false);
+    clients_.push_back({std::jthread([this, client, done] {
+                          answer_client(std::uintptr_t(client));
+                          *done = true;
+                        }),
+                        done});
+  }
+}
+
+// The launcher's answer, or for the game's first entitlement check the one
+// asked at launch, waited for if Meta has not answered it yet. Only an
+// "entitled" is kept: anything else is asked again now.
+Json PlatformRelay::ask(const Json &request) {
+  if (str(request, "op") == "entitlement" && (!request.contains("appId") || str(request, "appId") == early_app_)) {
+    std::unique_lock lock(early_mutex_);
+    early_ready_.wait(lock, [&] { return early_ != Early::pending; });
+    if (early_ == Early::ready) {
+      early_ = Early::taken;
+      if (field(early_reply_, "error") == 0) {
+        log::info("platform", "The game's entitlement check got the answer asked at launch.");
+        return early_reply_;
       }
     }
-    close_socket(client);
   }
+  return launcher_->call(request);
+}
+
+void PlatformRelay::answer_client(std::uintptr_t handle) {
+  const auto client = Socket(handle);
+  // One request per connection: a JSON object ending in a newline.
+  std::string line;
+  std::array<char, 4096> buffer;
+  while (line.find('\n') == line.npos && line.size() < kLimit) {
+    auto n = ::recv(client, buffer.data(), int(buffer.size()), 0);
+    if (n <= 0)
+      break;
+    line.append(buffer.data(), size_t(n));
+  }
+  if (auto end = line.find('\n'); end != line.npos) {
+    line.resize(end);
+    auto request = Json::parse(line, nullptr, false);
+    auto reply = forward(request, secret_, [&](const Json &r) { return ask(r); });
+    // The reply's codes only: it can hold the app token.
+    log::info("platform", "Game asked for {}: error {}.", str(request, "op"), field(reply, "error").dump());
+    auto text = reply.dump() + "\n";
+    for (size_t sent = 0; sent < text.size();) {
+      auto n = ::send(client, text.data() + sent, int(text.size() - sent), 0);
+      if (n <= 0)
+        break;
+      sent += size_t(n);
+    }
+  }
+  close_socket(client);
 }
 
 } // namespace riftlift::runtime
