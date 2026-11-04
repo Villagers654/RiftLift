@@ -160,6 +160,10 @@ protected:
   // section is open (by itself when the sign-in window could not open).
   std::string auth_url_, auth_paste_, auth_paste_error_;
   bool auth_manual_ = false;
+  // RiftLift as the oculus:// handler while a manual sign-in waits (sign_in_link.h):
+  // 1 while it is, -1 when it could not be, so the address is pasted instead.
+  int link_handler_ = 0;
+  bool auth_paste_open_ = false;  // the paste field, shown anyway
   bool auth_window_ = true;  // open Meta's sign-in window (the CLI's --manual doesn't)
   void cancel_sign_in();
   // Finishes the waiting sign-in with Meta's oculus:// address.

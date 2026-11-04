@@ -111,9 +111,11 @@ App::App(Options options) : Core(std::move(options)) {
   if (options_.smoke_view == "account")
     page_ = 3;
   // The manual sign-in steps, with an example link (nothing is sent to Meta).
-  if (options_.smoke_view == "manual-sign-in") {
+  // manual-sign-in-paste: where RiftLift cannot open oculus:// links.
+  if (options_.smoke_view == "manual-sign-in" || options_.smoke_view == "manual-sign-in-paste") {
     page_ = 3;
     signing_in_ = auth_manual_ = true;
+    link_handler_ = options_.smoke_view == "manual-sign-in" ? 1 : -1;
     auth_url_ = "https://auth.meta.com/native_sso/confirm?native_app_id=512466987071624&native_sso_etoken=EXAMPLE";
     auth_status_ = "Meta's sign-in window could not open. Sign in manually below.";
   }

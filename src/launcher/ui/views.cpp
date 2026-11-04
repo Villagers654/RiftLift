@@ -504,8 +504,9 @@ void App::draw_toast() {
   if (!toast_.empty() && now - toast_since_ > 7.0) notice_.clear();
 }
 
-// Signing in from any browser: Meta's link to open there, then the oculus://
-// address its Continue button tries to open, pasted back.
+// Signing in from any browser: Meta's link to open there. Its Continue button
+// opens an oculus:// address, which comes back by itself while RiftLift opens
+// those links, and is pasted back otherwise.
 void App::manual_sign_in() {
   ImFont* rf = fonts().regular;
   ImFont* sf = fonts().semibold;
@@ -516,7 +517,9 @@ void App::manual_sign_in() {
     return;
   }
   const float w = ImGui::GetContentRegionAvail().x;
-  text(sf, kSmall, color::text, "1. Open this link in any browser and sign in to Meta.");
+  const bool paste = link_handler_ != 1 || auth_paste_open_;
+  text(sf, kSmall, color::text, paste ? "1. Open this link in any browser and sign in to Meta."
+                                      : "Open this link in any browser and sign in to Meta. When it asks, let it open RiftLift.");
   gap(8);
   const float copy_w = button_width("Copy link");
   ImVec2 p = ImGui::GetCursorScreenPos();
@@ -533,16 +536,21 @@ void App::manual_sign_in() {
     auth_paste_error_ = "Link copied.";
   }
   ImGui::SetCursorScreenPos({p.x, p.y + h});
-  gap(14);
-  text(sf, kSmall, color::text, "2. Paste the oculus:// address that Meta's Continue button tries to open.");
-  ImGui::SetCursorPosY(ImGui::GetCursorPosY() - s(5));  // the hint belongs to step 2
-  text(rf, kSmall, color::text2, "In Firefox, press Ctrl+Shift+K before Continue, then copy the message it shows.");
-  gap(2);
-  if (submit_field("manual-paste", "oculus://\xE2\x80\xA6", &auth_paste_, w, icons::lock)) {
-    paste_sign_in(auth_paste_);
-    if (verifying_) auth_paste_.clear();
+  if (!paste) {
+    gap(12);
+    if (link("Paste the address instead##manual-paste-open", color::text2)) auth_paste_open_ = true;
+  } else {
+    gap(14);
+    text(sf, kSmall, color::text, "2. Paste the oculus:// address that Meta's Continue button tries to open.");
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() - s(5));  // the hint belongs to step 2
+    text(rf, kSmall, color::text2, "In Firefox, press Ctrl+Shift+K before Continue, then copy the message it shows.");
+    gap(2);
+    if (submit_field("manual-paste", "oculus://\xE2\x80\xA6", &auth_paste_, w, icons::lock)) {
+      paste_sign_in(auth_paste_);
+      if (verifying_) auth_paste_.clear();
+    }
+    gap(8);
   }
-  gap(8);
   if (!auth_paste_error_.empty()) {
     text(rf, kSmall, auth_paste_error_ == "Link copied." ? color::text2 : color::warning, auth_paste_error_);
     gap(4);

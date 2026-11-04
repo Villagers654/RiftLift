@@ -9,6 +9,7 @@
 #include "common/rift/detection.h"
 #include "common/rift/local_games.h"
 #include "launcher/i18n.h"
+#include "launcher/sign_in_link.h"
 #include <chrono>
 #include <fstream>
 
@@ -152,6 +153,12 @@ void Core::start(bool refresh_library) {
   if (started_)
     return;
   started_ = true;
+  // A sign-in that never ended (a crash) still holds the oculus:// handler.
+  if (!options_.cli && !options_.automation)
+    try {
+      sign_in_link::restore(data_);
+    } catch (...) {
+    }
   worker_ = std::make_unique<Worker>([this] { wake(); });
   download::Manager::Services services;
   // A finished build becomes (or updates) the game's record.
@@ -194,6 +201,11 @@ void Core::shutdown() {
   stopped_ = true;
   ++epoch_;
   browser_.close();
+  if (link_handler_ == 1)
+    try {
+      sign_in_link::restore(data_);
+    } catch (...) {
+    }
   for (auto &[id, r] : running_)
     if (r.played)
       try {
@@ -1344,9 +1356,38 @@ void Core::tick() {
     if (event->kind == AuthBrowser::Kind::callback)
       complete_sign_in(std::move(event->value));
   }
+  // Only for a window: the command line keeps asking for the address.
+  if (!options_.cli && !options_.automation) {
+    const bool wanted = signing_in_ && auth_manual_;
+    if (wanted && link_handler_ == 0) {
+      link_handler_ = -1;
+      try {
+        if (sign_in_link::take_over(data_)) {
+          link_handler_ = 1;
+          log::info("auth", "RiftLift opens oculus:// links until this sign-in ends.");
+        }
+      } catch (const std::exception &e) {
+        log::warn("auth", "RiftLift could not open oculus:// links: {}", e.what());
+      }
+    } else if (!wanted && link_handler_ != 0) {
+      if (link_handler_ == 1)
+        try {
+          sign_in_link::restore(data_);
+        } catch (const std::exception &e) {
+          log::warn("auth", "The previous oculus:// handler could not be put back: {}", e.what());
+        }
+      link_handler_ = 0;
+      auth_paste_open_ = false;
+    }
+  }
   auto now = now_ms();
   if (now - last_poll_ > 400) {
     last_poll_ = now;
+    if (link_handler_ == 1 && !verifying_)
+      if (auto address = sign_in_link::receive(data_); !address.empty()) {
+        log::info("auth", "The browser handed back Meta's sign-in address.");
+        paste_sign_in(address);
+      }
     bool exited = false;
     for (auto &[id, r] : running_) {
       auto previous = r.exit;
