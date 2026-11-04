@@ -90,7 +90,7 @@ ctest --test-dir build/linux-release --output-on-failure
 
 ## License
 
-RiftLift is licensed under MIT: see [LICENSE](LICENSE).
+RiftLift is licensed under GPL-v3: see [LICENSE](LICENSE).
 
 It's built on other people's work, and we're grateful for it. Code from these projects is used under their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md):
 
