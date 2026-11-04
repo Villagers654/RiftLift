@@ -38,7 +38,7 @@ extern char **environ;
 
 namespace riftlift::launcher {
 namespace {
-// Each log keeps its end, where a failure is. The logs share a budget that
+// Each log keeps its end, where a failure is, and a long one its start. The logs share a budget that
 // keeps the whole report under the paste service's 1 MB limit, most important
 // first; redaction changes the size by a little at most.
 constexpr size_t kRuntimeLog = 448 << 10, kSideLog = 128 << 10, kLauncherLog = 128 << 10;
@@ -253,8 +253,19 @@ void log_section(std::string &out, const fs::path &file, size_t limit) {
   }
   limit = std::min(limit, kReportBudget - out.size() - header);
   out += std::format("\n=== {} ({} KiB, written {}{}) ===\n", paths::utf8(file.filename()), (size + 1023) / 1024,
-                     local_time(fs::last_write_time(file, ec)), size > limit ? ", end only" : "");
-  std::string text = tail_log(file, limit);
+                     local_time(fs::last_write_time(file, ec)), size > limit ? ", start and end" : "");
+  std::string text;
+  if (size > limit) {
+    // The start holds the session's setup (runtime, Proton, the game's first
+    // lines), which a game's log spam can push out of a plain tail.
+    text = read_file(file, limit / 4);
+    text.resize(text.rfind('\n') + 1);
+    std::string end = tail_log(file, limit - text.size());
+    out += text + std::format("... {} KiB left out ...\n", (size - text.size() - end.size() + 1023) / 1024);
+    text = std::move(end);
+  } else {
+    text = tail_log(file, limit);
+  }
   out += text;
   if (!text.empty() && text.back() != '\n') out += '\n';
 }

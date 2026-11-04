@@ -207,7 +207,10 @@ void uninstall(const fs::path &data, const Install &install) {
     if (fs::exists(target, ec)) {
       if (!fs::exists(target / "manifest.json", ec) && !fs::exists(target / ".riftlift-download", ec))
         throw std::runtime_error("Cannot uninstall: the game folder has no Meta manifest.");
-      remove_tree(target.parent_path(), target);
+      // A library folder reached through a link (a games folder moved to another
+      // drive) is removed from at its real location; links below it are refused.
+      const auto root = fs::weakly_canonical(target.parent_path());
+      remove_tree(root, root / target.filename());
     }
   }
   std::error_code ec;
@@ -287,6 +290,21 @@ int entitlement_error(const fs::path &log) {
     if (auto at = line.find(marker); at != line.npos)
       error = std::atoi(line.c_str() + at + marker.size());
   return error;
+}
+bool crashed_signed_out(const fs::path &log) {
+  constexpr std::string_view marker = "[platform] Game asked for ";
+  std::ifstream in(log, std::ios::binary);
+  double last = 0, refused = -1;
+  for (std::string line; std::getline(in, line);) {
+    // Log lines start with the seconds since the run started.
+    char *end = nullptr;
+    if (const double at = std::strtod(line.c_str(), &end); end != line.c_str() && at > 0)
+      last = at;
+    if (auto at = line.find(marker); at != line.npos)
+      if (line.ends_with(": error -20001.") && line.find("entitlement:", at) == line.npos)
+        refused = last;
+  }
+  return refused >= 0 && last - refused < 10;
 }
 void rotate_log(const fs::path &log) {
   std::error_code ec;

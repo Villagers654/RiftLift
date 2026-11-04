@@ -119,6 +119,11 @@ App::App(Options options) : Core(std::move(options)) {
   }
   if (options_.smoke_view == "add")
     page_ = 4;
+  // The dialog a picked .exe opens, with example values; nothing is added.
+  if (options_.smoke_view == "add-local") {
+    page_ = 4;
+    local_draft_ = LocalDraft{"/home/you/Games/Example/Example.exe", "Example", {}, settings_.steam_add_new};
+  }
   if (options_.smoke_view == "launch-settings")
     game_tab_ = 1;
   // The dialog Report issue / Upload debug report shows; nothing is saved or uploaded.
@@ -313,7 +318,7 @@ void App::take_exe_picks() {
   auto exe = picks.back();
   action([&] {
     auto draft = rift::local_game(exe);  // checks it is an .exe in a folder
-    local_draft_ = LocalDraft{exe, draft.name, {}};
+    local_draft_ = LocalDraft{exe, draft.name, {}, settings_.steam_add_new};
     page_ = 4;
   });
 }

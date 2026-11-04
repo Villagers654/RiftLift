@@ -58,6 +58,21 @@ TEST_CASE("debug report: a failed run, its cause and its evidence") {
   CHECK(text.find("=== Checks ===") != std::string::npos);
 }
 
+TEST_CASE("debug report: a long log keeps its start and its end") {
+  test::TempDir data("report");
+  std::string spam;
+  for (int i = 0; spam.size() < (400u << 10); ++i) spam += std::format("ALSA: not initialized {}\n", i);
+  test::write(data / "logs/runtime-lone-echo.console.log", "first line: wine setup\n" + spam + "last line\n");
+  test::write(data / "logs/runtime-lone-echo.log", "  1.000 1 I [runtime] Game process started (pid 7).\n");
+  auto file = write_debug_report({.data = data.path, .version = "9.9.9", .package = "lone-echo", .game = "Lone Echo"});
+  std::ifstream in(file, std::ios::binary);
+  std::string text{std::istreambuf_iterator<char>(in), {}};
+  CHECK(text.find("first line: wine setup\n") != std::string::npos);
+  CHECK(text.find("last line\n") != std::string::npos);
+  CHECK(text.find(" KiB left out ...\n") != std::string::npos);
+  CHECK(text.find(", start and end) ===") != std::string::npos);
+}
+
 TEST_CASE("debug report: personal details are removed") {
   auto text = redact("user PrivateAlias token OC1234567890123456789012345678901234567890XYZ bearer abcdefghijkl",
                      {"PrivateAlias"});

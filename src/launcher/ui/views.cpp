@@ -1105,14 +1105,17 @@ void App::draw_game_page() {
       if (icon_button("more", icons::more, 46, true, true) || std::exchange(smoke_menu, false))
         ImGui::OpenPopup("game-menu");
     };
-    if (local) {
+    // A running game always offers Quit, even when its install no longer counts as
+    // complete (files changed, or a refresh listed new ones).
+    if (local || running) {
       if (launch_choice(g.id, play_key(g.id)).status == library::LaunchStatus::reconnect) {
         if (button("Reconnect to play##play", 0, Tone::primary, cta)) page_ = 3;
       } else if (running) {
         // Stops the runtime, which closes the game and its Wine prefix.
         auto& r = running_[g.id];
+        const bool armed = std::chrono::steady_clock::now() - r.started >= std::chrono::seconds(3);
         if (button(r.quitting ? "Quitting...##play" : "Quit game##play", r.quitting ? 0 : icons::cancel,
-                   Tone::secondary, cta, !r.quitting))
+                   Tone::secondary, cta, !r.quitting && armed))
           r.quitting = r.process.request_stop();
       } else if (button("Play##play", icons::play, Tone::primary, cta)) {
         action([&] { play(g); });
@@ -2021,9 +2024,10 @@ void App::draw_add_games() {
   end_card();
 }
 
-// Names a picked .exe before it is added.
+// Names a picked .exe before it is added, and asks about Steam as installing does.
 void App::draw_add_local() {
   if (local_draft_ && !ImGui::IsPopupOpen("Add a game")) ImGui::OpenPopup("Add a game");
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {s(10), 0});
   if (begin_dialog("Add a game", 520)) {
     float inner = s(464);
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + inner);
@@ -2034,32 +2038,33 @@ void App::draw_add_local() {
     gap(16);
     if (local_draft_) {
       text(fonts().regular, kSmall, color::text2, "Name", false);
+      gap(6);
       field("##local-name", &local_draft_->name, "The game's name", inner);
-      gap(10);
+      gap(12);
       text(fonts().regular, kSmall, color::text2, "Launch arguments (optional)", false);
+      gap(6);
       field("##local-args", &local_draft_->arguments, "-vr", inner);
-    }
-    gap(24);
-    float bw = s(120);
-    ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - bw * 2 - s(10));
-    if (button("Cancel##add-local", 0, Tone::secondary, {bw, s(40)})) {
-      local_draft_.reset();
-      ImGui::CloseCurrentPopup();
-    }
-    ImGui::SameLine(0, s(10));
-    if (button("Add##add-local", 0, Tone::primary, {bw, s(40)}, local_draft_ && !local_draft_->name.empty())) {
-      if (local_draft_) {
-        auto draft = *local_draft_;
-        action([&, draft] {
-          selected_ = add_local_game(draft.executable, draft.name, draft.arguments);
-          page_ = 0;
-        });
+      if (settings_.add_games_to_steam && (steam_sync_allowed_ || options_.smoke_view == "add-local")) {
+        gap(12);
+        divider();
+        setting_row("Add to Steam", s(44), s(24), [&] { toggle("local-steam", &local_draft_->steam); });
       }
+    }
+    const int clicked = dialog_footer({{"Cancel"}, {"Add", Tone::primary, local_draft_ && !local_draft_->name.empty()}});
+    if (clicked == 1 && local_draft_) {
+      auto draft = *local_draft_;
+      action([&, draft] {
+        selected_ = add_local_game(draft.executable, draft.name, draft.arguments, draft.steam);
+        page_ = 0;
+      });
+    }
+    if (clicked >= 0) {
       local_draft_.reset();
       ImGui::CloseCurrentPopup();
     }
     end_dialog();
   }
+  ImGui::PopStyleVar();
 }
 
 // The record's own launch settings, saved together.

@@ -28,7 +28,11 @@ using namespace std::chrono_literals;
 namespace {
 #ifndef _WIN32
 std::atomic<bool> terminate_requested{false};
-extern "C" void on_signal(int) { terminate_requested = true; }
+std::atomic<int> terminate_signal{0};
+extern "C" void on_signal(int signal) {
+  terminate_signal = signal;
+  terminate_requested = true;
+}
 #endif
 
 std::vector<std::string> arguments(int argc, char **argv) {
@@ -92,13 +96,16 @@ public:
           if (handles[result - WAIT_OBJECT_0] == parent_)
             log::warn("runtime", "The launcher exited; stopping the game.");
           else
-            log::info("runtime", "Stop requested.");
+            log::info("runtime", "Stop requested by the launcher.");
           source_.request_stop();
         }
 #else
         std::this_thread::sleep_for(100ms);
         if (terminate_requested) {
-          log::info("runtime", "Stop requested.");
+          const int signal = terminate_signal;
+          log::info("runtime", "Stop requested by {}.", signal == SIGTERM  ? "SIGTERM (the launcher's Quit game, or the system)"
+                                                        : signal == SIGINT ? "SIGINT (Ctrl+C)"
+                                                                           : "SIGHUP (its terminal closed)");
           source_.request_stop();
         } else if (parent && ::kill(pid_t(parent), 0) != 0 && errno == ESRCH) {
           log::warn("runtime", "The launcher exited; stopping the game.");

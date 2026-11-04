@@ -88,6 +88,12 @@ struct Web {
   void *(*filter_store_save_finish)(void *, void *, void **) = nullptr;
   void *(*content_manager)(void *) = nullptr;
   void (*add_filter)(void *, void *) = nullptr;
+  // The desktop's font DPI, which WebKit zooms pages by.
+  void *(*settings_default)() = nullptr;
+  void (*object_get)(void *, const char *, ...) = nullptr;
+  void (*object_set)(void *, const char *, ...) = nullptr;
+  void *(*screen_default)() = nullptr;           // GTK 3
+  double (*screen_resolution)(void *) = nullptr; // GTK 3
 };
 template <class T> bool bind(void *lib, T &out, const char *name) {
   out = reinterpret_cast<T>(dlsym(lib, name));
@@ -129,7 +135,9 @@ bool load(Web &w) {
             bind(lib, w.filter_store_save, "webkit_user_content_filter_store_save") &&
             bind(lib, w.filter_store_save_finish, "webkit_user_content_filter_store_save_finish") &&
             bind(lib, w.content_manager, "webkit_web_view_get_user_content_manager") &&
-            bind(lib, w.add_filter, "webkit_user_content_manager_add_filter");
+            bind(lib, w.add_filter, "webkit_user_content_manager_add_filter") &&
+            bind(lib, w.settings_default, "gtk_settings_get_default") &&
+            bind(lib, w.object_get, "g_object_get") && bind(lib, w.object_set, "g_object_set");
   if (w.api == 6)
     return ok && bind(lib, w.init4, "gtk_init_check") &&
            bind(lib, w.window_new4, "gtk_window_new") &&
@@ -138,12 +146,39 @@ bool load(Web &w) {
            bind(lib, w.destroy4, "gtk_window_destroy") &&
            bind(lib, w.session_ephemeral, "webkit_network_session_new_ephemeral");
   return ok && bind(lib, w.init3, "gtk_init_check") &&
+         bind(lib, w.screen_default, "gdk_screen_get_default") &&
+         bind(lib, w.screen_resolution, "gdk_screen_get_resolution") &&
          bind(lib, w.window_new3, "gtk_window_new") &&
          bind(lib, w.container_add, "gtk_container_add") &&
          bind(lib, w.show_all, "gtk_widget_show_all") &&
          bind(lib, w.destroy3, "gtk_widget_destroy") &&
          bind(lib, w.context_ephemeral, "webkit_web_context_new_ephemeral") &&
          bind(lib, w.view_with_context, "webkit_web_view_new_with_context");
+}
+// WebKitGTK zooms every page by the desktop font DPI / 96: GTK 4's
+// gtk-xft-dpi, GTK 3's screen resolution. GTK reads that DPI from the settings
+// portal's text-scaling-factor, and a portal that answers without it (KDE
+// Plasma's) leaves it 0 (GTK 4) or unset, -1 (GTK 3). WebKit then lays pages
+// out at a near-zero zoom: Meta's sign-in page became a column one letter
+// wide. Outside a sane range the view gets the standard 96 DPI, set as an
+// application value so a later portal change cannot undo it.
+constexpr double kMinFontDpi = 24, kMaxFontDpi = 960, kStandardFontDpi = 96;
+void ensure_font_dpi(Web &w) {
+  void *settings = w.settings_default();
+  if (!settings)
+    return;
+  double dpi = -1;
+  if (w.api == 4) {
+    if (void *screen = w.screen_default())
+      dpi = w.screen_resolution(screen);
+  } else {
+    int xft = 0;
+    w.object_get(settings, "gtk-xft-dpi", &xft, nullptr);
+    dpi = xft / 1024.0;
+  }
+  if (dpi >= kMinFontDpi && dpi <= kMaxFontDpi)
+    return;
+  w.object_set(settings, "gtk-xft-dpi", int(kStandardFontDpi * 1024), nullptr);
 }
 struct Helper {
   Web web;
@@ -347,6 +382,8 @@ int helper_main() {
   w.allowed_backends("wayland");
   if (w.api == 6 ? !w.init4() : !w.init3(nullptr, nullptr))
     return helper.send("error display"), 1;
+  // Before any web view exists: WebKit reads the DPI when its context starts.
+  ensure_font_dpi(w);
   helper.loop = w.loop_new(nullptr, 0);
   void *window = new_window("Sign in to Meta - RiftLift", 650, 820);
   // Ephemeral sessions keep cookies in memory, isolated for each sign-in.

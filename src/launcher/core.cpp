@@ -983,6 +983,7 @@ void Core::launch_game(std::string_view id, std::string_view requested) {
   action([&] {
     auto &r = running_[app_id];
     r.quitting = false;
+    r.started = std::chrono::steady_clock::now();
     r.log = data_ / "logs" / ("runtime-" + install.plan.package + ".log");
     // The runtime writes its log itself; Proton's and the game's output go
     // to a separate file so lines are not written twice into one.
@@ -1042,11 +1043,17 @@ void Core::launch_game(std::string_view id, std::string_view requested) {
   }
 }
 std::string Core::add_local_game(const fs::path &executable, std::string name,
-                                 std::string_view arguments) {
+                                 std::string_view arguments, std::optional<bool> steam) {
   auto game = rift::add_game(data_, rift::local_game(executable, std::move(name), {}, arguments));
   notice_ = game.name + " is in your library.";
   rescan();
+  added_to_steam(game.slug, steam);
   return game.slug;
+}
+void Core::added_to_steam(const std::string &slug, std::optional<bool> steam) {
+  // A new game takes the Steam choice, as an install does.
+  if (settings_.add_games_to_steam && !options_.launch_requested)
+    set_in_steam(slug, steam.value_or(settings_.steam_add_new));
 }
 void Core::scan_steam_games() {
   if (steam_scanning_)
@@ -1068,10 +1075,11 @@ void Core::scan_steam_games() {
     };
   });
 }
-std::string Core::add_steam_game(const rift::Game &steam) {
+std::string Core::add_steam_game(const rift::Game &steam, std::optional<bool> in_steam) {
   auto game = rift::add_game(data_, steam);
   notice_ = game.name + " is in your library. Steam still owns and updates it.";
   rescan();
+  added_to_steam(game.slug, in_steam);
   return game.slug;
 }
 void Core::save_game_settings(const rift::Game &game) {
@@ -1357,7 +1365,10 @@ void Core::tick() {
         log::info("runtime", "Rift application {} exited with code {}.", id,
                   *r.exit);
         exited = true;
-        const int entitlement = r.quitting ? 0 : library::entitlement_error(r.log);
+        int entitlement = r.quitting ? 0 : library::entitlement_error(r.log);
+        // A crash right after Meta refused another platform request as signed out.
+        if (!entitlement && !r.quitting && *r.exit != 0 && library::crashed_signed_out(r.log))
+          entitlement = int(meta::PlatformError::unauthenticated);
         if (entitlement == int(meta::PlatformError::unauthenticated) ||
             entitlement == int(meta::PlatformError::not_entitled)) {
           // The game quit after Meta refused its ownership check.

@@ -101,6 +101,7 @@ private:
   struct LocalDraft {
     fs::path executable;
     std::string name, arguments;
+    bool steam = true;  // add it to Steam, as the install dialog asks
   };
   std::optional<LocalDraft> local_draft_;
   void draw_add_games();

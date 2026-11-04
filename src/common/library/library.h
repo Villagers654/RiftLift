@@ -64,6 +64,10 @@ void rotate_log(const fs::path &log);
 // run's game got, as riftlift-runtime's relay logged it; 0 when it passed or
 // the game made none.
 int entitlement_error(const fs::path &log);
+// Whether a run crashed within seconds of Meta answering another of its
+// platform requests (credentials, user proof, org-scoped ID) "not signed in":
+// a game that crashes handling that reply needed the account too.
+bool crashed_signed_out(const fs::path &log);
 struct Settings {
   // `runtime` is the bundled runtime beside the launcher unless the user set
   // another one; only such an override is saved.

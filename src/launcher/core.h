@@ -16,6 +16,7 @@
 #include "launcher/auth_browser.h"
 #include "launcher/options.h"
 #include "launcher/worker.h"
+#include <chrono>
 #include <atomic>
 #include <deque>
 #include <future>
@@ -62,12 +63,13 @@ public:
   std::string play_key(std::string_view app_id) const;
   const AccountView *account(std::string_view key) const;
   // Adds a game installed elsewhere by its .exe; returns its app id (slug).
+  // steam: whether it goes to Steam; unset takes the default for new games.
   std::string add_local_game(const fs::path &executable, std::string name = {},
-                             std::string_view arguments = {});
+                             std::string_view arguments = {}, std::optional<bool> steam = {});
   // Installed Steam games with an Oculus mode (scanned on a worker; the GUI
   // lists them), and adding one.
   void scan_steam_games();
-  std::string add_steam_game(const rift::Game &game);
+  std::string add_steam_game(const rift::Game &game, std::optional<bool> steam = {});
   // A game's launch settings (launch options, DLL overrides, environment).
   void save_game_settings(const rift::Game &game);
   playtime::Record playtime_of(std::string_view app_id) const;
@@ -125,6 +127,9 @@ protected:
     std::optional<int> exit;
     std::string failure; // shown for a non-zero exit
     bool quitting = false; // Quit game was pressed; the game is closing
+    // Quit game takes the Play button's place; it ignores clicks for a moment
+    // after the start so a double click on Play does not quit the game.
+    std::chrono::steady_clock::time_point started{};
     std::unique_ptr<playtime::Session> played;
   };
   std::map<std::string, Running> running_;
@@ -143,6 +148,7 @@ protected:
   std::optional<std::pair<std::string, std::string>> install_ask_;
   // Adds a game to Steam or leaves it out (saved), then syncs.
   void set_in_steam(std::string_view app_id, bool in);
+  void added_to_steam(const std::string &slug, std::optional<bool> steam);
   bool in_steam(std::string_view app_id) const { return !settings_.steam_skip.contains(std::string(app_id)); }
   void launch_game(std::string_view app_id, std::string_view account);
   std::string selected_, notice_, warning_, auth_status_;
