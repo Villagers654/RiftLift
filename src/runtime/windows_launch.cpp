@@ -362,18 +362,22 @@ int launch(const LaunchRequest &request) {
     env["RIFTLIFT_ACTION_MANIFEST"] = native(native_dir.directory / "Input/action_manifest.json");
   for (auto &[k, v] : game.environment)
     env[k] = v;
-  // Older Platform SDK loaders concatenate the DLL name directly to this value.
-  env["LIBOVR_DLL_DIR"] = native(install_sdk_runtime(layout, native_dir.directory, stop)) + "\\";
+  auto ovr_dir = install_sdk_runtime(layout, native_dir.directory, stop);
   if (game.platform_shim) {
     if (!all_present(native_dir.directory, platform_files))
       throw std::runtime_error("RiftLift native platform compatibility DLL is missing");
-    auto path = get(env, "PATH");
-    env["PATH"] = native(native_dir.directory) + (path.empty() ? "" : ";" + path);
+    ovr_dir = native_dir.directory;
     env["RIFTLIFT_PLATFORM_DLL"] = native(native_dir.directory / "LibOVRPlatformImpl64_1.dll");
-    env["LIBOVR_DLL_DIR"] = native(native_dir.directory) + "\\";
     if (game.platform_offline)
       env["RIFTLIFT_PLATFORM_OFFLINE"] = "1";
   }
+  // Older Platform SDK loaders concatenate the DLL name directly to this value.
+  // LibOVR 1.9's loader (First Contact) skips a value ending in "\" and
+  // searches PATH, which reaches Meta's copy only with Meta's software
+  // installed, so the folder goes on PATH too.
+  env["LIBOVR_DLL_DIR"] = native(ovr_dir) + "\\";
+  auto path = get(env, "PATH");
+  env["PATH"] = native(ovr_dir) + (path.empty() ? "" : ";" + path);
   openxr_environment(layout, native_dir.directory, env);
   if (debug_logging_enabled(layout))
     env["RIFTLIFT_RUNTIME_TRACE"] = "1";
