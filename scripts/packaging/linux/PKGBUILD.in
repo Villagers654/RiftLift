@@ -5,7 +5,7 @@ pkgrel=1
 pkgdesc="Play your Meta Rift games on Linux (prebuilt release)"
 arch=('x86_64')
 url="https://github.com/Villagers654/RiftLift"
-license=('MIT')
+license=('GPL-3.0-or-later')
 depends=('glibc>=2.35' 'python')
 optdepends=('webkitgtk-6.0: Meta sign-in window'
             'libsecret: keep sign-ins in the desktop keyring'
