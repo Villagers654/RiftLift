@@ -12,6 +12,7 @@ struct FakeMeta {
   std::vector<std::string> owned{"1368187813209608"};
   bool cross_buy = false;  // the Rift build is listed though the library lacks it
   long refuse = 0;         // HTTP status every request fails with
+  long refuse_builds = 0;  // HTTP status the build listing fails with
   int drops = 0;           // connections dropped before an answer
   Json answer(std::string_view url, const http::Fields &f) {
     urls.emplace_back(url);
@@ -44,7 +45,10 @@ struct FakeMeta {
     }
     if (get("doc_id") == "1586217024733717") {
       Json binaries = Json::array();
-      if (cross_buy)
+      const auto app = str(Json::parse(get("variables")), "id");
+      if (refuse_builds)
+        throw RequestError(refuse_builds, "Meta graphql failed (HTTP " + std::to_string(refuse_builds) + " code 1).");
+      if (cross_buy || std::ranges::find(owned, app) != owned.end())
         binaries.push_back({{"__typename", "PCBinary"}, {"id", "555"}, {"version", "1.0"}, {"versionCode", "1"}});
       return Json{{"data", {{"node", {{"displayName", "Game"}, {"supportedBinaries", {{"nodes", binaries}}}}}}}};
     }
@@ -93,6 +97,29 @@ TEST_CASE("platform broker: nothing is asked until the game asks") {
   CHECK(org["orgScopedId"] == "999");
   CHECK(error(broker.handle({{"op", "org_scoped_id"}, {"userId", "x"}})) == int(PlatformError::invalid_argument));
   CHECK(error(broker.handle({{"op", "purchase"}})) == int(PlatformError::unsupported));
+}
+
+TEST_CASE("platform broker: an owned game's entitlement is one small query, not the library") {
+  FakeMeta meta;
+  std::optional<Session> signed_in = account();
+  PlatformBroker broker("1368187813209608", [&] { return signed_in; },
+                        [&](std::string_view u, const http::Fields &f) { return meta.answer(u, f); });
+  auto library_asked = [&] {
+    return std::ranges::count_if(meta.fields, [](const http::Fields &f) {
+      return std::ranges::find(f, std::pair<std::string, std::string>{"doc_id", "4850747515044496"}) != f.end();
+    });
+  };
+  CHECK(error(broker.handle({{"op", "entitlement"}})) == 0);
+  CHECK(meta.urls.size() == 1);
+  CHECK(library_asked() == 0);
+  // A listing Meta cannot answer: the library decides, and without the game
+  // there, ownership is unknown rather than refused.
+  meta.refuse_builds = 429;
+  CHECK(error(broker.handle({{"op", "entitlement"}})) == 0);
+  CHECK(library_asked() == 1);
+  meta.owned.clear();
+  CHECK(error(broker.handle({{"op", "entitlement"}})) != int(PlatformError::not_entitled));
+  CHECK(error(broker.handle({{"op", "entitlement"}})) != 0);
 }
 
 TEST_CASE("platform broker: the app the game declared") {

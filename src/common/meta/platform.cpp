@@ -145,8 +145,19 @@ PlatformError PlatformBroker::entitlement(const Session &session) {
   if (!digits(app_id_, 5, 20))
     return PlatformError::identity_mismatch;
   // Live, as the game asked: no cached library and no inference from the files
-  // on disk.
+  // on disk. Meta listing this app's Rift builds to the account grants it (and
+  // is all a cross-buy purchase has: the Rift library leaves those out). That
+  // is one small query, asked first: the whole library takes Meta seconds, and
+  // Lone Echo gives its first check one.
   Store store(session.access_token, stop_, post_);
+  auto listed = PlatformError::not_entitled;
+  try {
+    store.builds(app_id_);
+    return PlatformError::none;
+  } catch (const NotListed &) {
+  } catch (...) {
+    listed = classify();
+  }
   try {
     auto library = store.library();
     if (std::ranges::find(library.games, app_id_, &Game::id) != library.games.end())
@@ -154,16 +165,8 @@ PlatformError PlatformBroker::entitlement(const Session &session) {
   } catch (...) {
     return classify();
   }
-  // Cross-buy purchases are Quest entitlements the Rift library leaves out:
-  // Meta listing this app's Rift build to the account is what grants it.
-  try {
-    store.builds(app_id_);
-    return PlatformError::none;
-  } catch (const NotListed &) {
-    return PlatformError::not_entitled;
-  } catch (...) {
-    return classify();
-  }
+  // Not in the library either; a listing Meta could not answer stays unknown.
+  return listed;
 }
 
 Json PlatformBroker::handle(const Json &request) {
