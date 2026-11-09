@@ -124,7 +124,7 @@ App::App(Options options) : Core(std::move(options)) {
   // The dialog a picked .exe opens, with example values; nothing is added.
   if (options_.smoke_view == "add-local") {
     page_ = 4;
-    local_draft_ = LocalDraft{"/home/you/Games/Example/Example.exe", "Example", {}, settings_.steam_add_new};
+    local_draft_ = LocalDraft{"~/Games/Example/Example.exe", "Example", {}, settings_.steam_add_new};
   }
   if (options_.smoke_view == "launch-settings")
     game_tab_ = 1;
