@@ -105,6 +105,9 @@ private:
   void save_locked();
   void release(const std::shared_ptr<Entry> &e);
   void discard_files(const Job &job);
+  // Empties the app data segment cache of 1.0 and earlier once no unfinished
+  // download could resume from it.
+  void sweep_old_cache();
 };
 // The folder a store game downloads to.
 fs::path install_dir(const fs::path &root, std::string_view slug);

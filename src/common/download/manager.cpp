@@ -20,6 +20,9 @@ bool same(const Job &a, const Job &b) {
 }
 // Marks a folder RiftLift is downloading into until manifest.json is written.
 constexpr const char *kMarker = ".riftlift-download";
+// Downloaded segments wait here, inside the game's folder and so on the disk it
+// is installed to, until the files they make are assembled.
+constexpr const char *kSegments = ".riftlift-segments";
 std::string file_sha256(const fs::path &file) {
   std::ifstream in(paths::io_path(file), std::ios::binary);
   if (!in)
@@ -125,6 +128,7 @@ Manager::Manager(fs::path data, std::function<void()> wake, Services services, b
     log::warn("downloads", "Could not read the previous queue.");
   }
   save_locked();
+  sweep_old_cache();
   for (unsigned i = 0; i < max_parallel; ++i)
     threads_.emplace_back([this](std::stop_token s) { run(s); });
 }
@@ -293,13 +297,36 @@ void Manager::discard_files(const Job &job) {
       std::error_code ec;
       if (fs::exists(dir / kMarker, ec) && !fs::exists(dir / "manifest.json", ec))
         remove_tree(job.root, dir);
+      else
+        fs::remove_all(dir / kSegments, ec);
     }
   } catch (const std::exception &error) {
     log::warn("downloads", "Could not delete the partial files of {}: {}",
               job.app_id, error.what());
   }
-  std::lock_guard lock(mutex_);
-  ++discarded_;
+  {
+    std::lock_guard lock(mutex_);
+    ++discarded_;
+  }
+  sweep_old_cache();
+}
+void Manager::sweep_old_cache() {
+  std::error_code ec;
+  auto trash = segments_;
+  trash += ".old";
+  fs::remove_all(trash, ec);
+  {
+    std::lock_guard lock(mutex_);
+    if (!fs::exists(segments_, ec) ||
+        std::ranges::any_of(jobs_, [](auto &e) { return e->job.state != State::complete; }))
+      return;
+    // Moved aside at once, so no job starting meanwhile finds half of it.
+    fs::rename(segments_, trash, ec);
+  }
+  if (!ec)
+    fs::remove_all(trash, ec);
+  if (ec)
+    log::warn("downloads", "Could not empty the old segment cache {}: {}", paths::utf8(segments_), ec.message());
 }
 std::uint64_t Manager::discarded() const {
   std::lock_guard lock(mutex_);
@@ -461,34 +488,52 @@ void Manager::install(Entry &e, meta::Store &store, std::stop_token stop, std::s
     remaining += f.size;
   }
   std::map<std::string, uint64_t> segments;  // sha -> compressed size
-  for (const auto *f : needed)
-    for (const auto &s : f->segments)
+  std::map<std::string, size_t> last_use;    // sha -> the last needed file made from it
+  uint64_t largest = 0;
+  for (size_t i = 0; i < needed.size(); ++i) {
+    for (const auto &s : needed[i]->segments) {
       segments.emplace(s.sha256, s.compressed);
-  fs::create_directories(segments_);
-  uint64_t download_total = 0;
+      last_use[s.sha256] = i;
+    }
+    largest = std::max(largest, needed[i]->size);
+  }
+  const auto cache = dir / kSegments;
+  fs::create_directories(cache);
+  // A segment is in the game's cache, or in the app data cache where 1.0 and
+  // earlier kept them, which an interrupted download of theirs resumes from.
+  auto cached = [&](const std::string &sha) {
+    std::error_code ec;
+    for (const auto &folder : {cache, segments_})
+      if (fs::is_regular_file(folder / sha, ec))
+        return folder / sha;
+    return fs::path{};
+  };
+  auto forget = [&](const std::string &sha) {
+    std::error_code ec;
+    fs::remove(cache / sha, ec);
+    fs::remove(segments_ / sha, ec);
+  };
+  uint64_t download_total = 0, on_disk = 0;
   bool sized = std::ranges::all_of(segments, [](auto &s) { return s.second > 0; });
   std::vector<std::string> fetch;
   for (const auto &[sha, compressed] : segments) {
-    std::error_code ec;
-    if (fs::is_regular_file(segments_ / sha, ec))
+    if (auto at = cached(sha); !at.empty()) {
+      std::error_code ec;
+      if (at.parent_path() == cache)
+        on_disk += fs::file_size(at, ec);
       continue;
+    }
     fetch.push_back(sha);
     download_total += sized ? compressed : 1;
   }
-  // Segments stay in the cache until the whole build is assembled, so a cache
-  // on the games folder's disk needs room for both at the peak.
+  // Segments are kept uncompressed, so together they are about the size of the
+  // files they make. Each file's segments go once it is assembled and no later
+  // file needs them: at the peak, the disk holds them and the largest file.
   constexpr uint64_t kMargin = 256 * 1024 * 1024;
-  const uint64_t fetched = sized ? download_total : 0;
-  const auto games_space = fs::space(dir), cache_space = fs::space(segments_);
-  const bool shared = games_space.capacity == cache_space.capacity && games_space.free == cache_space.free;
-  const uint64_t games_needed = remaining + (shared ? fetched : 0);
-  if (games_space.available < games_needed + kMargin)
+  const uint64_t peak = remaining + largest, games_needed = peak > on_disk ? peak - on_disk : 0;
+  if (fs::space(dir).available < games_needed + kMargin)
     throw std::runtime_error(std::format("Not enough free space: {:.1f} GiB needed. Free disk space or choose "
                                          "another games folder in Settings.", double(games_needed) / (1ull << 30)));
-  if (!shared && cache_space.available < fetched + kMargin)
-    throw std::runtime_error(std::format("Not enough free space for the download: {:.1f} GiB needed in {}. Free "
-                                         "disk space there.", double(fetched) / (1ull << 30),
-                                         paths::utf8(segments_.parent_path())));
   {
     std::lock_guard lock(mutex_);
     e.job.state = State::downloading;
@@ -529,10 +574,10 @@ void Manager::install(Entry &e, meta::Store &store, std::stop_token stop, std::s
           std::unique_lock lock(m);
           cv.wait_for(lock, abort.get_token(), std::chrono::seconds(std::min(1 << attempt, 30)), [] { return false; });
         }
-        auto part = segments_ / (sha + ".part" + std::to_string(i));
+        auto part = cache / (sha + ".part" + std::to_string(i));
         paths::atomic_write(part, clear);
         std::error_code ec;
-        fs::rename(part, segments_ / sha, ec);
+        fs::rename(part, cache / sha, ec);
         if (ec)
           throw std::runtime_error("Could not store a downloaded segment.");
         received += sized ? segments.at(sha) : 1;
@@ -584,7 +629,8 @@ void Manager::install(Entry &e, meta::Store &store, std::stop_token stop, std::s
   wake_();
   uint64_t assembled = 0;
   auto last = std::chrono::steady_clock::now();
-  for (const auto *f : needed) {
+  for (size_t index = 0; index < needed.size(); ++index) {
+    const auto *f = needed[index];
     if (stop.stop_requested())
       throw std::runtime_error("Transfer paused.");
     auto target = dir / paths::from_utf8(f->name);
@@ -601,7 +647,7 @@ void Manager::install(Entry &e, meta::Store &store, std::stop_token stop, std::s
       std::ofstream out(paths::io_path(part), std::ios::binary | std::ios::trunc);
       std::string chunk(4 << 20, '\0');
       for (const auto &s : f->segments) {
-        std::ifstream in(paths::io_path(segments_ / s.sha256), std::ios::binary);
+        std::ifstream in(paths::io_path(cached(s.sha256)), std::ios::binary);
         if (!in)
           throw std::runtime_error("A downloaded segment is missing. Resume to fetch it again.");
         while (in) {
@@ -622,10 +668,13 @@ void Manager::install(Entry &e, meta::Store &store, std::stop_token stop, std::s
       fs::remove(part, ec);
       // A bad cached segment is fetched again on resume.
       for (const auto &s : f->segments)
-        fs::remove(segments_ / s.sha256, ec);
+        forget(s.sha256);
       throw std::runtime_error("Validation failed while assembling " + f->name + ". Resume to retry.");
     }
     fs::rename(part, target);
+    for (const auto &s : f->segments)
+      if (last_use[s.sha256] == index)
+        forget(s.sha256);
     assembled += f->size;
     auto now = std::chrono::steady_clock::now();
     {
@@ -644,7 +693,8 @@ void Manager::install(Entry &e, meta::Store &store, std::stop_token stop, std::s
   fs::remove(dir / kMarker, ec);
   if (services_.installed)
     services_.installed({plan, dir, e.job.pinned});
-  // The build is assembled; its segments only took space.
+  // The build is assembled; anything left in its cache only takes space.
+  fs::remove_all(cache, ec);
   for (const auto &[sha, size] : segments)
     fs::remove(segments_ / sha, ec);
 }
@@ -697,6 +747,7 @@ void Manager::run(std::stop_token shutdown) {
         save_locked();
       }
       log::info("downloads", "Installed Rift application {}.", e->job.app_id);
+      sweep_old_cache();
     } catch (const fs::filesystem_error &error) {
       std::lock_guard lock(mutex_);
       log::warn("downloads", "{}: {}", e->job.app_id, error.what());

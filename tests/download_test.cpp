@@ -3,6 +3,7 @@
 #include "tests/temp_dir.h"
 #include <doctest/doctest.h>
 #include "common/digest.h"
+#include "common/paths.h"
 #include <atomic>
 #include <chrono>
 #include <miniz.h>
@@ -16,10 +17,7 @@ namespace {
 constexpr std::string_view kApp = "1234567890";
 const std::string kFile = "Game.exe contents";
 
-std::string zip_manifest(const std::string &sha) {
-  Json m{{"canonicalName", "game"},
-         {"launchFile", "Game.exe"},
-         {"files", {{"Game.exe", {{"sha256", sha}, {"size", kFile.size()}, {"segments", Json::array({Json::array({0, sha})})}}}}}};
+std::string zip_json(const Json &m) {
   const auto text = m.dump();
   mz_zip_archive zip{};
   REQUIRE(mz_zip_writer_init_heap(&zip, 0, 0));
@@ -38,6 +36,11 @@ std::string deflate(const std::string &text) {
                       reinterpret_cast<const unsigned char *>(text.data()), mz_ulong(text.size())) == MZ_OK);
   out.resize(size);
   return out;
+}
+std::string zip_manifest(const std::string &sha) {
+  return zip_json({{"canonicalName", "game"},
+                   {"launchFile", "Game.exe"},
+                   {"files", {{"Game.exe", {{"sha256", sha}, {"size", kFile.size()}, {"segments", Json::array({Json::array({0, sha})})}}}}}});
 }
 bool has(std::string_view text, std::string_view part) { return text.find(part) != std::string_view::npos; }
 
@@ -126,6 +129,82 @@ TEST_CASE("downloads: a chosen version that is gone does not become another") {
   CHECK(has(job.error, "no longer serves segment"));
   CHECK(has(job.error, "HTTP 410: Gone"));
   CHECK(installs == 0);
+}
+
+TEST_CASE("downloads: segments wait in the game's folder, and one an earlier version cached in app data is used") {
+  test::TempDir data("download-cache"), games("download-games-cache");
+  Cdn cdn;
+  std::atomic<int> installs = 0, fetched = 0;
+  std::string installed;
+  fs::path dir;
+  auto services = cdn.services(&installs, &installed);
+  services.read = [read = services.read, &fetched](std::string_view url, const http::Fields &fields) {
+    if (has(url, "binaries/segment/"))
+      ++fetched;
+    return read(url, fields);
+  };
+  services.installed = [&](const download::Installed &done) {
+    dir = done.directory;
+    ++installs;
+  };
+  // 1.0 kept segments here; a download it left unfinished resumes from them.
+  fs::create_directories(data.path / "cache" / "segments");
+  paths::atomic_write(data.path / "cache" / "segments" / cdn.sha, kFile);
+  Json job{{"appId", kApp}, {"name", "Game"}, {"account", "0123456789ab"}, {"root", paths::utf8(games.path)}};
+  paths::atomic_write(data.path / "downloads.json", Json{{"version", 3}, {"jobs", {job}}}.dump());
+  download::Manager manager(data.path, [] {}, services, true);
+  manager.set_account("0123456789ab");
+  manager.enqueue(std::string(kApp), "Game", games.path, "token", "0123456789ab");
+  auto done = wait_done(manager);
+  REQUIRE(done.state == download::State::complete);
+  CHECK(fetched == 0);
+  CHECK(paths::read(dir / "Game.exe") == kFile);
+  CHECK(paths::within(games.path, dir));
+  CHECK_FALSE(fs::exists(dir / ".riftlift-segments"));
+  CHECK_FALSE(fs::exists(data.path / "cache" / "segments"));
+}
+
+TEST_CASE("downloads: a segment two files share stays until the second is assembled") {
+  test::TempDir data("download-shared"), games("download-games-shared");
+  auto sha = [](const std::string &text) {
+    return digest::sha256(std::span(reinterpret_cast<const std::uint8_t *>(text.data()), text.size()));
+  };
+  const std::string one = "first part ", two = "shared part";
+  Json files{{"A.bin", {{"sha256", sha(one + two)}, {"size", (one + two).size()},
+                        {"segments", Json::array({Json::array({0, sha(one)}), Json::array({one.size(), sha(two)})})}}},
+             {"B.bin", {{"sha256", sha(two)}, {"size", two.size()}, {"segments", Json::array({Json::array({0, sha(two)})})}}}};
+  Cdn cdn;
+  std::atomic<int> installs = 0;
+  std::string installed;
+  fs::path dir;
+  auto services = cdn.services(&installs, &installed);
+  services.read = [&](std::string_view url, const http::Fields &) {
+    if (has(url, "binaries/download/"))
+      return http::Response{200, zip_json({{"canonicalName", "game"}, {"launchFile", "A.bin"}, {"files", files}}), {}};
+    if (has(url, "binaries/segment/"))
+      return http::Response{200, deflate(has(url, sha(one)) ? one : two), {}};
+    return http::Response{404, {}, {}};
+  };
+  services.installed = [&](const download::Installed &done) { dir = done.directory; };
+  download::Manager manager(data.path, [] {}, services, false);
+  manager.set_account("0123456789ab");
+  manager.enqueue(std::string(kApp), "Game", games.path, "token", "0123456789ab");
+  auto job = wait_done(manager);
+  REQUIRE(job.state == download::State::complete);
+  CHECK(paths::read(dir / "A.bin") == one + two);
+  CHECK(paths::read(dir / "B.bin") == two);
+  CHECK_FALSE(fs::exists(dir / ".riftlift-segments"));
+}
+
+TEST_CASE("downloads: an app data segment cache with no unfinished download behind it is emptied") {
+  test::TempDir data("download-old-cache");
+  fs::create_directories(data.path / "cache" / "segments");
+  paths::atomic_write(data.path / "cache" / "segments" / "stale", "x");
+  Cdn cdn;
+  std::atomic<int> installs = 0;
+  std::string installed;
+  download::Manager manager(data.path, [] {}, cdn.services(&installs, &installed), false);
+  CHECK_FALSE(fs::exists(data.path / "cache" / "segments"));
 }
 
 TEST_CASE("cdn messages: Meta's words, one line, no tokens") {
