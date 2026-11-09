@@ -24,8 +24,12 @@ static DWORD WINAPI serve_relay(LPVOID parameter)
         if (!strcmp(op, "credentials"))
             reply = "{\"alias\":\"tester \\\"one\\\" \\u00e9\",\"appToken\":\"app-scoped-token\",\"displayName\":\"Test User\","
                     "\"error\":0,\"nested\":{\"x\":[1,\"}\"]},\"userId\":\"1234\"}\n";
-        else if (!strcmp(op, "entitlement"))
-            reply = InterlockedIncrement(&entitlement_requests) == 1 ? "{\"error\":0}\n" : "{\"error\":-20002}\n";
+        else if (!strcmp(op, "entitlement")) {
+            /* Meta answers the first check slower than a game's 1 s timer. */
+            LONG n = InterlockedIncrement(&entitlement_requests);
+            if (n == 1) Sleep(1500);
+            reply = n == 1 ? "{\"error\":0}\n" : "{\"error\":-20002}\n";
+        }
         else if (!strcmp(op, "user_proof"))
             reply = "{\"error\":0,\"nonce\":\"proof-nonce\"}\n";
         else if (!strcmp(op, "org_scoped_id"))
@@ -136,8 +140,21 @@ int main(void) {
 
     /* Entitlement is asked only when the game asks, and every time it does. */
     CHECK(entitlement_requests == 0);
+    /* Lone Echo's pnsovr.dll CheckEntitlement(1000): ask, then start the
+     * clock and poll for 1000 ms. Meta's slow first answer is already queued. */
     request = ovr_Entitlement_GetIsViewerEntitled();
-    message = pop_reply(request);
+    {
+        LARGE_INTEGER frequency, start, now;
+        QueryPerformanceFrequency(&frequency);
+        QueryPerformanceCounter(&start);
+        message = NULL;
+        do {
+            message = ovr_PopMessage();
+            QueryPerformanceCounter(&now);
+        } while (!message && (now.QuadPart - start.QuadPart) * 1000 / frequency.QuadPart <= 1000);
+    }
+    CHECK(message);
+    CHECK(ovr_Message_GetRequestID(message) == request);
     CHECK(ovr_Message_GetType(message) == MSG_ENTITLEMENT);
     CHECK(!ovr_Message_IsError(message));
     ovr_FreeMessage(message);

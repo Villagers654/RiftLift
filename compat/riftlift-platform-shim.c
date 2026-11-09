@@ -71,6 +71,7 @@ static unsigned queue_head;
 static unsigned queue_tail;
 static volatile LONG64 next_request = 1000;
 static volatile LONG empty_poll_count;
+static volatile LONG entitlement_confirmed;
 
 /* The app ID the game initialized with: Meta's answers are for it. */
 static SRWLOCK app_lock = SRWLOCK_INIT;
@@ -499,13 +500,16 @@ static DWORD WINAPI run_job(LPVOID parameter)
         }
     }
     log_result(job->op, message->error);
+    if (!message->error && message->type == MSG_ENTITLEMENT)
+        InterlockedExchange(&entitlement_confirmed, 1);
     free(job);
     push(message);
     return 0;
 }
 
-/* Queues `op` for the launcher; its reply arrives through ovr_PopMessage. */
-static uint64_t request(uint32_t type, const char *op, uint64_t user)
+/* Queues `op` for the launcher; its reply arrives through ovr_PopMessage.
+ * With `wait`, the reply is queued before this returns. */
+static uint64_t request_now(uint32_t type, const char *op, uint64_t user, bool wait)
 {
     FakeMessage *message = new_message(type);
     Job *job = (Job *)calloc(1, sizeof(*job));
@@ -520,13 +524,18 @@ static uint64_t request(uint32_t type, const char *op, uint64_t user)
     job->message = message;
     job->user = user;
     strncpy(job->op, op, sizeof(job->op) - 1);
-    thread = CreateThread(NULL, 0, run_job, job, 0, NULL);
+    thread = wait ? NULL : CreateThread(NULL, 0, run_job, job, 0, NULL);
     if (thread) {
         CloseHandle(thread);
     } else {
         run_job(job);
     }
     return id;
+}
+
+static uint64_t request(uint32_t type, const char *op, uint64_t user)
+{
+    return request_now(type, op, user, false);
 }
 
 static DWORD WINAPI prefetch_identity(LPVOID parameter)
@@ -752,11 +761,16 @@ __declspec(dllexport) uint64_t __cdecl ovr_User_GetUserProof(void)
     return request(MSG_USER_PROOF, "user_proof", 0);
 }
 
-/* Asked of Meta only now, when the game calls for it, and every time. */
+/* Asked of Meta only now, when the game calls for it, and every time. Until
+ * Meta has confirmed it once, the reply is queued before this returns: some
+ * games start a short timer only after asking (Lone Echo's pnsovr.dll polls
+ * for 1000 ms), and Meta can take longer than that to answer. */
 __declspec(dllexport) uint64_t __cdecl ovr_Entitlement_GetIsViewerEntitled(void)
 {
-    log_call("entitlement request: asking Meta");
-    return request(MSG_ENTITLEMENT, "entitlement", 0);
+    bool wait = !InterlockedCompareExchange(&entitlement_confirmed, 0, 0);
+    log_call(wait ? "entitlement request: asking Meta, answering before returning"
+                  : "entitlement request: asking Meta");
+    return request_now(MSG_ENTITLEMENT, "entitlement", 0, wait);
 }
 
 __declspec(dllexport) uint64_t __cdecl ovr_Achievements_GetAllDefinitions(void)
