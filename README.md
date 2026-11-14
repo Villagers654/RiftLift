@@ -11,6 +11,8 @@ No Meta PC app. Free and open source.
 
 [**Download**](https://github.com/Villagers654/RiftLift/releases/latest) · [Compatibility](docs/COMPATIBILITY.md) · [Report an issue](https://github.com/Villagers654/RiftLift/issues)
 
+<a href="https://ko-fi.com/Villagers654"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support on Ko-fi"></a>
+
 <img src="docs/media/launcher.webp" width="760" alt="The RiftLift launcher: a library of Rift games, from Lone Echo and Stormland to Steam games with an Oculus mode">
 
 </div>
